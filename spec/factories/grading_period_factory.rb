@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015-2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,32 +16,38 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-# this factory creates an Account with the multiple_grading_periods feature flag enabled.
+# this factory creates an Account with n grading periods.
 # it also creates two grading periods for the account
 # the grading_periods both have a weight of 1
 module Factories
   def grading_periods(options = {})
-    Account.default.set_feature_flag! :multiple_grading_periods, 'on'
+    now = Time.zone.now
     course = options[:context] || @course || course_factory()
     count = options[:count] || 2
 
+    default_weights = [1] * count
+    weights = options[:weights] || default_weights
+    weights = default_weights if weights.blank? || (weights.size != count)
+
+    default_start_dates = Array.new(count) { |n| now + n.months }
+    start_dates = options[:start_dates] || default_start_dates
+    start_dates = default_start_dates if start_dates.blank? || (start_dates.size != count)
+
+    period_duration = options[:duration] || 1.month
+
     grading_period_group = Factories::GradingPeriodGroupHelper.new.legacy_create_for_course(course)
-    now = Time.zone.now
     count.times.map do |n|
       grading_period_group.grading_periods.create!(
         title:      "Period #{n}",
-        start_date: (n).months.since(now),
-        end_date:   (n+1).months.since(now),
-        weight:     1
+        start_date: start_dates[n],
+        end_date:   start_dates[n] + period_duration,
+        weight:     weights[n]
       )
     end
   end
 
   def create_grading_periods_for(course, opts={})
-    opts = { mgp_flag_enabled: true }.merge(opts)
-    course.root_account = Account.default if !course.root_account
-    course.root_account.enable_feature!(:multiple_grading_periods) if opts[:mgp_flag_enabled]
-
+    course.root_account = Account.default unless course.root_account
     gp_group = Factories::GradingPeriodGroupHelper.new.legacy_create_for_course(course)
     class_name = course.class.name.demodulize
     timeframes = opts[:grading_periods] || [:current]
@@ -112,15 +118,18 @@ module Factories
       {
         past: {
           start_date: 5.months.ago(now),
-          end_date:   2.months.ago(now)
+          end_date: 2.months.ago(now),
+          close_date: 2.months.ago(now)
         },
         current: {
           start_date: 2.months.ago(now),
-          end_date:   2.months.from_now(now)
+          end_date: 2.months.from_now(now),
+          close_date: 2.months.from_now(now)
         },
         future: {
           start_date: 2.months.from_now(now),
-          end_date:   5.months.from_now(now)
+          end_date: 5.months.from_now(now),
+          close_date: 5.months.from_now(now)
         }
       }
     end

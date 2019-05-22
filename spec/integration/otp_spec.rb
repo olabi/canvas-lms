@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,7 +30,10 @@ describe "one time passwords" do
 
   context "mid-login" do
     before do
-      post '/login/canvas', :pseudonym_session => { :unique_id => @pseudonym.unique_id, :password => 'qwertyuiop' }
+      post '/login/canvas', params: {:pseudonym_session => { :unique_id => @pseudonym.unique_id, :password => 'qwertyuiop' }}
+    end
+
+    it "should redirect" do
       expect(response).to redirect_to(otp_login_url)
     end
 
@@ -40,14 +43,14 @@ describe "one time passwords" do
       follow_redirect!
       expect(response).to redirect_to canvas_login_url
       follow_redirect!
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should not destroy your session when someone does an XHR accidentally" do
-      xhr :get, '/api/v1/conversations/unread_count'
+      get '/api/v1/conversations/unread_count', :xhr => true
       expect(response.status).to eq 403
       get otp_login_url
-      expect(response).to be_success
+      expect(response).to be_successful
     end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,18 +12,18 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 class NotificationMessageCreator
   include LocaleSelection
 
-  attr_accessor :notification, :asset, :asset_context, :to_users, :to_channels, :message_data
+  attr_accessor :notification, :asset, :to_users, :to_channels, :message_data
 
   # Options can include:
   #  :to_list - A list of Users, User IDs, and CommunicationChannels to send to
-  #  :data, :asset_context - Options merged with Message options
+  #  :data - Options merged with Message options
   def initialize(notification, asset, options={})
     @notification = notification
     @asset = asset
@@ -34,7 +34,6 @@ class NotificationMessageCreator
       @to_channels = communication_channels_from_to_list(options[:to_list])
     end
     @message_data = options.delete(:data)
-    @asset_context = options.delete(:asset_context)
   end
 
   # Public: create (and dispatch, and queue delayed) a message
@@ -65,8 +64,11 @@ class NotificationMessageCreator
     # the to_list (which currently never happens, I think), duplicate messages could be sent.
     to_user_channels.each do |user, channels|
       next unless asset_filtered_by_user(user)
-      user_locale = infer_locale(:user => user,
-                                 :context => user_asset_context(asset_filtered_by_user(user)))
+      user_locale = infer_locale(
+        :user => user,
+        :context => user_asset_context(asset_filtered_by_user(user)),
+        :ignore_browser_locale => true
+      )
       I18n.with_locale(user_locale) do
         channels.each do |default_channel|
           if @notification.registration?
@@ -84,7 +86,7 @@ class NotificationMessageCreator
         end
 
         unless @notification.registration?
-          if @notification.summarizable? && too_many_messages_for?(user) && no_daily_messages_in(delayed_messages)
+          if @notification.summarizable? && no_daily_messages_in(delayed_messages) && too_many_messages_for?(user)
             fallback = build_fallback_for(user)
             delayed_messages << fallback if fallback
           end
@@ -150,7 +152,7 @@ class NotificationMessageCreator
     return [] unless asset_filtered_by_user(user)
     messages = []
     message_options = message_options_for(user)
-    channels.reject!{ |channel| ['email', 'sms'].include?(channel.path_type) } if too_many_messages_for?(user) && @notification.summarizable?
+    channels.reject!{ |channel| ['email', 'sms'].include?(channel.path_type) } if @notification.summarizable? && too_many_messages_for?(user)
     channels.reject!(&:bouncing?)
     channels.each do |channel|
       messages << user.messages.build(message_options.merge(:communication_channel => channel,
@@ -183,7 +185,6 @@ class NotificationMessageCreator
 
   def dispatch_dashboard_messages(messages)
     messages.each do |message|
-      message.set_asset_context_code
       message.infer_defaults
       message.create_stream_items
     end
@@ -191,27 +192,27 @@ class NotificationMessageCreator
   end
 
   def unretired_policies_for(user)
-    user.notification_policies.where("communication_channels.workflow_state<>'retired'")
+    user.communication_channels.select { |cc| !cc.retired? }.map(&:notification_policies).flatten
   end
 
   def delayed_policies_for(user, channel=user.email_channel)
     # This condition is weird. Why would not throttling stop sending notifications?
     # Why could an inactive email channel stop us here? We handle that later! And could still send
     # notifications without it!
-    return [] if !too_many_messages_for?(user) && channel && !channel.active?
+    return [] if channel && !channel.active? && !too_many_messages_for?(user)
 
     # If any channel has a policy, even policy-less channels don't get the notification based on the
     # notification default frequency. Is that right?
-    policies= []
-    user_has_policy = unretired_policies_for(user).for(@notification).exists?
-    if user_has_policy
-      policies += unretired_policies_for(user).for(@notification).by(['daily', 'weekly']).where("communication_channels.path_type='email'")
+    policies = unretired_policies_for(user).select { |np| np.notification_id == @notification.id }
+    if !policies.empty?
+      policies = policies.select { |np| ['daily', 'weekly'].include?(np.frequency) && np.communication_channel.path_type == 'email' }
     elsif channel &&
           channel.active? &&
-          channel.path_type == 'email' &&
-        ['daily', 'weekly'].include?(@notification.default_frequency)
-      policies << channel.notification_policies.create!(:notification => @notification,
-                                            :frequency => @notification.default_frequency)
+          channel.path_type == 'email'
+      frequency = @notification.default_frequency(user)
+      if ['daily', 'weekly'].include?(frequency)
+        policies << channel.notification_policies.create!(:notification => @notification, :frequency => frequency)
+      end
     end
     policies
   end
@@ -233,7 +234,7 @@ class NotificationMessageCreator
   end
 
   def asset_filtered_by_user(user)
-    if asset.respond_to?(:filter_asset_by_recipient) # Does this ever happen?
+    if asset.respond_to?(:filter_asset_by_recipient)
       asset.filter_asset_by_recipient(@notification, user)
     else
       asset
@@ -243,20 +244,16 @@ class NotificationMessageCreator
   def message_options_for(user)
     user_asset = asset_filtered_by_user(user)
 
-    user_asset_context = %w{ContentMigration Submission WikiPage}.include?(user_asset.class.name) ? user_asset.context(user) : user_asset
-
     message_options = {
       :subject => @notification.subject,
       :notification => @notification,
       :notification_name => @notification.name,
       :user => user,
       :context => user_asset,
-      :asset_context => user_asset_context
     }
     # can't just merge these because nil values need to be overwritten in a later merge
     message_options[:delay_for] = @notification.delay_for if @notification.delay_for
     message_options[:data] = @message_data if @message_data
-    message_options[:asset_context] = @asset_context if @asset_context
     message_options
   end
 
@@ -283,12 +280,12 @@ class NotificationMessageCreator
   def immediate_channels_for(user)
     return [] unless user.registered?
 
-    active_channel_scope = user.communication_channels.active.for(@notification)
-    immediate_channel_scope = user.communication_channels.active.for_notification_frequency(@notification, 'immediately')
+    active_channel_scope = user.communication_channels.select { |cc| cc.active? && cc.notification_policies.find { |np| np.notification_id == @notification.id } }
+    immediate_channel_scope = active_channel_scope.select { |cc| cc.notification_policies.find { |np| np.notification_id == @notification.id && np.frequency == 'immediately' } }
 
-    user_has_a_policy = active_channel_scope.where.not(path_type: 'push').exists?
-    if !user_has_a_policy && @notification.default_frequency == 'immediately'
-      return [user.email_channel, *immediate_channel_scope.where(path_type: 'push')].compact
+    user_has_a_policy = active_channel_scope.find { |cc| cc.path_type != 'push' }
+    if !user_has_a_policy && @notification.default_frequency(user) == 'immediately'
+      return [user.email_channel, *immediate_channel_scope.select { |cc| cc.path_type == 'push' }].compact
     end
     immediate_channel_scope
   end
@@ -300,6 +297,7 @@ class NotificationMessageCreator
       by_name(@notification.name).
       for_user(@to_users + @to_channels).
       cancellable.
+      where("created_at BETWEEN ? AND ?", Setting.get("pending_duplicate_message_window_hours", "6").to_i.hours.ago, Time.now.utc).
       update_all(:workflow_state => 'cancelled')
   end
 
@@ -321,7 +319,9 @@ class NotificationMessageCreator
     else
       user_id = id
       messages = Rails.cache.fetch(['recent_messages_for', id].cache_key, :expires_in => 1.hour) do
-        Message.where("dispatch_at>? AND user_id=? AND to_email=?", 24.hours.ago, user_id, true).count
+        Shackles.activate(:slave) do
+          Message.where("dispatch_at>? AND created_at>? AND user_id=? AND to_email=?", 24.hours.ago, 24.hours.ago, user_id, true).count
+        end
       end
     end
   end

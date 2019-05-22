@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,8 +22,8 @@ describe ContentExportsController do
   describe "POST 'create'" do
     it "should explicitly export everything" do
       course_with_teacher_logged_in(:active_all => true)
-      post 'create', :course_id => @course.id
-      expect(response).to be_success
+      post 'create', params: {:course_id => @course.id}
+      expect(response).to be_successful
 
       expect(ContentExport.last.selected_content[:everything]).to be_present
     end
@@ -33,7 +33,7 @@ describe ContentExportsController do
     describe 'with a valid file' do
       let(:filename) { 'cccv1p0' }
       let(:full_path) { Rails.root + "lib/cc/xsd/#{filename}.xsd" }
-      before { get 'xml_schema', :version => filename }
+      before { get 'xml_schema', params: {:version => filename} }
 
       it 'sends in the entire file' do
         expect(response.header['Content-Length'].to_i).to eq File.size?(full_path)
@@ -46,10 +46,10 @@ describe ContentExportsController do
     end
 
     describe 'with a nonexistant file' do
-      before { get 'xml_schema', :version => 'notafile' }
+      before { get 'xml_schema', params: {:version => 'notafile'} }
 
       it 'returns a 404' do
-        expect(response).not_to be_success
+        expect(response).not_to be_successful
       end
 
       it 'renders the 404 template' do
@@ -73,8 +73,8 @@ describe ContentExportsController do
       describe "index" do
         it "returns all course exports + the teacher's file exports" do
           user_session(@teacher)
-          get :index, course_id: @course.id
-          expect(response).to be_success
+          get :index, params: {course_id: @course.id}
+          expect(response).to be_successful
           expect(assigns(:exports).map(&:id)).to match_array [@acx.id, @tcx.id, @tzx.id]
         end
       end
@@ -82,19 +82,19 @@ describe ContentExportsController do
       describe "show" do
         it "should find course exports" do
           user_session(@teacher)
-          get :show, course_id: @course.id, id: @acx.id
-          expect(response).to be_success
+          get :show, params: {course_id: @course.id, id: @acx.id}
+          expect(response).to be_successful
         end
 
         it "should find teacher's file exports" do
           user_session(@teacher)
-          get :show, course_id: @course.id, id: @tzx.id
-          expect(response).to be_success
+          get :show, params: {course_id: @course.id, id: @tzx.id}
+          expect(response).to be_successful
         end
 
         it "should not find other's file exports" do
           user_session(@teacher)
-          get :show, course_id: @course.id, id: @szx.id
+          get :show, params: {course_id: @course.id, id: @szx.id}
           assert_status(404)
         end
       end
@@ -113,7 +113,7 @@ describe ContentExportsController do
         it "should show one's own exports" do
           user_session(@student)
           get :index
-          expect(response).to be_success
+          expect(response).to be_successful
           expect(assigns(:exports).map(&:id)).to match_array [@sdx.id, @szx.id]
         end
       end
@@ -121,13 +121,13 @@ describe ContentExportsController do
       describe "show" do
         it "should find one's own export" do
           user_session(@student)
-          get :show, id: @sdx.id
-          expect(response).to be_success
+          get :show, params: {id: @sdx.id}
+          expect(response).to be_successful
         end
 
         it "should not find another's export" do
           user_session(@student)
-          get :show, id: @tzx.id
+          get :show, params: {id: @tzx.id}
           assert_status(404)
         end
       end

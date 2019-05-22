@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,42 +31,67 @@ class WikiPage < ActiveRecord::Base
   include CopyAuthorizedLinks
   include ContextModuleItem
   include Submittable
-
+  include Plannable
+  include DuplicatingObjects
   include SearchTermHelper
+  include LockedFor
 
   include MasterCourses::Restrictor
   restrict_columns :content, [:body, :title]
-  restrict_columns :settings, [:editing_roles]
-  restrict_columns :settings, Assignment::RESTRICTED_SETTINGS
+  restrict_columns :settings, [:editing_roles, :url]
+  restrict_assignment_columns
+  restrict_columns :state, [:workflow_state]
 
   after_update :post_to_pandapub_when_revised
 
   belongs_to :wiki, :touch => true
-  belongs_to :course, foreign_key: 'wiki_id', primary_key: 'wiki_id'
-  belongs_to :group, foreign_key: 'wiki_id', primary_key: 'wiki_id'
   belongs_to :user
 
-  acts_as_url :title, :scope => [:wiki_id, :not_deleted], :sync_url => true
+  belongs_to :context, polymorphic: [:course, :group]
+
+  acts_as_url :title, :sync_url => true
 
   validate :validate_front_page_visibility
 
   before_save :default_submission_values,
     if: proc { self.context.try(:feature_enabled?, :conditional_release) }
   before_save :set_revised_at
+  before_validation :ensure_wiki_and_context
   before_validation :ensure_unique_title
-  after_save  :touch_wiki_context
+
+  after_save  :touch_context
   after_save  :update_assignment,
     if: proc { self.context.try(:feature_enabled?, :conditional_release) }
 
-  scope :without_assignment_in_course, lambda { |course_ids|
-    where(assignment_id: nil).joins(:course).where(courses: {id: course_ids})
+  scope :starting_with_title, lambda { |title|
+    where('title ILIKE ?', "#{title}%")
   }
 
-  TITLE_LENGTH = 255
-  SIMPLY_VERSIONED_EXCLUDE_FIELDS = [:workflow_state, :editing_roles, :notify_of_update]
+  scope :not_ignored_by, -> (user, purpose) do
+    where("NOT EXISTS (?)", Ignore.where(asset_type: 'WikiPage', user_id: user, purpose: purpose).where("asset_id=wiki_pages.id"))
+  end
+  scope :todo_date_between, -> (starting, ending) { where(todo_date: starting...ending) }
+  scope :for_courses_and_groups, -> (course_ids, group_ids) do
+    wiki_ids = []
+    wiki_ids += Course.where(:id => course_ids).pluck(:wiki_id) if course_ids.any?
+    wiki_ids += Group.where(:id => group_ids).pluck(:wiki_id) if group_ids.any?
+    where(:wiki_id => wiki_ids)
+  end
 
-  def touch_wiki_context
-    self.wiki.touch_context if self.wiki && self.wiki.context
+  scope :visible_to_user, -> (user_id) do
+    joins(sanitize_sql(["LEFT JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv on wiki_pages.assignment_id = asv.assignment_id AND asv.user_id = ?", user_id])).
+      where("wiki_pages.assignment_id IS NULL OR asv IS NOT NULL")
+  end
+
+  TITLE_LENGTH = 255
+  SIMPLY_VERSIONED_EXCLUDE_FIELDS = [:workflow_state, :editing_roles, :notify_of_update].freeze
+
+  def ensure_wiki_and_context
+    self.wiki_id ||= (self.context.wiki_id || self.context.wiki.id)
+  end
+
+  def touch_context
+    self.context.touch
   end
 
   def validate_front_page_visibility
@@ -79,13 +104,13 @@ class WikiPage < ActiveRecord::Base
     return if deleted?
     to_cased_title = ->(string) { string.gsub(/[^\w]+/, " ").gsub(/\b('?[a-z])/){$1.capitalize}.strip }
     self.title ||= to_cased_title.call(self.url || "page")
-    return unless self.wiki
     # TODO i18n (see wiki.rb)
+
     if self.title == "Front Page" && self.new_record?
-      baddies = self.wiki.wiki_pages.not_deleted.where(title: "Front Page").select{|p| p.url != "front-page" }
+      baddies = self.context.wiki_pages.not_deleted.where(title: "Front Page").select{|p| p.url != "front-page" }
       baddies.each{|p| p.title = to_cased_title.call(p.url); p.save_without_broadcasting! }
     end
-    if existing = self.wiki.wiki_pages.not_deleted.where(title: self.title).first
+    if existing = self.context.wiki_pages.not_deleted.where(title: self.title).first
       return if existing == self
       real_title = self.title.gsub(/-(\d*)\z/, '') # remove any "-#" at the end
       n = $1 ? $1.to_i + 1 : 2
@@ -93,7 +118,7 @@ class WikiPage < ActiveRecord::Base
         mod = "-#{n}"
         new_title = real_title[0...(TITLE_LENGTH - mod.length)] + mod
         n = n.succ
-      end while self.wiki.wiki_pages.not_deleted.where(title: new_title).exists?
+      end while self.context.wiki_pages.not_deleted.where(title: new_title).exists?
 
       self.title = new_title
     end
@@ -104,6 +129,7 @@ class WikiPage < ActiveRecord::Base
   end
 
   def ensure_unique_url
+    return if deleted?
     url_attribute = self.class.url_attribute
     base_url = self.send(url_attribute)
     base_url = self.send(self.class.attribute_to_urlify).to_s.to_url if base_url.blank? || !self.only_when_blank
@@ -112,30 +138,15 @@ class WikiPage < ActiveRecord::Base
       conditions.first << " and id != ?"
       conditions << id
     end
-    # make stringex scoping a little more useful/flexible... in addition to
-    # the normal constructed attribute scope(s), it also supports paramater-
-    # less scopeds. note that there needs to be an instance_method of
-    # the same name for this to work
-    scopes = self.class.scope_for_url ? Array(self.class.scope_for_url) : []
-    base_scope = self.class
-    scopes.each do |scope|
-      next unless self.respond_to?(scope)
-      if base_scope.respond_to?(scope)
-        return unless send(scope)
-        base_scope = base_scope.send(scope)
-      else
-        conditions.first << " and #{self.class.connection.quote_column_name(scope)} = ?"
-        conditions << send(scope)
-      end
-    end
-    url_owners = base_scope.where(conditions).to_a
+
+    urls = self.context.wiki_pages.where(*conditions).not_deleted.pluck(:url)
     # This is the part in stringex that messed us up, since it will never allow
     # a url of "front-page" once "front-page-1" or "front-page-2" is created
     # We modify it to allow "front-page" and start the indexing at "front-page-2"
     # instead of "front-page-1"
-    if url_owners.size > 0 && url_owners.detect{|u| u.send(url_attribute) == base_url}
+    if urls.size > 0 && urls.detect{|u| u == base_url}
       n = 2
-      while url_owners.detect{|u| u.send(url_attribute) == "#{base_url}-#{n}"}
+      while urls.detect{|u| u == "#{base_url}-#{n}"}
         n = n.succ
       end
       write_attribute url_attribute, "#{base_url}-#{n}"
@@ -159,6 +170,8 @@ class WikiPage < ActiveRecord::Base
 
   has_a_broadcast_policy
   simply_versioned :exclude => SIMPLY_VERSIONED_EXCLUDE_FIELDS, :when => Proc.new { |wp|
+    # always create a version when restoring a deleted page
+    next true if wp.workflow_state_changed? && wp.workflow_state_was == 'deleted'
     # :user_id and :updated_at do not merit creating a version, but should be saved
     exclude_fields = [:user_id, :updated_at].concat(SIMPLY_VERSIONED_EXCLUDE_FIELDS).map(&:to_s)
     (wp.changes.keys.map(&:to_s) - exclude_fields).present?
@@ -203,7 +216,7 @@ class WikiPage < ActiveRecord::Base
     self.versions.map(&:model)
   end
 
-  scope :deleted_last, -> { order("workflow_state='deleted'") }
+  scope :deleted_last, -> { order(Arel.sql("workflow_state='deleted'")) }
 
   scope :not_deleted, -> { where("wiki_pages.workflow_state<>'deleted'") }
 
@@ -217,13 +230,14 @@ class WikiPage < ActiveRecord::Base
 
   scope :order_by_id, -> { order(:id) }
 
-  def locked_for?(user, opts={})
+  def low_level_locked_for?(user, opts={})
     return false unless self.could_be_locked
     Rails.cache.fetch([locked_cache_key(user), opts[:deep_check_if_needed]].cache_key, :expires_in => 1.minute) do
       locked = false
       if item = locked_by_module_item?(user, opts)
-        locked = {:asset_string => self.asset_string, :context_module => item.context_module.attributes}
-        locked[:unlock_at] = locked[:context_module]["unlock_at"] if locked[:context_module]["unlock_at"] && locked[:context_module]["unlock_at"] > Time.now.utc
+        locked = {object: self, :module => item.context_module}
+        unlock_at = locked[:module].unlock_at
+        locked[:unlock_at] = unlock_at if unlock_at && unlock_at > Time.now.utc
       end
       locked
     end
@@ -241,6 +255,7 @@ class WikiPage < ActiveRecord::Base
     end
 
     self.wiki.set_front_page_url!(self.url)
+    self.touch if self.persisted?
   end
 
   def context_module_tag_for(context)
@@ -333,22 +348,21 @@ class WikiPage < ActiveRecord::Base
     end
   end
 
-  def context(user=nil)
-    shard.activate do
-      @context ||= Course.where(wiki_id: self.wiki_id).first || Group.where(wiki_id: self.wiki_id).first
-    end
-  end
-
   def participants
     res = []
     if context && context.available?
       if !self.active?
         res += context.participating_admins
       else
-        res += context.participants
+        res += context.participants(by_date: true)
       end
     end
     res.flatten.uniq
+  end
+
+  def get_potentially_conflicting_titles(title_base)
+    WikiPage.not_deleted.where(wiki_id: self.wiki_id).starting_with_title(title_base)
+      .pluck("title").to_set
   end
 
   def to_atom(opts={})
@@ -380,11 +394,13 @@ class WikiPage < ActiveRecord::Base
   end
 
   def increment_view_count(user, context = nil)
-    unless self.new_record?
-      self.with_versioning(false) do |p|
-        context ||= p.context
-        WikiPage.where(id: p).update_all("view_count=COALESCE(view_count, 0) + 1")
-        p.context_module_action(user, context, :read)
+    Shackles.activate(:master) do
+      unless self.new_record?
+        self.with_versioning(false) do |p|
+          context ||= p.context
+          WikiPage.where(id: p).update_all("view_count=COALESCE(view_count, 0) + 1")
+          p.context_module_action(user, context, :read)
+        end
       end
     end
   end
@@ -399,6 +415,43 @@ class WikiPage < ActiveRecord::Base
     return unless wiki_pages.any?
     front_page_url = context.wiki.get_front_page_url
     wiki_pages.each{|wp| wp.can_unpublish = !(wp.url == front_page_url)}
+  end
+
+  # opts contains a set of related entities that should be duplicated.
+  # By default, all associated entities are duplicated.
+  def duplicate(opts = {})
+    # Don't clone a new record
+    return self if self.new_record?
+    default_opts = {
+      :duplicate_assignment => true,
+      :copy_title => nil
+    }
+    opts_with_default = default_opts.merge(opts)
+    result = WikiPage.new({
+      :title =>
+        opts_with_default[:copy_title] ? opts_with_default[:copy_title] : get_copy_title(self, t("Copy"), self.title),
+      :wiki_id => self.wiki_id,
+      :context_id => self.context_id,
+      :context_type => self.context_type,
+      :body => self.body,
+      :workflow_state => "unpublished",
+      :user_id => self.user_id,
+      :protected_editing => self.protected_editing,
+      :editing_roles => self.editing_roles,
+      :view_count => 0,
+      :todo_date => self.todo_date
+    })
+    if self.assignment && opts_with_default[:duplicate_assignment]
+        result.assignment = self.assignment.duplicate({
+          :duplicate_wiki_page => false,
+          :copy_title => result.title
+        })
+    end
+    result
+  end
+
+  def can_duplicate?
+    true
   end
 
   def initialize_wiki_page(user)
@@ -420,7 +473,7 @@ class WikiPage < ActiveRecord::Base
   end
 
   def post_to_pandapub_when_revised
-    if revised_at_changed?
+    if saved_change_to_revised_at?
       CanvasPandaPub.post_update(
         "/private/wiki_page/#{self.global_id}/update", {
           revised_at: self.revised_at

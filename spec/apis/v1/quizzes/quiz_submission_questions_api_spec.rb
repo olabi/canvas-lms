@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../../api_spec_helper')
+require 'quiz_spec_helper'
 
 describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
@@ -169,7 +170,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
       end
 
       it 'should list all items' do
-        Quizzes::QuizSubmission.any_instance.stubs(:quiz_questions).returns([@qq1,@qq2])
+        allow_any_instance_of(Quizzes::QuizSubmission).to receive(:quiz_questions).and_return([@qq1,@qq2])
         json = api_index
         expect(json['quiz_submission_questions'].size).to eq 2
       end
@@ -350,12 +351,17 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
       before :once do
         course_with_student(:active_all => true)
         @quiz = quiz_model(course: @course)
+      end
+
+      def generate_submission
+        @quiz.generate_quiz_data
         @quiz_submission = @quiz.generate_submission(@student)
       end
 
       it "shouldn't give any answers information" do
         mc = create_question 'multiple_choice'
         formula = create_question 'numerical'
+        generate_submission
 
         json = api_answer({
           quiz_questions: [{
@@ -374,6 +380,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
       context 'answering questions' do
         it 'should answer a MultipleChoice question' do
           question = create_question 'multiple_choice'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -389,6 +396,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer a TrueFalse question' do
           question = create_question 'true_false'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -404,6 +412,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer a ShortAnswer question' do
           question = create_question 'short_answer'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -419,6 +428,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer a FillInMultipleBlanks question' do
           question = create_question 'fill_in_multiple_blanks'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -447,6 +457,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
           question = create_question 'multiple_answers', {
             answer_parser_compatibility: true
           }
+          generate_submission
 
           first_json = api_answer({
             quiz_questions: [{
@@ -473,6 +484,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer an Essay question' do
           question = create_question 'essay'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -487,6 +499,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer a MultipleDropdowns question' do
           question = create_question 'multiple_dropdowns'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -516,6 +529,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
           question = create_question 'matching', {
             answer_parser_compatibility: true
           }
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -541,6 +555,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer a Numerical question' do
           question = create_question 'numerical'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -555,6 +570,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
         it 'should answer a Calculated question' do
           question = create_question 'calculated'
+          generate_submission
 
           json = api_answer({
             quiz_questions: [{
@@ -570,6 +586,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
 
       it 'should update an answer' do
         question = create_question 'multiple_choice'
+        generate_submission
 
         json = api_answer({
           quiz_questions: [{
@@ -594,8 +611,9 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
         expect(json['quiz_submission_questions'][0]['answer']).to eq '2405'
       end
 
-      it 'should answer according to the published state of the question' do
+      it 'should answer according to the state of the question saved in the quiz session' do
         question = create_question 'multiple_choice'
+        generate_submission
 
         new_question_data = question.question_data
         new_question_data[:answers].each do |answer_record|
@@ -604,30 +622,31 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
         question.question_data = new_question_data
         question.save!
 
-        api_answer({
+        json = api_answer({
           quiz_questions: [{
             id: question.id,
             answer: 1658
           }]
-        }, { raw: true })
+        })
 
-        assert_status(400)
-        expect(response.body).to match(/unknown answer '1658'/i)
+        expect(json['quiz_submission_questions']).to be_present
+        expect(json['quiz_submission_questions'].length).to eq 1
+        expect(json['quiz_submission_questions'][0]['answer']).to eq '1658'
 
-        json = api_answer({
+        api_answer({
           quiz_questions: [{
             id: question.id,
             answer: 1659
           }]
         })
 
-        expect(json['quiz_submission_questions']).to be_present
-        expect(json['quiz_submission_questions'].length).to eq 1
-        expect(json['quiz_submission_questions'][0]['answer']).to eq '1659'
+        assert_status(400)
+        expect(response.body).to match(/unknown answer '1659'/i)
       end
 
       it 'should present errors' do
         question = create_question 'multiple_choice'
+        generate_submission
 
         api_answer({
           quiz_questions: [{
@@ -648,15 +667,16 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
         question = create_question 'multiple_choice'
         @quiz.require_lockdown_browser = true
         @quiz.save
+        generate_submission
 
-        Quizzes::Quiz.stubs(:lockdown_browser_plugin_enabled?).returns true
+        allow(Quizzes::Quiz).to receive(:lockdown_browser_plugin_enabled?).and_return true
 
         fake_plugin = Object.new
-        fake_plugin.stubs(:authorized?).returns false
-        fake_plugin.stubs(:base).returns fake_plugin
+        allow(fake_plugin).to receive(:authorized?).and_return false
+        allow(fake_plugin).to receive(:base).and_return fake_plugin
 
-        subject.stubs(:ldb_plugin).returns fake_plugin
-        Canvas::LockdownBrowser.stubs(:plugin).returns fake_plugin
+        allow(subject).to receive(:ldb_plugin).and_return fake_plugin
+        allow(Canvas::LockdownBrowser).to receive(:plugin).and_return fake_plugin
 
         api_answer({
           quiz_questions: [{
@@ -672,6 +692,7 @@ describe Quizzes::QuizSubmissionQuestionsController, :type => :request do
       it 'should support answering multiple questions at the same time' do
         question1 = create_question 'multiple_choice'
         question2 = create_question 'numerical'
+        generate_submission
 
         json = api_answer({
           quiz_questions: [{

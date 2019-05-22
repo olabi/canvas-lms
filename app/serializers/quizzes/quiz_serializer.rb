@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Quizzes
   class QuizSerializer < Canvas::APISerializer
     include LockedSerializer
@@ -22,7 +39,7 @@ module Quizzes
                 :quiz_submissions_zip_url, :preview_url, :quiz_submission_versions_html_url,
                 :assignment_id, :one_time_results, :only_visible_to_overrides,
                 :assignment_group_id, :show_correct_answers_last_attempt, :version_number,
-                :question_types, :has_access_code, :post_to_sis
+                :has_access_code, :post_to_sis, :anonymous_submissions, :migration_id
 
     def_delegators :@controller,
       # :api_v1_course_assignment_group_url,
@@ -40,10 +57,9 @@ module Quizzes
       :course_quiz_quiz_submissions_url,
       :course_quiz_submission_versions_url
 
-    def_delegators :@object,
-      :context,
-      :submitted_students_visible_to,
-      :unsubmitted_students_visible_to
+    def context
+      quiz.context
+    end
 
     def_delegators :@quiz, :quiz_questions
 
@@ -127,6 +143,7 @@ module Quizzes
     end
 
     def description
+      return '' if hide_locked_description?
       if @serializer_options[:description_formatter]
         @serializer_options[:description_formatter].call(quiz.description)
       else
@@ -175,8 +192,8 @@ module Quizzes
       !serializer_option(:skip_date_overrides) && due_dates == all_dates
     end
 
-    def include_unpublishable?
-      quiz.grants_right?(current_user, session, :manage)
+    def include_permissions?
+      !serializer_option(:skip_permissions)
     end
 
     def filter(keys)
@@ -185,7 +202,7 @@ module Quizzes
         when :all_dates
           include_all_dates?
         when :unpublishable, :can_unpublish
-          include_unpublishable?
+          user_may_manage?
         when :section_count,
              :speed_grader_url,
              :message_students_url,
@@ -198,13 +215,17 @@ module Quizzes
         when :quiz_extensions_url, :moderate_url, :deleted
           accepts_jsonapi? && user_may_manage?
         when :quiz_submission_html_url, :take_quiz_url
-         accepts_jsonapi?
+          accepts_jsonapi?
         when :quiz_submissions_zip_url
           accepts_jsonapi? && user_may_grade? && has_file_uploads?
         when :preview_url
           accepts_jsonapi? && user_may_grade? && user_may_manage?
         when :locked_for_user, :lock_info, :lock_explanation
           !serializer_option(:skip_lock_tests)
+        when :anonymous_submissions
+          quiz.survey?
+        when :permissions
+          include_permissions?
         else true
         end
       end
@@ -222,7 +243,7 @@ module Quizzes
     alias_method :unpublishable, :can_unpublish
 
     def can_update
-      quiz.grants_right?(current_user, session, :update)
+      quiz.grants_right?(current_user, :update)
     end
 
     def question_count
@@ -260,8 +281,8 @@ module Quizzes
         hash['links']['quiz_statistics'] = hash.delete(:quiz_statistics_url)
         hash['links']['quiz_reports'] = hash.delete(:quiz_reports_url)
       end
-      if serializer_option(:include_master_course_restrictions)
-        hash.merge!(quiz.master_course_api_restriction_data)
+      if mc_status = serializer_option(:master_course_status)
+        hash.merge!(quiz.master_course_api_restriction_data(mc_status))
       end
       hash
     end
@@ -297,7 +318,19 @@ module Quizzes
     private
 
     def show_speedgrader?
-      quiz.assignment.present? && quiz.published? && context.allows_speed_grader?
+      quiz.assignment.present? && quiz.published? && quiz.assignment.can_view_speed_grader?(current_user)
+    end
+
+    def quiz_locked_for_user?
+      quiz.locked_for? current_user
+    end
+
+    def user_is_student?
+      context.user_is_student? current_user
+    end
+
+    def hide_locked_description?
+      user_is_student? && quiz_locked_for_user?
     end
 
     def due_dates
@@ -329,11 +362,11 @@ module Quizzes
     end
 
     def user_may_grade?
-      quiz.grants_right?(current_user, session, :grade)
+      context.grants_right?(current_user, :manage_grades)
     end
 
     def user_may_manage?
-      quiz.grants_right?(current_user, session, :manage)
+      context.grants_right?(current_user, :manage_assignments)
     end
 
     def user_finder

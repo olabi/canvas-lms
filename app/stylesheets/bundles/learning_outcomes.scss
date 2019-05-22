@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "pages/rubrics";
 
@@ -13,13 +31,13 @@
     box-sizing: border-box;
     overflow: auto;
     .manage_rubrics {
-      float: right;
+      float: direction(right);
     }
     .popover-menu {
-      float: right;
+      float: direction(right);
     }
     .search {
-      float: right;
+      float: direction(right);
     }
     .ui-button {
       i {
@@ -39,7 +57,7 @@
     }
   }
   .outcomes-sidebar {
-    float: left;
+    float: direction(left);
     height: 610px;
     width: 201px;
     background-color: $ic-color-light;
@@ -47,23 +65,23 @@
     overflow-y: hidden;
     padding-bottom: 15px;
     border: none;
-    border-radius: 0px 0px 0px 5px;
+    border-radius: direction-corners(0px 0px 0px 5px);
     .wrapper {
       width: 201px;
     }
   }
   .outcomes-content {
     height: 625px;
-    border-left: 1px solid $borderColor;
+    border-#{direction(left)}: 1px solid $borderColor;
     overflow-x: auto;
     overflow-y: auto;
     position: relative;
     border: none;
-    border-radius: 0px 0px 5px 0px;
+    border-radius: 0px 0px 5px;
     background-color: $ic-color-light;
     .learning_outcome {
       label.span3 {
-        margin-left: 0px;
+        margin-#{direction(left)}: 0px;
       }
     }
     .wrapper {
@@ -74,7 +92,7 @@
     }
     label {
       display: block;
-      padding: 5px 0 5px 0;
+      padding: 5px 0;
     }
     .outcome-calculation-method-form {
       .grid-row {
@@ -87,15 +105,20 @@
     .outcome_information_link i {
       margin-bottom: -3px;
     }
+    .outcome-assessed-info-banner {
+      margin-top: -$ic-sp;
+      margin-bottom: $ic-sp;
+    }
     .move_button, .edit_button, .delete_button {
-      margin-left: 1em;
+      margin-#{direction(left)}: 1em;
+      margin-bottom: 1em;
     }
     dl.dl-horizontal {
       dt {
         width: 140px;
       }
       dd {
-        margin-left: 158px;
+        margin-#{direction(left)}: 158px;
       }
     }
   }
@@ -104,8 +127,8 @@
 ul.outcome-level {
   padding: 0;
   margin: 0;
-  border-right: 1px solid #ddd;
-  float: left;
+  border-#{direction(right)}: 1px solid #ddd;
+  float: direction(left);
   height: 625px;
   width: 200px;
   overflow-x: hidden;
@@ -135,7 +158,6 @@ ul.outcome-level {
       padding: $ic-sp/2 $ic-sp;
       color: $ic-font-color--subdued;
       span {
-        vertical-align: middle;
         &:hover {
           text-decoration: underline;
         }
@@ -150,11 +172,11 @@ ul.outcome-level {
           // adds blue border
           content: '';
           position: absolute;
-          left: 0;
+          #{direction(left)}: 0;
           top:0;
           width: 4px;
           height: 100%;
-          background: $ic-brand-primary;
+          background: var(--ic-brand-primary);
         }
         &:hover {
           background-color: $ic-bg-light-primary;
@@ -172,8 +194,14 @@ ul.outcome-level {
         background-color: $ic-bg-light-primary;
       }
     }
-    a.loading-more {
+    span.loading-more {
       background-color: darken($lightBackground, 3%);
+      text-decoration: none;
+      display: block;
+      white-space: nowrap;
+
+      padding: $ic-sp/2 $ic-sp;
+      color: $ic-font-color--subdued;
     }
     &[aria-grabbed=true] a, &[aria-grabbed=true] i {
       opacity: 0.75;
@@ -195,8 +223,10 @@ table.criterion {
   margin: 2em 0;
 }
 
-table.criterion td {
-  border: 1px solid $borderColor;
+table.criterion th {
+  border-top: 1px solid $borderColor;
+  border-#{direction(left)}: 1px solid $borderColor;
+  border-#{direction(right)}: 1px solid $borderColor;
   padding: 5px;
   text-align: center;
   vertical-align: top;
@@ -205,22 +235,35 @@ table.criterion td {
   }
 }
 
-.rating-wrap {
-  position: relative;
+table.criterion td {
+  border-bottom: 1px solid $borderColor;
+  border-#{direction(left)}: 1px solid $borderColor;
+  border-#{direction(right)}: 1px solid $borderColor;
+  padding: 5px;
+  text-align: center;
+  vertical-align: top;
+  &.total {
+    background-color: $lightBackground;
+  }
 }
 
-h5, .h5 {
+.criterion h3, .criterion .h3, .criterion h5, .criterion .h5 {
   margin-top: 0;
   margin-bottom: 10px;
-  color: $ic-link-color;
+  color: var(--ic-link-color);
   font-weight: normal;
   min-height: 1em;
+  font-size: 1rem;
   &.total {
     font-weight: bold;
     @if $use_high_contrast {
       color: $ic-font-color-dark;
     }
   }
+}
+
+.rating-wrap {
+  position: relative;
 }
 
 table.criterion .edit {
@@ -230,15 +273,15 @@ table.criterion .edit {
     margin-bottom: 8px;
   }
   .buttons button {
-    margin-left: 4px;
+    margin-#{direction(left)}: 4px;
   }
   .buttons .button-container {
-    float: right;
+    float: direction(right);
   }
 }
 
 .edit_rating {
-  float: right;
+  float: direction(right);
 }
 
 .outcome_rating_description {
@@ -247,8 +290,8 @@ table.criterion .edit {
 
 table.criterion .insert {
   position: absolute;
-  top: -33px;
-  right: -22px;
+  top: -40px;
+  #{direction(right)}: -30px;
   cursor: pointer;
   a {
     @if $use_high_contrast {
@@ -261,10 +304,10 @@ table.criterion .insert {
   }
   &:hover {
     a {
-      color: $ic-link-color;
+      color: var(--ic-link-color);
     }
     span {
-      border-top-color: $ic-link-color;
+      border-top-color: var(--ic-link-color);
     }
   }
 }
@@ -274,8 +317,8 @@ table.criterion .insert {
   height: 0;
   padding: 0;
   margin: 0 11px;
-  border-right: 5px solid transparent;
-  border-left: 5px solid transparent;
+  border-#{direction(right)}: 5px solid transparent;
+  border-#{direction(left)}: 5px solid transparent;
   border-top-width: 5px;
   border-top-style: solid;
   display: block;
@@ -292,11 +335,11 @@ table.criterion .insert {
 }
 
 .outcomes-edit-row {
-  text-align: left;
+  text-align: direction(left);
 }
 
 .no-outcomes-warning {
-  margin: 10px 40px 10px 40px;
+  margin: 10px 40px;
 }
 
 .outcomes_narrow_text_input {
@@ -307,7 +350,7 @@ table.criterion .insert {
   font-style: italic;
 }
 #alignments {
-  margin-left: 0;
+  margin-#{direction(left)}: 0;
 }
 #alignments .alignment {
   list-style: none;
@@ -327,7 +370,7 @@ table.criterion .insert {
   flex: 1;
 }
 #outcome_results_list {
-  margin-left: 0;
+  margin-#{direction(left)}: 0;
 }
 #outcome_results_list .outcome_result {
   list-style: none;

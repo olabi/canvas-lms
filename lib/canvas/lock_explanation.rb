@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas
   module LockExplanation
     include TextHelper
@@ -57,43 +74,43 @@ module Canvas
             case type
               when "quiz"
                 I18n.t('messages.quiz_module_time_locked', "This quiz is part of the module *%{module}*, which is locked until %{time}.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :time => unlock_time, :wrapper => '<b>\1</b>')
+                  :module => obj.name, :time => unlock_time, :wrapper => '<b>\1</b>')
               when "assignment"
                 I18n.t('messages.assignment_module_time_locked', "This assignment is part of the module *%{module}*, which is locked until %{time}.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :time => unlock_time, :wrapper => '<b>\1</b>')
+                  :module => obj.name, :time => unlock_time, :wrapper => '<b>\1</b>')
               when "topic"
                 I18n.t('messages.topic_module_time_locked', "This topic is part of the module *%{module}*, which is locked until %{time}.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :time => unlock_time, :wrapper => '<b>\1</b>')
+                  :module => obj.name, :time => unlock_time, :wrapper => '<b>\1</b>')
               when "file"
                 I18n.t('messages.file_module_time_locked', "This file is part of the module *%{module}*, which is locked until %{time}.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :time => unlock_time, :wrapper => '<b>\1</b>')
+                  :module => obj.name, :time => unlock_time, :wrapper => '<b>\1</b>')
               when "page"
                 I18n.t('messages.page_module_time_locked', "This page is part of the module *%{module}*, which is locked until %{time}.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :time => unlock_time, :wrapper => '<b>\1</b>')
+                  :module => obj.name, :time => unlock_time, :wrapper => '<b>\1</b>')
               else
                 I18n.t('messages.content_module_time_locked', "This content is part of the module *%{module}*, which is locked until %{time}.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :time => unlock_time, :wrapper => '<b>\1</b>')
+                  :module => obj.name, :time => unlock_time, :wrapper => '<b>\1</b>')
             end
           else
             case type
               when "quiz"
                 I18n.t('messages.quiz_locked_module', "This quiz is part of the module *%{module}* and hasn't been unlocked yet.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :wrapper => '<b>\1</b>')
+                  :module => obj.name, :wrapper => '<b>\1</b>')
               when "assignment"
                 I18n.t('messages.assignment_locked_module', "This assignment is part of the module *%{module}* and hasn't been unlocked yet.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :wrapper => '<b>\1</b>')
+                  :module => obj.name, :wrapper => '<b>\1</b>')
               when "topic"
                 I18n.t('messages.topic_locked_module', "This topic is part of the module *%{module}* and hasn't been unlocked yet.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :wrapper => '<b>\1</b>')
+                  :module => obj.name, :wrapper => '<b>\1</b>')
               when "file"
                 I18n.t('messages.file_locked_module', "This file is part of the module *%{module}* and hasn't been unlocked yet.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :wrapper => '<b>\1</b>')
+                  :module => obj.name, :wrapper => '<b>\1</b>')
               when "page"
                 I18n.t('messages.page_locked_module', "This page is part of the module *%{module}* and hasn't been unlocked yet.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :wrapper => '<b>\1</b>')
+                  :module => obj.name, :wrapper => '<b>\1</b>')
               else
                 I18n.t('messages.content_locked_module', "This content is part of the module *%{module}* and hasn't been unlocked yet.",
-                  :module => HtmlTextHelper.escape_html(obj.name), :wrapper => '<b>\1</b>')
+                  :module => obj.name, :wrapper => '<b>\1</b>')
             end
           end
         end

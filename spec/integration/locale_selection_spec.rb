@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 describe "locale_selection" do
   before do
-    I18n.stubs(:available_locales).returns([:en, :es, :fr])
+    allow(I18n).to receive(:available_locales).and_return([:en, :es, :fr])
   end
 
   after do
@@ -35,7 +35,7 @@ describe "locale_selection" do
     @domain_root_account = Account.default
 
     get dashboard_url
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(I18n.locale).to eql(:es)
   end
 
@@ -43,7 +43,7 @@ describe "locale_selection" do
     account = Account.default
     account.update_attribute :default_locale, 'fr'
     get canvas_login_url
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(I18n.locale).to eql(:fr)
   end
 

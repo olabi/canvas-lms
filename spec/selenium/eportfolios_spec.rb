@@ -1,3 +1,22 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+#bk test
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/eportfolios_common')
 
@@ -11,10 +30,12 @@ describe "eportfolios" do
 
   it "should create an eportfolio", priority: "1", test_id: 220018 do
     create_eportfolio
+    validate_eportfolio
   end
 
   it "should create an eportfolio that is public", priority: "2", test_id: 114348 do
     create_eportfolio(true)
+    validate_eportfolio(true)
   end
 
   context "eportfolio created with user" do
@@ -140,6 +161,7 @@ describe "eportfolios" do
     end
 
     it "should have a working flickr search dialog" do
+      skip_if_chrome('fragile in chrome')
       get "/eportfolios/#{@eportfolio.id}"
       f("#page_list a.page_url").click
       expect(f("#page_list a.page_url")).to be_displayed
@@ -210,7 +232,7 @@ end
 describe "eportfolios file upload" do
   include_context "in-process server selenium tests"
 
-  before do
+  before :once do
     @password = "asdfasdf"
     @student = user_with_pseudonym :active_user => true,
                                    :username => "student@example.com",
@@ -222,11 +244,8 @@ describe "eportfolios file upload" do
     eportfolio_model({:user => @user, :name => "student content"})
   end
 
-  it "should upload a file" do
-    create_session(@student.pseudonym)
-    get "/eportfolios/#{@eportfolio.id}"
+  def test_file_upload
     _filename, fullpath, _data = get_file("testfile5.zip")
-    expect_new_page_load { f(".icon-arrow-right").click }
     f("#right-side .edit_content_link").click
     wait_for_ajaximations
     f('.add_file_link').click
@@ -238,7 +257,26 @@ describe "eportfolios file upload" do
     download = fj("a.eportfolio_download:visible")
     expect(download).to be_displayed
     expect(download).to have_attribute("href", /files/)
-    # cannot test downloading the file, will check in the future
-    # check_file(download)
+  end
+
+  it "should upload a file to the main page" do
+    create_session(@student.pseudonym)
+    get "/eportfolios/#{@eportfolio.id}?view=preview"
+    test_file_upload
+  end
+
+  it "should upload a file to an eportfolio section" do
+    ec = @eportfolio.eportfolio_categories.create! name: 'Something'
+    create_session(@student.pseudonym)
+    get "/eportfolios/#{@eportfolio.id}/#{ec.slug}"
+    test_file_upload
+  end
+
+  it "should upload a file to an eportfolio page" do
+    ec = @eportfolio.eportfolio_categories.create! name: 'Der Section'
+    ep = ec.eportfolio_entries.create! eportfolio: @eportfolio, name: 'Das Page'
+    create_session(@student.pseudonym)
+    get "/eportfolios/#{@eportfolio.id}/#{ec.slug}/#{ep.slug}"
+    test_file_upload
   end
 end

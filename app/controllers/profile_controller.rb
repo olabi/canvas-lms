@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -62,11 +62,6 @@
 #         "sis_user_id": {
 #           "description": "sis1",
 #           "example": "sis1",
-#           "type": "string"
-#         },
-#         "sis_login_id": {
-#           "description": "sis1-login",
-#           "example": "sis1-login",
 #           "type": "string"
 #         },
 #         "lti_user_id": {
@@ -142,11 +137,11 @@
 #     }
 #
 class ProfileController < ApplicationController
-  before_filter :require_registered_user, :except => [:show, :settings, :communication, :communication_update]
-  before_filter :require_user, :only => [:settings, :communication, :communication_update]
-  before_filter :require_user_for_private_profile, :only => :show
-  before_filter :reject_student_view_student
-  before_filter :require_password_session, :only => [:communication, :communication_update, :update]
+  before_action :require_registered_user, :except => [:show, :settings, :communication, :communication_update]
+  before_action :require_user, :only => [:settings, :communication, :communication_update]
+  before_action :require_user_for_private_profile, :only => :show
+  before_action :reject_student_view_student
+  before_action :require_password_session, :only => [:communication, :communication_update, :update]
 
   include Api::V1::Avatar
   include Api::V1::CommunicationChannel
@@ -174,6 +169,7 @@ class ProfileController < ApplicationController
     )
 
     if @user_data[:known_user] # if you can message them, you can see the profile
+      js_env :enable_gravatar => @domain_root_account&.enable_gravatar?
       add_crumb(t('crumbs.settings_frd', "%{user}'s Profile", :user => @user.short_name), user_profile_path(@user))
       render
     else
@@ -208,9 +204,13 @@ class ProfileController < ApplicationController
     @password_pseudonyms = @pseudonyms.select{|p| !p.managed_password? }
     @context = @user.profile
     @active_tab = "profile_settings"
+    js_env :enable_gravatar => @domain_root_account&.enable_gravatar?
     respond_to do |format|
       format.html do
+        show_tutorial_ff_to_user = @domain_root_account&.feature_enabled?(:new_user_tutorial) &&
+                                   @user.participating_instructor_course_ids.any?
         add_crumb(t(:crumb, "%{user}'s settings", :user => @user.short_name), settings_profile_path )
+        js_env(:NEW_USER_TUTORIALS_ENABLED_AT_ACCOUNT => show_tutorial_ff_to_user)
         render :profile
       end
       format.json do
@@ -224,6 +224,7 @@ class ProfileController < ApplicationController
     @current_user.used_feature(:cc_prefs)
     @context = @user.profile
     @active_tab = 'notifications'
+
 
     # Get the list of Notification models (that are treated like categories) that make up the full list of Categories.
     full_category_list = Notification.dashboard_categories(@user)
@@ -242,6 +243,7 @@ class ProfileController < ApplicationController
       :policies => NotificationPolicy.setup_with_default_policies(@user, full_category_list).map { |p| notification_policy_json(p, @user, session).tap { |json| json[:communication_channel_id] = p.communication_channel_id } },
       :categories => categories,
       :update_url => communication_update_profile_path,
+      :show_observed_names => @user.observer_enrollments.any? || @user.as_observer_observation_links.any? ? @user.send_observed_names_in_notifications? : nil
       },
       :READ_PRIVACY_INFO => @user.preferences[:read_notification_privacy_info],
       :ACCOUNT_PRIVACY_NOTICE => @domain_root_account.settings[:external_notification_warning]
@@ -254,7 +256,7 @@ class ProfileController < ApplicationController
   end
 
   # @API List avatar options
-  # Retrieve the possible user avatar options that can be set with the user update endpoint. The response will be an array of avatar records. If the 'type' field is 'attachment', the record will include all the normal attachment json fields; otherwise it will include only the 'url' and 'display_name' fields. Additionally, all records will include a 'type' field and a 'token' field. The following explains each field in more detail
+  # A paginated list of the possible user avatar options that can be set with the user update endpoint. The response will be an array of avatar records. If the 'type' field is 'attachment', the record will include all the normal attachment json fields; otherwise it will include only the 'url' and 'display_name' fields. Additionally, all records will include a 'type' field and a 'token' field. The following explains each field in more detail
   # type:: ["gravatar"|"attachment"|"no_pic"] The type of avatar record, for categorization purposes.
   # url:: The url of the avatar
   # token:: A unique representation of the avatar record which can be used to set the avatar with the user update endpoint. Note: this is an internal representation and is subject to change without notice. It should be consumed with this api endpoint and used in the user update endpoint, and should not be constructed by the client.
@@ -280,7 +282,7 @@ class ProfileController < ApplicationController
   #     },
   #     {
   #       "type":"attachment",
-  #       "url":"https://<canvas>/images/thumbnails/12/gpLWJ...",
+  #       "url":<url to fetch thumbnail of attachment>,
   #       "token":<opaque_token>,
   #       "display_name":"profile.jpg",
   #       "id":12,
@@ -328,7 +330,7 @@ class ProfileController < ApplicationController
       @user.preferences[:read_notification_privacy_info] = Time.now.utc.to_s
       @user.save
 
-      return render(:nothing => true, :status => 208)
+      return head 208
     end
 
     respond_to do |format|
@@ -344,7 +346,7 @@ class ProfileController < ApplicationController
       if @user.update_attributes(user_params)
         pseudonymed = false
         if params[:default_email_id].present?
-          @email_channel = @user.communication_channels.email.where(id: params[:default_email_id]).first
+          @email_channel = @user.communication_channels.email.active.where(id: params[:default_email_id]).first
           if @email_channel
             @email_channel.move_to_top
             @user.clear_email_cache!
@@ -423,7 +425,7 @@ class ProfileController < ApplicationController
       @profile.save!
 
       if params[:user_services]
-        visible, invisible = params[:user_services].partition { |service,bool|
+        visible, invisible = params[:user_services].to_unsafe_h.partition { |service,bool|
           value_to_boolean(bool)
         }
         @user.user_services.where(:service => visible.map(&:first)).update_all(:visible => true)

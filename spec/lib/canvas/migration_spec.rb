@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe "Migration package importers" do
@@ -60,7 +77,7 @@ describe "Migration package importers" do
       archive = Canvas::Migration::Archive.new(settings)
       expect{
         Canvas::Migration::PackageIdentifier.new(archive).identify_package
-      }.to raise_error(Canvas::Migration::Error, "Error identifying package type: unknown mime type text/plain")
+      }.to raise_error(Canvas::Migration::Error, "Error identifying package type: unknown mime type text/plain for archive invalid.zip")
     end
   end
 
@@ -71,8 +88,8 @@ describe "Migration package importers" do
 
       mig = Canvas::Migration::Migrator.new({:archive_file => file, :content_migration => cm}, "test")
       mig.unzip_archive
-      expect(File).to be_exist(File.join(mig.unzipped_file_path, 'messaging/why oh why.txt'))
-      expect(File).to be_exist(File.join(mig.unzipped_file_path, 'res00175/SR_Epilogue_Frequently_Asked_Questions.html'))
+      expect(File).to be_exist(mig.package_root.item_path('messaging/why oh why.txt'))
+      expect(File).to be_exist(mig.package_root.item_path('res00175/SR_Epilogue_Frequently_Asked_Questions.html'))
     end
 
     it "creates overview assignments for graded discussion topics and quizzes and pages" do

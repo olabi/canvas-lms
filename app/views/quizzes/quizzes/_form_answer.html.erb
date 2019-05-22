@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <div class="answer" id="form_answer_template" style="display: none; _width: 100%;">
 
   <table style="width: 100%; position: relative; _height: 10px; min-height: 10px;">
@@ -16,7 +34,7 @@
           <label for="answer_text"><b><%= t 'possible_answer', 'Possible Answer' %></b></label>
           <input type="text" class="disabled_answer" style="width: 200px;" name="answer_text" aria-label="<%= t 'possible_answer', 'Possible Answer' %>" placeholder="<%= t('Answer Text') %>" />
           <input type="hidden" name="answer_html"/>
-          <span class="answer_html" style="display:inline-block;"></span>
+          <span class="answer_html" style="display:inline-block;width:100%;"></span>
         </div>
         <div class="fixed_answer answer_type">
           <b class="answer_text" tabindex="0"></b>
@@ -80,7 +98,7 @@
           <span class="id">&nbsp;</span>
           <span class="match_id">&nbsp;</span>
         </div>
-      </td><td style="vertical-align: top; padding-top: 0.5em; text-align: right; width: 40px;">
+      </td><td style="vertical-align: top; padding-top: 0.5em; text-align: <%= direction('right') %>; width: 40px;">
         <div class="question_actions">
           <% edit_html_text = t("Toggle editing answer text as HTML") %>
           <% delete_html_text = t("Delete this Answer") %>

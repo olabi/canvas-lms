@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /**
  * Instructure tweaks/additions:
  *  * wysiwyg toolbar and misc fixes, i.e. https://github.com/jenseng/mathquill/tree/fancyeditor2
@@ -14,11 +32,9 @@
  *     http://www.gnu.org/licenses/lgpl.html
  * Project Website: http://mathquill.com
  */
-define([
-  'i18n!mathquill',
-  'jquery', /* jQuery, $ */
-  'str/htmlEscape'
-], function(I18n, $, htmlEscape) {
+import I18n from 'i18n!mathquill'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
 
   var undefined,
     _, //temp variable of prototypes
@@ -422,11 +438,11 @@ define([
         .prepend('<span class="selectable">$'+htmlEscape(root.latex())+'$</span>');
       textarea.blur(function() {
         cursor.clearSelection();
-        setTimeout(detach); //detaching during blur explodes in WebKit
+        setTimeout(function detach() {
+          textareaSpan.detach();
+        }); //detaching during blur explodes in WebKit
       });
-      function detach() {
-        textareaSpan.detach();
-      }
+
       return;
     }
 
@@ -622,7 +638,7 @@ define([
       $('#mathquill-view .mathquill-tab-pane').removeClass('mathquill-tab-pane-selected');
       $(this).attr('tabindex', '0').attr('aria-selected', 'true').focus()
         .parent().addClass('mathquill-tab-selected');
-      $(this.href.replace(/.*#/, '#')).addClass('mathquill-tab-pane-selected');
+      $(this.getAttribute('href')).addClass('mathquill-tab-pane-selected');
     }).keydown(function (e) {
       var direction, listIndex, $tabLinks;
       switch (e.keyCode) {
@@ -1033,7 +1049,7 @@ define([
     this.respaced = this.prev instanceof SupSub && this.prev.cmd != this.cmd && !this.prev.respaced;
     if (this.respaced) {
       var fontSize = +this.jQ.css('fontSize').slice(0,-2),
-        prevWidth = this.prev.jQ.outerWidth()
+        prevWidth = this.prev.jQ.outerWidth(),
         thisWidth = this.jQ.outerWidth();
       this.jQ.css({
         left: (this.limit && this.cmd === '_' ? -.25 : 0) - prevWidth/fontSize + 'em',
@@ -2862,6 +2878,3 @@ define([
     $('.mathquill-textbox:not(.mathquill-rendered-math)').mathquill('textbox');
     $('.mathquill-embedded-latex').mathquill();
   });
-
-
-});

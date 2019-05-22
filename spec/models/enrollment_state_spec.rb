@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "../spec_helper"
 
 describe EnrollmentState do
@@ -65,7 +82,7 @@ describe EnrollmentState do
       @course.save!
       term_enroll = student_in_course(:course => @course)
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e != other_enroll}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once).with(not_eq(other_enroll))
 
       term.reload
       end_at = 2.days.ago
@@ -92,7 +109,7 @@ describe EnrollmentState do
       other_enroll = teacher_in_course(:course => @course)
       term_enroll = student_in_course(:course => @course)
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e == term_enroll}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once).with(term_enroll)
 
       override = term.enrollment_dates_overrides.new(:enrollment_type => "StudentEnrollment", :enrollment_term => term)
       start_at = 2.days.from_now
@@ -118,32 +135,8 @@ describe EnrollmentState do
       enroll = student_in_course(:course => @course)
       enroll_state = enroll.enrollment_state
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e.course == @course}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once) { |e| expect(e.course).to eq @course }
 
-      @course.start_at = 4.days.ago
-      ended_at = 3.days.ago
-      @course.conclude_at = ended_at
-      @course.save!
-
-      enroll_state.reload
-      expect(enroll_state.state_is_current?).to be_falsey
-
-      enroll_state.ensure_current_state
-      expect(enroll_state.state).to eq 'completed'
-      expect(enroll_state.state_started_at).to eq ended_at
-    end
-
-    it "should invalidate enrollments even if they have null lock versions (i.e. already exist before db migration)" do
-      course_factory(active_all: true)
-      @course.restrict_enrollments_to_course_dates = true
-      @course.save!
-      enroll = student_in_course(:course => @course)
-      enroll_state = enroll.enrollment_state
-      EnrollmentState.where(:enrollment_id => enroll_state).update_all(:lock_version => nil)
-
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e.course == @course}
-
-      @course.reload
       @course.start_at = 4.days.ago
       ended_at = 3.days.ago
       @course.conclude_at = ended_at
@@ -162,7 +155,7 @@ describe EnrollmentState do
       enroll = student_in_course(:course => @course)
       enroll_state = enroll.enrollment_state
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e.course == @course}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once) { |e| expect(e.course).to eq @course }
 
       @course.start_at = 4.days.ago
       ended_at = 3.days.ago
@@ -191,7 +184,7 @@ describe EnrollmentState do
       enroll = student_in_course(:course => @course, :section => section)
       enroll_state = enroll.enrollment_state
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e.course_section == section}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once) { |e| expect(e.course_section).to eq section }
 
       section.restrict_enrollments_to_section_dates = true
       section.save!
@@ -233,7 +226,7 @@ describe EnrollmentState do
       expect(future_state.state_valid_until).to eq start_at
       expect(future_state.restricted_access?).to be_falsey
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e != other_enroll}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once).with(not_eq(other_enroll))
 
       restrict_view(Account.default, :restrict_student_future_view)
 
@@ -265,7 +258,7 @@ describe EnrollmentState do
       past_state = past_enroll.enrollment_state
       expect(past_state.state).to eq 'completed'
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e != other_enroll}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once).with(not_eq(other_enroll))
 
       restrict_view(Account.default, :restrict_student_past_view)
 
@@ -291,7 +284,7 @@ describe EnrollmentState do
 
       expect(enroll_state.state).to eq 'pending_invited'
 
-      EnrollmentState.expects(:update_enrollment).at_least_once.with {|e| e.course == @course}
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once)  { |e| expect(e.course).to eq @course }
       @course.restrict_student_future_view = true
       @course.save!
 
@@ -302,6 +295,30 @@ describe EnrollmentState do
       expect(enroll_state.restricted_access).to be_truthy
       enroll.reload
       expect(enroll).to be_inactive
+    end
+
+    it "should invalidate access properly if dates and access settings are changed simultaneously" do
+      course_factory(active_all: true)
+      @course.start_at = 3.days.from_now
+      @course.conclude_at = 4.days.from_now
+      @course.restrict_enrollments_to_course_dates = true
+      @course.save!
+      enroll = student_in_course(:course => @course)
+      enroll_state = enroll.enrollment_state
+
+      expect(enroll_state.state).to eq 'pending_invited'
+
+      expect(EnrollmentState).to receive(:update_enrollment).at_least(:once)  { |e| expect(e.course).to eq @course }
+      @course.start_at = 2.days.from_now
+      @course.restrict_student_future_view = true
+      @course.save!
+
+      enroll_state.reload
+      expect(enroll_state.access_is_current).to be_falsey
+      expect(enroll_state.state_is_current).to be_falsey
+
+      enroll_state.ensure_current_state
+      expect(enroll_state.restricted_access).to be_truthy
     end
   end
 
@@ -329,6 +346,17 @@ describe EnrollmentState do
         enroll_state.reload
         expect(enroll_state.state).to eq 'completed'
       end
+    end
+  end
+
+  it "shouldn't cache the wrong state when setting to 'invited'" do
+    course_factory(:active_all => true)
+    e = student_in_course(:course => @course)
+    e.reject!
+    RequestCache.enable do
+      e.workflow_state = 'invited'
+      e.save!
+      expect(e.invited?).to be_truthy
     end
   end
 end

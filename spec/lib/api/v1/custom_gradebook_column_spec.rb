@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 
 describe "Api::V1::CustomGradebookColumn" do
@@ -14,7 +31,7 @@ describe "Api::V1::CustomGradebookColumn" do
 
   describe "custom_gradebook_column_json" do
     it "works" do
-      json = @col.attributes.slice(*%w(id title position teacher_notes))
+      json = @col.attributes.slice(*%w(id title position teacher_notes read_only))
       json["hidden"] = false
       expect(controller.custom_gradebook_column_json(@col, @teacher, nil)).to eq json
     end

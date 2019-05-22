@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,13 +32,11 @@ module Lti
         c.account = account
       end
     }
-    let(:root_account) { Account.new }
+    let(:root_account) { Account.create! }
     let(:account) {
-      Account.new.tap do |a|
-        a.root_account = root_account
-      end
+      Account.create!(root_account: root_account)
     }
-    let(:user) { User.new }
+    let(:user) { User.create! }
 
     def set_up_persistance!
       @shard1.activate { user.save! }
@@ -109,8 +107,8 @@ module Lti
     describe '#all_roles' do
 
       it 'converts multiple roles' do
-        subject.stubs(:course_enrollments).returns([StudentEnrollment.new, TeacherEnrollment.new, DesignerEnrollment.new, ObserverEnrollment.new, TaEnrollment.new, AccountUser.new])
-        user.stubs(:roles).returns(['user', 'student', 'teacher', 'admin'])
+        allow(subject).to receive(:course_enrollments).and_return([StudentEnrollment.new, TeacherEnrollment.new, DesignerEnrollment.new, ObserverEnrollment.new, TaEnrollment.new, AccountUser.new])
+        allow(user).to receive(:roles).and_return(['user', 'student', 'teacher', 'admin'])
         roles = subject.all_roles
         expect(roles).to include LtiOutbound::LTIRoles::System::USER
         expect(roles).to include LtiOutbound::LTIRoles::Institution::STUDENT
@@ -125,27 +123,73 @@ module Lti
 
       it "returns none if no user" do
         helper = SubstitutionsHelper.new(course, root_account, nil)
-        expect(helper.all_roles).to eq [LtiOutbound::LTIRoles::System::NONE]
+        expect(helper.all_roles).to eq LtiOutbound::LTIRoles::System::NONE
       end
 
       it 'converts multiple roles for lis 2' do
-        subject.stubs(:course_enrollments).returns([StudentEnrollment.new, TeacherEnrollment.new, DesignerEnrollment.new, ObserverEnrollment.new, TaEnrollment.new, AccountUser.new])
-        user.stubs(:roles).returns(['user', 'student', 'teacher', 'admin'])
+        allow(subject).to receive(:course_enrollments).and_return([StudentEnrollment.new, TeacherEnrollment.new, DesignerEnrollment.new, ObserverEnrollment.new, TaEnrollment.new, AccountUser.new])
+        allow(user).to receive(:roles).and_return(['user', 'student', 'teacher', 'admin'])
         roles = subject.all_roles('lis2')
         expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/system/person#User'
         expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Student'
         expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor'
         expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator'
-        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/person#Learner'
-        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/person#Instructor'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor'
         expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper'
-        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/person#Observer'
-        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#TeachingAssistant'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#Mentor'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership/instructor#TeachingAssistant'
       end
 
       it "returns none if no user for lis 2" do
         helper = SubstitutionsHelper.new(course, root_account, nil)
-        expect(helper.all_roles('lis2')).to eq ['http://purl.imsglobal.org/vocab/lis/v2/person#None']
+        expect(helper.all_roles('lis2')).to eq 'http://purl.imsglobal.org/vocab/lis/v2/person#None'
+      end
+
+      it "includes main and subrole for TeachingAssistant" do
+        allow(subject).to receive(:course_enrollments).and_return([TaEnrollment.new])
+        roles = subject.all_roles('lis2')
+        expected_roles = ["http://purl.imsglobal.org/vocab/lis/v2/membership/instructor#TeachingAssistant",
+                          "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
+                          "http://purl.imsglobal.org/vocab/lis/v2/system/person#User"]
+        expect(roles.split(',')).to match_array expected_roles
+      end
+
+      it 'converts multiple roles for lti 1.3' do
+        allow(subject).to receive(:course_enrollments).and_return([StudentEnrollment.new, TeacherEnrollment.new, DesignerEnrollment.new, ObserverEnrollment.new, TaEnrollment.new, AccountUser.new])
+        allow(user).to receive(:roles).and_return(['user', 'student', 'teacher', 'admin'])
+        roles = subject.all_roles('lti1_3')
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/system/person#User'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Student'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership#Mentor'
+        expect(roles).to include 'http://purl.imsglobal.org/vocab/lis/v2/membership/Instructor#TeachingAssistant' # only difference btwn lis2 and lti1_3 modes
+      end
+
+      it "returns none if no user for lti 1.3" do
+        helper = SubstitutionsHelper.new(course, root_account, nil)
+        expect(helper.all_roles('lti1_3')).to eq 'http://purl.imsglobal.org/vocab/lis/v2/system/person#None'
+      end
+
+      it "includes main and subrole for TeachingAssistant for lti 1.3" do
+        allow(subject).to receive(:course_enrollments).and_return([TaEnrollment.new])
+        roles = subject.all_roles('lti1_3')
+        expected_roles = ["http://purl.imsglobal.org/vocab/lis/v2/membership/Instructor#TeachingAssistant", # only difference btwn lis2 and lti1_3 modes
+                          "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
+                          "http://purl.imsglobal.org/vocab/lis/v2/system/person#User"]
+        expect(roles.split(',')).to match_array expected_roles
+      end
+
+      it 'does not include admin role if user has a sub-account admin user record in deleted account' do
+        sub_account = account.sub_accounts.create!
+        sub_account.account_users.create!(user: user, role: admin_role)
+        sub_account.destroy!
+        roles = subject.all_roles
+        expect(roles).not_to include 'urn:lti:instrole:ims/lis/Administrator'
       end
     end
 
@@ -188,6 +232,14 @@ module Lti
         expect(subject.account_enrollments).to eq [enrollment]
       end
 
+      it 'does not return deleted account enrollments' do
+        set_up_persistance!
+        enrollment = account.account_users.create!(:user => user)
+        enrollment.destroy
+
+        expect(subject.account_enrollments).to eq []
+      end
+
       it 'returns enrollments in an account chain for a user' do
         set_up_persistance!
         enrollment = root_account.account_users.create!(:user => user)
@@ -206,7 +258,7 @@ module Lti
         expect(subject.current_lis_roles).to eq 'urn:lti:sysrole:ims/lis/None'
       end
 
-      it 'returns none if the user has no roles' do
+      it "returns the user's roles" do
         set_up_persistance!
         student_in_course(user: user, course: course, active_enrollment: true)
         account.account_users.create!(:user => user)
@@ -248,10 +300,78 @@ module Lti
         expect(subject.concluded_lis_roles).to eq 'urn:lti:sysrole:ims/lis/None'
       end
 
-      it 'returns none if the user has no roles' do
+      it "returns the user's roles" do
         set_up_persistance!
         student_in_course(user: user, course: course, active_enrollment: true).conclude
         expect(subject.concluded_lis_roles).to eq 'Learner'
+      end
+    end
+
+    describe '#current_canvas_roles_lis_v2' do
+      it 'returns the LIS V2 role names' do
+        set_up_persistance!
+
+        teacher_in_course(user: user, course: course, active_enrollment: true)
+        course_with_designer(user: user, course: course, active_enrollment: true)
+        account_admin_user(user: user, account: account)
+        roles = subject.current_canvas_roles_lis_v2
+
+        expect(roles.split(',')).to match_array [
+          "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
+          "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
+          "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator"
+        ]
+      end
+
+      it 'does not include concluded roles' do
+        set_up_persistance!
+        student_in_course(user: user, course: course, active_enrollment: true).conclude
+        teacher_in_course(user: user, course: course, active_enrollment: true)
+        roles = subject.current_canvas_roles_lis_v2
+
+        expect(roles).to eq 'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor'
+      end
+
+      it 'does not include roles from other contexts' do
+        set_up_persistance!
+        course_two = course_model
+        student_in_course(user: user, course: course, active_enrollment: true)
+        teacher_in_course(user: user, course: course_two, active_enrollment: true)
+        roles = subject.current_canvas_roles_lis_v2
+
+        expect(roles).to eq 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner'
+      end
+
+      it 'can be directed to use the LIS 2 role map' do
+        set_up_persistance!
+
+        ta_in_course(user: user, course: course, active_enrollment: true)
+        course_with_designer(user: user, course: course, active_enrollment: true)
+        account_admin_user(user: user, account: account)
+        roles = subject.current_canvas_roles_lis_v2('lis2')
+
+        expect(roles.split(',')).to match_array [
+          "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
+          "http://purl.imsglobal.org/vocab/lis/v2/membership/instructor#TeachingAssistant", # only difference btwn lis2 and lti1_3 modes
+          "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
+          "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator"
+        ]
+      end
+
+      it 'can be directed to use the LTI 1.3 role map' do
+        set_up_persistance!
+
+        ta_in_course(user: user, course: course, active_enrollment: true)
+        course_with_designer(user: user, course: course, active_enrollment: true)
+        account_admin_user(user: user, account: account)
+        roles = subject.current_canvas_roles_lis_v2('lti1_3')
+
+        expect(roles.split(',')).to match_array [
+          "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
+          "http://purl.imsglobal.org/vocab/lis/v2/membership/Instructor#TeachingAssistant", # only difference btwn lis2 and lti1_3 modes
+          "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
+          "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator"
+        ]
       end
     end
 
@@ -328,12 +448,26 @@ module Lti
         @c2 = Course.create!
         @c2.root_account = root_account
         @c2.account = account
+        @c2.lti_context_id = 'def'
         @c2.save!
 
         course.content_migrations.create!.tap do |cm|
           cm.context = course
           cm.workflow_state = 'imported'
           cm.source_course = @c2
+          cm.save!
+        end
+
+        @c3 = Course.create!
+        @c3.root_account = root_account
+        @c3.account = account
+        @c3.lti_context_id = 'hij'
+        @c3.save!
+
+        @c1.content_migrations.create!.tap do |cm|
+          cm.context = @c1
+          cm.workflow_state = 'imported'
+          cm.source_course = @c3
           cm.save!
         end
       end
@@ -343,7 +477,55 @@ module Lti
       end
 
       it "should return previous lti context_ids" do
-        expect(subject.previous_lti_context_ids).to eq 'abc'
+        expect(subject.previous_lti_context_ids.split(",")).to match_array %w{abc def}
+      end
+    end
+
+    describe '#recursively_fetch_previous_course_ids_and_context_ids' do
+      before do
+        course.save!
+        @c1 = Course.create!
+        @c1.root_account = root_account
+        @c1.account = account
+        @c1.lti_context_id = 'abc'
+        @c1.save
+
+        course.content_migrations.create!.tap do |cm|
+          cm.context = course
+          cm.workflow_state = 'imported'
+          cm.source_course = @c1
+          cm.save!
+        end
+
+        @c2 = Course.create!
+        @c2.root_account = root_account
+        @c2.account = account
+        @c2.lti_context_id = 'def'
+        @c2.save!
+
+        course.content_migrations.create!.tap do |cm|
+          cm.context = course
+          cm.workflow_state = 'imported'
+          cm.source_course = @c2
+          cm.save!
+        end
+
+        @c3 = Course.create!
+        @c3.root_account = root_account
+        @c3.account = account
+        @c3.lti_context_id = 'ghi'
+        @c3.save!
+
+        @c1.content_migrations.create!.tap do |cm|
+          cm.context = @c1
+          cm.workflow_state = 'imported'
+          cm.source_course = @c3
+          cm.save!
+        end
+      end
+
+      it "should return previous lti context_ids" do
+        expect(subject.recursively_fetch_previous_lti_context_ids.split(",")).to match_array %w{abc def ghi}
       end
     end
 
@@ -373,7 +555,7 @@ module Lti
     end
 
     context "email" do
-      let(:course) { Course.create!(root_account: root_account, account: account) }
+      let(:course) { Course.create!(root_account: root_account, account: account, workflow_state: 'available') }
 
       let(:tool) do
         ContextExternalTool.create!(
@@ -405,7 +587,7 @@ module Lti
           cc = user.communication_channels.email.create!(path: sis_email)
           cc.user = user
           cc.save!
-          pseudonym = cc.user.pseudonyms.build(:unique_id => cc.path, :account => Account.default)
+          pseudonym = cc.user.pseudonyms.build(:unique_id => cc.path, :account => root_account)
           pseudonym.sis_communication_channel_id=cc.id
           pseudonym.communication_channel_id=cc.id
           pseudonym.sis_user_id="some_sis_id"
@@ -420,6 +602,31 @@ module Lti
           expect(sub_helper.email).to eq sis_email
         end
 
+        it "returns the email for the courses enrollment if there is one." do
+          tool = class_double("Lti::ToolProxy")
+          p = sis_pseudonym
+          # moving account so that if the pseudonym was not tied to enrollment
+          # it would return 'test@foo.com' instead of sis_email
+          p.account = Account.create!
+          p.save!
+          course.enroll_user(user, 'StudentEnrollment', {sis_pseudonym_id: p.id, enrollment_state: 'active'})
+          sub_helper = SubstitutionsHelper.new(course, root_account, user, tool)
+          expect(sub_helper.email).to eq sis_email
+        end
+
+        it "only returns active logins" do
+          tool = class_double("Lti::ToolProxy")
+          p = sis_pseudonym
+          # moving account so that if the pseudonym was not tied to enrollment
+          # it would return 'test@foo.com' instead of sis_email if it was active
+          p.account = Account.create!
+          p.workflow_state = 'deleted'
+          p.save!
+          course.enroll_user(user, 'StudentEnrollment', {sis_pseudonym_id: p.id, enrollment_state: 'active'})
+          sub_helper = SubstitutionsHelper.new(course, root_account, user, tool)
+          expect(sub_helper.email).to eq 'test@foo.com'
+        end
+
         context "prefer_sis_email" do
           before(:each) do
             tool.settings[:prefer_sis_email] = "true"
@@ -431,7 +638,15 @@ module Lti
             expect(substitution_helper.email).to eq sis_email
           end
 
-          it "returns the users email if there isn't an sis email" do
+          it "returns the sis_email when set via tool_configuration" do
+            tool.settings[:prefer_sis_email] = nil
+            tool.settings[:tool_configuration] = { prefer_sis_email: 'true' }
+            tool.save!
+            sis_pseudonym
+            expect(substitution_helper.email).to eq sis_email
+          end
+
+          it "returns the users email if there isn't a sis email" do
             expect(substitution_helper.email).to eq user.email
           end
 
@@ -445,7 +660,7 @@ module Lti
           cc = user.communication_channels.email.create!(path: sis_email)
           cc.user = user
           cc.save!
-          pseudonym = cc.user.pseudonyms.build(:unique_id => cc.path, :account => Account.default)
+          pseudonym = cc.user.pseudonyms.build(:unique_id => cc.path, :account => root_account)
           pseudonym.sis_communication_channel_id=cc.id
           pseudonym.communication_channel_id=cc.id
           pseudonym.sis_user_id="some_sis_id"

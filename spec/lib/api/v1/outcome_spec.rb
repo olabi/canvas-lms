@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -66,6 +66,10 @@ RSpec.describe "Api::V1::Outcome" do
     end
 
     context "outcome json" do
+      let(:opts) do
+        { rating_percents: [30, 40, 30] }
+      end
+
       let(:check_outcome_json) do
         ->(outcome) do
           expect(outcome['title']).to eq(outcome_params[:title])
@@ -75,17 +79,22 @@ RSpec.describe "Api::V1::Outcome" do
           expect(outcome['description']).to eq(outcome_params[:description])
           expect(outcome['vendor_guid']).to eq(outcome_params[:vendor_guid])
           expect(outcome['assessed']).to eq(LearningOutcome.find(outcome['id']).assessed? ? true : false)
+          expect(outcome['has_updateable_rubrics']).to eq(
+            LearningOutcome.find(outcome['id']).updateable_rubrics?
+          )
+          expect(outcome['ratings'].length).to eq 3
+          expect(outcome['ratings'].map { |r| r['percent'] }).to eq [30, 40, 30]
         end
       end
 
       it "returns the json for an outcome" do
-        check_outcome_json.call(lib.outcome_json(new_outcome(outcome_params), nil, nil))
+        check_outcome_json.call(lib.outcome_json(new_outcome(outcome_params), nil, nil, opts))
       end
 
       it "returns the json for multiple outcomes" do
         outcomes = []
         10.times{ outcomes.push(new_outcome) }
-        lib.outcomes_json(outcomes, nil, nil).each { |o| check_outcome_json.call(o) }
+        lib.outcomes_json(outcomes, nil, nil, opts).each { |o| check_outcome_json.call(o) }
       end
     end
 

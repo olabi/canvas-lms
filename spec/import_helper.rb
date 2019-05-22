@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -66,4 +66,10 @@ def get_import_context(system=nil)
   context.import_source == :webct if system == 'vista'
 
   context
+end
+
+class ImportHelper
+  def self.get_import_data_xml(sub_folder, file_name)
+    File.open(File.join(IMPORT_JSON_DIR, sub_folder, "#{file_name}.xml")) { |f| Nokogiri::XML(f) }
+  end
 end

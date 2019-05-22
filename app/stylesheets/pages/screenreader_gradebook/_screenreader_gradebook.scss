@@ -1,7 +1,25 @@
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/variables";
 @import "base/mixins/typography";
 @import "vendor/bootstrap/variables";
-@import "vendor/bootstrap/mixins";
+@import "deprecated/bootstrap/mixins";
 @import "vendor/bootstrap/grid";
 @import "vendor/bootstrap/forms";
 @import "vendor/bootstrap/tables";
@@ -45,7 +63,7 @@ table.table {
   // left align the first column for student info tables
   &.left-first {
     th:first-child, td:first-child {
-      text-align: left;
+      text-align: direction(left);
     }
   }
 }
@@ -59,9 +77,9 @@ table.table {
 
 // Force labels for dropdowns to align left on small screens
 .text-right-responsive {
-  text-align: right;
+  text-align: direction(right);
   @media screen and (max-width: 1143px) {
-    text-align: left;
+    text-align: direction(left);
   }
 }
 
@@ -83,7 +101,7 @@ ic-tab {
     background-color: $grayLighter;
   }
   &[selected] {
-    background-color: $linkColor;
+    background-color: var(--ic-link-color);
     color: $white;
   }
 }
@@ -99,4 +117,38 @@ ic-tab {
 
 select.grading_box.pass_fail {
   width: inherit;
+}
+
+span.late-pill, span.missing-pill {
+  padding-#{direction(left)}: 12px;
+  text-transform: uppercase;
+}
+
+.error {
+  color: $ic-color-danger;
+  border-color: $ic-color-danger;
+}
+
+.submission_late_penalty {
+  color: $ic-color-danger;
+  padding-#{direction(left)}: 12px;
+}
+
+.submission_final_grade {
+  padding-#{direction(left)}: 12px;
+}
+
+// short-term hack until this version of srgb rides into the sunset
+.pill-align {
+  transform: translateY(6px);
+}
+
+.deduction-box {
+  display: flex;
+  .deduction-box-labels {
+    margin-#{direction(right)}: .5em;
+  }
+  .deduction-box-values {
+    flex: 1
+  }
 }

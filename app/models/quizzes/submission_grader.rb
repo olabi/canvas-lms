@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Quizzes
   class SubmissionGrader
     class AlreadyGradedError < RuntimeError; end
@@ -13,7 +30,7 @@ module Quizzes
       tally = 0
       user_answers = []
       data = @submission.submission_data || {}
-      @submission.questions_as_object.each do |q|
+      @submission.questions.each do |q|
         user_answer = self.class.score_question(q, data)
         user_answers << user_answer
         tally += (user_answer[:points] || 0) if user_answer[:correct]
@@ -35,11 +52,14 @@ module Quizzes
         @submission.submission = assignment_submission
       end
       @submission.with_versioning(true) do |s|
-        s.save
+        original_score = s.kept_score
+        original_workflow_state = s.workflow_state
+        if s.save
+          track_outcomes(s.attempt) if outcomes_require_update(s, original_score, original_workflow_state)
+        end
       end
       @submission.context_module_action
       quiz = @submission.quiz
-      track_outcomes(@submission.attempt) if quiz.assignment?
       previous_version = quiz.versions.where(number: @submission.quiz_version).first
       if previous_version && @submission.quiz_version != quiz.version_number
         quiz = previous_version.model.reload
@@ -77,7 +97,11 @@ module Quizzes
       }
       result[:answer_id] = user_answer.answer_id if user_answer.answer_id
       result.merge!(user_answer.answer_details)
-      return result
+      result
+    end
+
+    def outcomes_require_update(submission, original_score, original_workflow_state)
+      submission.quiz.assignment? && kept_score_updating?(original_score, original_workflow_state)
     end
 
     def track_outcomes(attempt)
@@ -95,14 +119,28 @@ module Quizzes
     def update_outcomes(question_ids, submission_id, attempt)
       questions, alignments = questions_and_alignments(question_ids)
       return if questions.empty? || alignments.empty?
-
       submission = Quizzes::QuizSubmission.find(submission_id)
+
       versioned_submission = submission.attempt == attempt ? submission : submission.versions.sort_by(&:created_at).map(&:model).reverse.detect { |s| s.attempt == attempt }
       builder = Quizzes::QuizOutcomeResultBuilder.new(versioned_submission)
       builder.build_outcome_results(questions, alignments)
     end
 
     private
+
+    def kept_score_updating?(original_score, original_workflow_state)
+      # three scoring policies exist, highest, latest, and avg.
+      # for the latter two, the kept score is always updating and
+      # we'll need this method to return true. if the method is highest,
+      # the kept score only updates if it's higher than the original score
+      quiz = @submission.quiz
+      return true if quiz.scoring_policy != 'keep_highest' || quiz.points_possible.to_i == 0 || original_score.nil?
+      # when a submission is pending review, no outcome results are generated.
+      # if the submission transitions to completed, then we need this method
+      # to return true, even if the kept score isn't changing, so outcome results are generated.
+      return true if original_workflow_state == 'pending_review' && @submission.workflow_state == 'complete'
+      @submission.kept_score && @submission.kept_score > original_score
+    end
 
     def questions_and_alignments(question_ids)
       return [], [] if question_ids.empty?

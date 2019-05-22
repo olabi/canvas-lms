@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,19 +29,17 @@ module SIS
 
       # expected columns
       # group_id,user_id,status
-      def process(csv)
-        @sis.counts[:group_memberships] += SIS::GroupMembershipImporter.new(@root_account, importer_opts).process do |importer|
-          csv_rows(csv) do |row|
-            update_progress
-
+      def process(csv, index=nil, count=nil)
+        count = SIS::GroupMembershipImporter.new(@root_account, importer_opts).process do |importer|
+          csv_rows(csv, index, count) do |row|
             begin
               importer.add_group_membership(row['user_id'], row['group_id'], row['status'])
             rescue ImportError => e
-              add_warning(csv, "#{e}")
+              SisBatch.add_error(csv, e.to_s, sis_batch: @batch, row: row['lineno'], row_info: row)
             end
           end
         end
-
+        count
       end
     end
   end

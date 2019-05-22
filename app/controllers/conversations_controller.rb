@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -100,11 +100,9 @@ require 'atom'
 #           "type": "string"
 #         },
 #         "participants": {
-#           "description": "Array of users (id, name) participating in the conversation. Includes current user.",
+#           "description": "Array of users participating in the conversation. Includes current user.",
 #           "type": "array",
-#           "items": {
-#             "type": "string"
-#           }
+#           "items": { "$ref": "ConversationParticipant" }
 #         },
 #         "visible": {
 #           "description": "indicates whether the conversation is visible under the current scope and filter. This attribute is always true in the index API response, and is primarily useful in create/update responses so that you can know if the record should be displayed in the UI. The default scope is assumed, unless a scope or filter is passed to the create/update API call.",
@@ -118,6 +116,35 @@ require 'atom'
 #         }
 #       }
 #     }
+#
+# @model ConversationParticipant
+#     {
+#       "id": "ConversationParticipant",
+#       "description": "",
+#       "properties": {
+#         "id": {
+#           "description": "The user ID for the participant.",
+#           "example": 2,
+#           "type": "integer",
+#           "format": "int64"
+#         },
+#         "name": {
+#           "description": "A short name the user has selected, for use in conversations or other less formal places through the site.",
+#           "example": "Shelly",
+#           "type": "string"
+#         },
+#         "full_name": {
+#           "description": "The full name of the user.",
+#           "example": "Sheldon Cooper",
+#           "type": "string"
+#         },
+#         "avatar_url": {
+#           "description": "If requested, this field will be included and contain a url to retrieve the user's avatar.",
+#           "example": "https://canvas.instructure.com/images/messages/avatar-50.png",
+#           "type": "string"
+#         }
+#       }
+#     }
 class ConversationsController < ApplicationController
   include ConversationsHelper
   include SearchHelper
@@ -125,12 +152,12 @@ class ConversationsController < ApplicationController
   include Api::V1::Conversation
   include Api::V1::Progress
 
-  before_filter :require_user, :except => [:public_feed]
-  before_filter :reject_student_view_student
-  before_filter :get_conversation, :only => [:show, :update, :destroy, :add_recipients, :remove_messages]
-  before_filter :infer_scope, :only => [:index, :show, :create, :update, :add_recipients, :add_message, :remove_messages]
-  before_filter :normalize_recipients, :only => [:create, :add_recipients]
-  before_filter :infer_tags, :only => [:create, :add_message, :add_recipients]
+  before_action :require_user, :except => [:public_feed]
+  before_action :reject_student_view_student
+  before_action :get_conversation, :only => [:show, :update, :destroy, :add_recipients, :remove_messages]
+  before_action :infer_scope, :only => [:index, :show, :create, :update, :add_recipients, :add_message, :remove_messages]
+  before_action :normalize_recipients, :only => [:create, :add_recipients]
+  before_action :infer_tags, :only => [:create, :add_message, :add_recipients]
 
   # whether it's a bulk private message, or a big group conversation,
   # batch up all delayed jobs to make this more responsive to the user
@@ -139,7 +166,8 @@ class ConversationsController < ApplicationController
   API_ALLOWED_FIELDS = %w{workflow_state subscribed starred}.freeze
 
   # @API List conversations
-  # Returns the list of conversations for the current user, most recent ones first.
+  # Returns the paginated list of conversations for the current user, most
+  # recent ones first.
   #
   # @argument scope [String, "unread"|"starred"|"archived"]
   #   When set, only return conversations of the specified type. For example,
@@ -196,7 +224,7 @@ class ConversationsController < ApplicationController
   #   membership type(s) in each course/group
   # @response_field avatar_url URL to appropriate icon for this conversation
   #   (custom, individual or group avatar, depending on audience)
-  # @response_field participants Array of users (id, name) participating in
+  # @response_field participants Array of users (id, name, full_name) participating in
   #   the conversation. Includes current user. If `include[]=participant_avatars`
   #   was passed as an argument, each user in the array will also have an
   #   "avatar_url" field
@@ -223,7 +251,10 @@ class ConversationsController < ApplicationController
   #       "audience": [2],
   #       "audience_contexts": {"courses": {"1": ["StudentEnrollment"]}, "groups": {}},
   #       "avatar_url": "https://canvas.instructure.com/images/messages/avatar-group-50.png",
-  #       "participants": [{"id": 1, "name": "Joe TA"}, {"id": 2, "name": "Jane Teacher"}],
+  #       "participants": [
+  #         {"id": 1, "name": "Joe", "full_name": "Joe TA"},
+  #         {"id": 2, "name": "Jane", "full_name": "Jane Teacher"}
+  #       ],
   #       "visible": true,
   #       "context_name": "Canvas 101"
   #     }
@@ -286,7 +317,9 @@ class ConversationsController < ApplicationController
   # @argument recipients[] [Required, String]
   #   An array of recipient ids. These may be user ids or course/group ids
   #   prefixed with "course_" or "group_" respectively, e.g.
-  #   recipients[]=1&recipients[]=2&recipients[]=course_3
+  #   recipients[]=1&recipients[]=2&recipients[]=course_3. If the course/group
+  #   has over 100 enrollments, 'bulk_message' and 'group_conversation' must be
+  #   set to true.
   #
   # @argument subject [String]
   #   The subject of the conversation. This is ignored when reusing a
@@ -294,6 +327,9 @@ class ConversationsController < ApplicationController
   #
   # @argument body [Required, String]
   #   The message to be sent
+  #
+  # @argument force_new [Boolean]
+  #   Forces a new message to be created, even if there is an existing private conversation.
   #
   # @argument group_conversation [Boolean]
   #   Defaults to false. If true, this will be a group conversation (i.e. all
@@ -343,51 +379,55 @@ class ConversationsController < ApplicationController
     return render_error('body', 'blank') if params[:body].blank?
     context_type = nil
     context_id = nil
+    shard = Shard.current
     if params[:context_code].present?
       context = Context.find_by_asset_string(params[:context_code])
       return render_error('context_code', 'invalid') unless valid_context?(context)
 
+      shard = context.shard
       context_type = context.class.name
       context_id = context.id
     end
 
     params[:recipients].each do |recipient|
-      if recipient =~ /\Acourse_\d+\Z/ &&
-         !Context.find_by_asset_string(recipient).try(:grants_right?, @current_user, session, :send_messages_all)
+      if recipient =~ /\A(course_\d+)(?:_([a-z]+))?$/ && [nil, 'students', 'observers'].include?($2) &&
+         !Context.find_by_asset_string($1).try(:grants_right?, @current_user, session, :send_messages_all)
         return render_error('recipients', 'restricted by role')
       end
     end
 
     group_conversation     = value_to_boolean(params[:group_conversation])
     batch_private_messages = !group_conversation && @recipients.size > 1
-    batch_group_messages   = group_conversation && value_to_boolean(params[:bulk_message])
+    batch_group_messages   = (group_conversation && value_to_boolean(params[:bulk_message])) || value_to_boolean(params[:force_new])
     message                = build_message
 
     if !batch_group_messages && @recipients.size > Conversation.max_group_conversation_size
       return render_error('recipients', 'too many for group conversation')
     end
 
-    if batch_private_messages || batch_group_messages
-      mode = params[:mode] == 'async' ? :async : :sync
-      batch = ConversationBatch.generate(message, @recipients, mode,
-        subject: params[:subject], context_type: context_type,
-        context_id: context_id, tags: @tags, group: batch_group_messages)
+    shard.activate do
+      if batch_private_messages || batch_group_messages
+        mode = params[:mode] == 'async' ? :async : :sync
+        batch = ConversationBatch.generate(message, @recipients, mode,
+          subject: params[:subject], context_type: context_type,
+          context_id: context_id, tags: @tags, group: batch_group_messages)
 
-      if mode == :async
-        headers['X-Conversation-Batch-Id'] = batch.id.to_s
-        return render :json => [], :status => :accepted
+        if mode == :async
+          headers['X-Conversation-Batch-Id'] = batch.id.to_s
+          return render :json => [], :status => :accepted
+        end
+
+        # reload and preload stuff
+        conversations = ConversationParticipant.where(:id => batch.conversations).preload(:conversation).order("visible_last_authored_at DESC, last_message_at DESC, id DESC")
+        Conversation.preload_participants(conversations.map(&:conversation))
+        ConversationParticipant.preload_latest_messages(conversations, @current_user)
+        visibility_map = infer_visibility(conversations)
+        render :json => conversations.map{ |c| conversation_json(c, @current_user, session, :include_participant_avatars => false, :include_participant_contexts => false, :visible => visibility_map[c.conversation_id]) }, :status => :created
+      else
+        @conversation = @current_user.initiate_conversation(@recipients, !group_conversation, :subject => params[:subject], :context_type => context_type, :context_id => context_id)
+        @conversation.add_message(message, :tags => @tags, :update_for_sender => false, :cc_author => true)
+        render :json => [conversation_json(@conversation.reload, @current_user, session, :include_indirect_participants => true, :messages => [message])], :status => :created
       end
-
-      # reload and preload stuff
-      conversations = ConversationParticipant.where(:id => batch.conversations).preload(:conversation).order("visible_last_authored_at DESC, last_message_at DESC, id DESC")
-      Conversation.preload_participants(conversations.map(&:conversation))
-      ConversationParticipant.preload_latest_messages(conversations, @current_user)
-      visibility_map = infer_visibility(conversations)
-      render :json => conversations.map{ |c| conversation_json(c, @current_user, session, :include_participant_avatars => false, :include_participant_contexts => false, :visible => visibility_map[c.conversation_id]) }, :status => :created
-    else
-      @conversation = @current_user.initiate_conversation(@recipients, !group_conversation, :subject => params[:subject], :context_type => context_type, :context_id => context_id)
-      @conversation.add_message(message, :tags => @tags, :update_for_sender => false, :cc_author => true)
-      render :json => [conversation_json(@conversation.reload, @current_user, session, :include_indirect_participants => true, :messages => [message])], :status => :created
     end
   rescue ActiveRecord::RecordInvalid => err
     render :json => err.record.errors, :status => :bad_request
@@ -481,7 +521,11 @@ class ConversationsController < ApplicationController
   #     "audience": [2],
   #     "audience_contexts": {"courses": {"1": []}, "groups": {}},
   #     "avatar_url": "https://canvas.instructure.com/images/messages/avatar-50.png",
-  #     "participants": [{"id": 1, "name": "Joe TA"}, {"id": 2, "name": "Jane Teacher"}, {"id": 3, "name": "Bob Student"}],
+  #     "participants": [
+  #       {"id": 1, "name": "Joe", "full_name": "Joe TA"},
+  #       {"id": 2, "name": "Jane", "full_name": "Jane Teacher"},
+  #       {"id": 3, "name": "Bob", "full_name": "Bob Student"}
+  #     ],
   #     "messages":
   #       [
   #         {
@@ -591,7 +635,7 @@ class ConversationsController < ApplicationController
   #     "audience": [2],
   #     "audience_contexts": {"courses": {"1": []}, "groups": {}},
   #     "avatar_url": "https://canvas.instructure.com/images/messages/avatar-50.png",
-  #     "participants": [{"id": 1, "name": "Joe TA"}]
+  #     "participants": [{"id": 1, "name": "Joe", "full_name": "Joe TA"}]
   #   }
   def update
     if @conversation.update_attributes(params.require(:conversation).permit(*API_ALLOWED_FIELDS))
@@ -678,16 +722,15 @@ class ConversationsController < ApplicationController
     return render_error('conversation_id', 'required') unless params['conversation_id']
 
     Conversation.find(params['conversation_id']).shard.activate do
-      cmp = ConversationMessageParticipant
-              .where(:user_id => params['user_id'])
-              .where(:conversation_message_id => params['message_id'])
+      cmp = ConversationMessageParticipant.
+        where(:user_id => params['user_id']).
+        where(:conversation_message_id => params['message_id'])
 
       cmp.update_all(:workflow_state => 'active', :deleted_at => nil)
 
-      participant = ConversationParticipant
-                      .where(:conversation_id => params['conversation_id'])
-                      .where(:user_id => params['user_id'])
-                      .first()
+      participant = ConversationParticipant.
+        where(:conversation_id => params['conversation_id']).
+        where(:user_id => params['user_id']).first
       messages = participant.messages
 
       participant.message_count = messages.count(:id)
@@ -724,7 +767,12 @@ class ConversationsController < ApplicationController
   #     "audience": [2, 3, 4],
   #     "audience_contexts": {"courses": {"1": []}, "groups": {}},
   #     "avatar_url": "https://canvas.instructure.com/images/messages/avatar-group-50.png",
-  #     "participants": [{"id": 1, "name": "Joe TA"}, {"id": 2, "name": "Jane Teacher"}, {"id": 3, "name": "Bob Student"}, {"id": 4, "name": "Jim Admin"}],
+  #     "participants": [
+  #       {"id": 1, "name": "Joe", "full_name": "Joe TA"},
+  #       {"id": 2, "name": "Jane", "full_name": "Jane Teacher"},
+  #       {"id": 3, "name": "Bob", "full_name": "Bob Student"},
+  #       {"id": 4, "name": "Jim", "full_name": "Jim Admin"}
+  #     ],
   #     "messages":
   #       [
   #         {
@@ -742,8 +790,12 @@ class ConversationsController < ApplicationController
   #
   def add_recipients
     if @recipients.present?
-      @conversation.add_participants(@recipients, :tags => @tags, :root_account_id => @domain_root_account.id)
-      render :json => conversation_json(@conversation.reload, @current_user, session, :messages => [@conversation.messages.first])
+      if @conversation.conversation.can_add_participants?(@recipients)
+        @conversation.add_participants(@recipients, :tags => @tags, :root_account_id => @domain_root_account.id)
+        render :json => conversation_json(@conversation.reload, @current_user, session, :messages => [@conversation.messages.first])
+      else
+        render_error('recipients', 'too many participants for group conversation')
+      end
     else
       render :json => {}, :status => :bad_request
     end
@@ -798,7 +850,11 @@ class ConversationsController < ApplicationController
   #     "audience": [2, 3],
   #     "audience_contexts": {"courses": {"1": []}, "groups": {}},
   #     "avatar_url": "https://canvas.instructure.com/images/messages/avatar-group-50.png",
-  #     "participants": [{"id": 1, "name": "Joe TA"}, {"id": 2, "name": "Jane Teacher"}, {"id": 3, "name": "Bob Student"}],
+  #     "participants": [
+  #       {"id": 1, "name": "Joe", "full_name": "Joe TA"},
+  #       {"id": 2, "name": "Jane", "full_name": "Jane Teacher"},
+  #       {"id": 3, "name": "Bob", "full_name": "Bob Student"}
+  #     ],
   #     "messages":
   #       [
   #         {
@@ -822,8 +878,11 @@ class ConversationsController < ApplicationController
     if params[:body].present?
       # allow responses to be sent to anyone who is already a conversation participant.
       params[:from_conversation_id] = @conversation.conversation_id
-      # not a before_filter because we need to set the above parameter.
+      # not a before_action because we need to set the above parameter.
       normalize_recipients
+      if @recipients && !@conversation.conversation.can_add_participants?(@recipients)
+        return render_error('recipients', 'too many participants for group conversation')
+      end
       # find included_messages
       message_ids = params[:included_messages]
       message_ids = message_ids.split(/,/) if message_ids.is_a?(String)
@@ -859,7 +918,7 @@ class ConversationsController < ApplicationController
         return render :json => [], :status => :accepted
       end
     else
-      render :json => {}, :status => :bad_reqquest
+      render :json => {}, :status => :bad_request
     end
   end
 
@@ -915,7 +974,7 @@ class ConversationsController < ApplicationController
   # @returns Progress
   def batch_update
     conversation_ids = params[:conversation_ids]
-    update_params = params.slice(:event).to_hash.with_indifferent_access
+    update_params = params.permit(:event).to_unsafe_h
 
     allowed_events = %w(mark_as_read mark_as_unread star unstar archive destroy)
     return render(:json => {:message => 'conversation_ids not specified'}, :status => :bad_request) unless params[:conversation_ids].is_a?(Array)
@@ -969,7 +1028,7 @@ class ConversationsController < ApplicationController
       end
     end
     respond_to do |format|
-      format.atom { render :text => feed.to_xml }
+      format.atom { render :plain => feed.to_xml }
     end
   end
 
@@ -1040,7 +1099,7 @@ class ConversationsController < ApplicationController
     end
 
     filters = param_array(:filter)
-    @conversations_scope = @conversations_scope.for_masquerading_user(@real_current_user) if @real_current_user
+    @conversations_scope = @conversations_scope.for_masquerading_user(@real_current_user, @current_user) if @real_current_user
     @conversations_scope = @conversations_scope.tagged(*filters, :mode => filter_mode) if filters.present?
     @set_visibility = true
   end
@@ -1069,7 +1128,7 @@ class ConversationsController < ApplicationController
 
     # unrecognized context codes are ignored
     if AddressBook.valid_context?(params[:context_code])
-      context = Context.find_by_asset_string(params[:context_code])
+      context = AddressBook.load_context(params[:context_code])
       if context.nil?
         # recognized context code must refer to a valid course or group
         return render json: { message: 'invalid context_code' }, status: :bad_request
@@ -1077,18 +1136,10 @@ class ConversationsController < ApplicationController
     end
 
     users, contexts = AddressBook.partition_recipients(params[:recipients])
-    if context
-      user_ids = users.map{ |user| Shard.global_id_for(user) }.to_set
-      is_admin = context.grants_right?(@current_user, :read_as_admin)
-      known = @current_user.address_book.
-        known_in_context(context.asset_string, is_admin).
-        select{ |user| user_ids.include?(user.global_id) }
-    else
-      known = @current_user.address_book.
-        known_users(users, conversation_id: params[:from_conversation_id])
-    end
+    known = @current_user.address_book.known_users(users, context: context, conversation_id: params[:from_conversation_id])
     contexts.each{ |context| known.concat(@current_user.address_book.known_in_context(context)) }
     @recipients = known.uniq(&:id)
+    @recipients.reject!{|u| u.id == @current_user.id} unless @recipients == [@current_user] && params[:recipients].count == 1
   end
 
   def infer_tags

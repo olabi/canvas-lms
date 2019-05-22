@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Importers
   class LinkReplacer
     LINK_TYPE_TO_CLASS = {
@@ -23,9 +40,9 @@ module Importers
         begin
           item_key[:item] ||= retrieve_item(item_key)
 
-          add_missing_link_warnings!(item_key, field_links)
-
           replace_item_placeholders!(item_key, field_links)
+
+          add_missing_link_warnings!(item_key, field_links)
         rescue
           @migration.add_warning("An error occurred while translating content links", $!)
         end
@@ -36,7 +53,7 @@ module Importers
     def load_questions!(link_map)
       aq_item_keys = link_map.keys.select{|item_key| item_key[:type] == :assessment_question}
       aq_item_keys.each_slice(100) do |item_keys|
-        context.assessment_questions.where(:migration_id => item_keys.map{|ikey| ikey[:migration_id]}).each do |aq|
+        context.assessment_questions.where(:migration_id => item_keys.map{|ikey| ikey[:migration_id]}).preload(:assessment_question_bank).each do |aq|
           item_keys.detect{|ikey| ikey[:migration_id] == aq.migration_id}[:item] = aq
         end
       end
@@ -60,7 +77,7 @@ module Importers
     def add_missing_link_warnings!(item_key, field_links)
       fix_issue_url = nil
       field_links.each do |field, links|
-        missing_links = links.select{|link| link[:missing_url] || !link[:new_value]}
+        missing_links = links.select{|link| link[:replaced] && (link[:missing_url] || !link[:new_value])}
         if missing_links.any?
           fix_issue_url ||= fix_issue_url(item_key)
           type = item_key[:type].to_s.humanize.titleize
@@ -108,6 +125,9 @@ module Importers
         end
         if item_updates.present?
           item.class.where(:id => item.id).update_all(item_updates)
+            if version = (item.current_version rescue nil)
+              replace_item_placeholders!({:type => :version, :item => version}, {:yaml => field_links.values.flatten})
+            end
         end
 
         unless skip_associations
@@ -122,6 +142,7 @@ module Importers
       links.each do |link|
         new_value = link[:new_value] || link[:old_value]
         if html.gsub!(link[:placeholder], new_value)
+          link[:replaced] = true
           subbed = true
         end
       end

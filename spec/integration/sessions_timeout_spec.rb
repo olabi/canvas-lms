@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,41 +17,44 @@
 #
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
-describe "Session Timeout" do 
+describe "Session Timeout" do
   context " when sessions timeout is set to 30 minutes" do
     before do
       plugin_setting = PluginSetting.new(:name => "sessions", :settings => {"session_timeout" => "30"})
       plugin_setting.save!
     end
 
-    context "when a user logs in" do 
+    context "when a user logs in" do
       before do
         course_with_student(:active_all => true, :user => user_with_pseudonym(:active_user => true))
-        login_as
       end
 
       it "should time out after 40 minutes of inactivity" do
+        login_as
+
         now = Time.now
         get "/"
-        expect(response).to be_success
+        expect(response).to be_successful
 
-        Time.stubs(:now).returns(now + 40.minutes)
+        allow(Time).to receive(:now).and_return(now + 40.minutes)
         get "/"
         expect(response).to redirect_to "http://www.example.com/login"
       end
 
       it "should not time out if the user remains active" do
+        login_as
+
         now = Time.now
         get "/"
-        expect(response).to be_success
+        expect(response).to be_successful
 
-        Time.stubs(:now).returns(now + 20.minutes)
+        allow(Time).to receive(:now).and_return(now + 20.minutes)
         get "/"
-        expect(response).to be_success
+        expect(response).to be_successful
 
-        Time.stubs(:now).returns(now + 40.minutes)
+        allow(Time).to receive(:now).and_return(now + 40.minutes)
         get "/"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
     end
   end

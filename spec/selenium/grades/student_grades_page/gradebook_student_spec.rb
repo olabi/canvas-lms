@@ -1,7 +1,24 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../helpers/gradebook_common'
 require_relative './gradebook_student_common'
 require_relative '../setup/gradebook_setup'
-require_relative '../page_objects/student_grades_page'
+require_relative '../pages/student_grades_page'
 
 
 describe 'Student Gradebook' do
@@ -20,8 +37,6 @@ describe 'Student Gradebook' do
     end
     assignments
   end
-
-  let(:student_grades_page) { StudentGradesPage.new }
 
   grades = [
     5, 10, 15,
@@ -76,9 +91,9 @@ describe 'Student Gradebook' do
 
       get "/courses/#{@course.id}/grades/#{student.id}"
       [course1, course2, course3].each do |course|
-        options = Selenium::WebDriver::Support::Select.new f('#course_url')
+        options = Selenium::WebDriver::Support::Select.new f('#course_select_menu')
         options.select_by :text, course.name
-
+        expect_new_page_load { f('#apply_select_menus').click }
         details = ff('[id^="submission_"].assignment_graded .grade')
         details.each {|detail| scores.push detail.text[/\d+/].to_i}
       end
@@ -159,12 +174,12 @@ describe 'Student Gradebook' do
     a3.grade_student(@student, grade: 19, grader: @teacher)
 
     user_session(@teacher)
-    student_grades_page.visit_as_teacher(@course, @student)
-    expect(student_grades_page.assignment_row(a3)).to have_class 'dropped'
+    StudentGradesPage.visit_as_teacher(@course, @student)
+    expect(StudentGradesPage.assignment_row(a3)).to have_class 'dropped'
 
     user_session(@student)
-    student_grades_page.visit_as_student(@course)
-    expect(student_grades_page.assignment_row(a3)).to have_class 'dropped'
+    StudentGradesPage.visit_as_student(@course)
+    expect(StudentGradesPage.assignment_row(a3)).to have_class 'dropped'
   end
 
   context 'Comments' do
@@ -190,7 +205,7 @@ describe 'Student Gradebook' do
         submission_types: 'online_upload'
       )
     end
-    let_once(:file_attachment) { attachment_model(:content_type => 'application/pdf', :context => student) }
+    let_once(:file_attachment) { attachment_model(content_type: 'application/pdf', context: student) }
     let_once(:student_submission) do
       assignment.submit_homework(
         student,
@@ -203,9 +218,13 @@ describe 'Student Gradebook' do
 
     it 'should display comments from a teacher on student grades page', priority: "1", test_id: 537621 do
       user_session(student)
-
       get "/courses/#{published_course.id}/grades"
-      fj('.toggle_comments_link .icon-discussion:first').click
+
+      StudentGradesPage.toggle_comment_module
+      unless f('.score_details_table').displayed?
+        # 1st click seems to fail on chrome 1 out of 5 times so adding a second click
+        StudentGradesPage.toggle_comment_module
+      end
       expect(fj('.score_details_table span:first')).to include_text('good job')
     end
 

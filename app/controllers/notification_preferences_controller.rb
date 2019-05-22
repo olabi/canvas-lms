@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -56,7 +56,7 @@
 #     }
 #
 class NotificationPreferencesController < ApplicationController
-  before_filter :require_user, :get_cc
+  before_action :require_user, :get_cc
 
   include Api::V1::NotificationPolicy
 
@@ -70,7 +70,6 @@ class NotificationPreferencesController < ApplicationController
 
   # @API List of preference categories
   # Fetch all notification preference categories for the given communication channel
-  # @returns []
   def category_index
     policies = NotificationPolicy.find_all_for(@cc)
     render json: { categories: policies.map { |p| p.notification.try(:category_slug) }.compact.uniq }
@@ -119,7 +118,7 @@ class NotificationPreferencesController < ApplicationController
   private
   def convert_hash_to_jsonapi_array(hash, key = :id)
     return hash if hash.is_a?(Array)
-    hash.map { |k, v| { key => k }.reverse_merge!(v).with_indifferent_access }
+    hash.to_unsafe_h.map { |k, v| { key => k }.reverse_merge!(v).with_indifferent_access }
   end
 
   def notification_preferences_param

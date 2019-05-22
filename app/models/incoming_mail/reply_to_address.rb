@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -40,7 +40,7 @@ class IncomingMail::ReplyToAddress
     return message.from if message.context_type == 'ErrorReport'
 
     address, domain = self.class.address_from_pool(message).split('@')
-    "#{address}+#{secure_id}-#{Shard.short_id_for(message.global_id)}@#{domain}"
+    "#{address}+#{secure_id}-#{Shard.short_id_for(message.global_id)}-#{message.created_at.to_i}@#{domain}"
   end
 
   alias :to_s :address

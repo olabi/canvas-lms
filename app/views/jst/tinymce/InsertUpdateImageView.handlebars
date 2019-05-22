@@ -1,5 +1,5 @@
 <div class="insertUpdateImage bootstrap-form form-horizontal" >
-  <fieldset style="max-width: 597px;">
+  <fieldset>
     <legend>{{#t "image_source"}}Image Source{{/t}}</legend>
     <div class="ui-tabs-minimal imageSourceTabs">
       <ul>
@@ -36,6 +36,17 @@
             {{#t "quiz_warning"}}Note: This label can be viewed by students taking the quiz.{{/t}}
           </p></span>
         {{/if}}
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label" for="decorative_image">{{#t}}Decorative Image{{/t}}</label>
+      <div class="controls">
+        <input
+          type="checkbox"
+          id="decorative_image"
+          name="image[data-decorative]"
+        />
+        <span><p class="help-block" id="decorative_image_description">{{#t}}Indicates the image is for decorative purposes only and should not be read by screenreaders{{/t}}</p></span>
       </div>
     </div>
     <div class="control-group">

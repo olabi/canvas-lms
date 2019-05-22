@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,6 +19,7 @@
 module Api::V1::Course
   include Api::V1::Json
   include Api::V1::EnrollmentTerm
+  include Api::V1::Account
   include Api::V1::SectionEnrollments
   include Api::V1::PostGradesStatus
   include Api::V1::User
@@ -26,6 +27,7 @@ module Api::V1::Course
 
   def course_settings_json(course)
     settings = {}
+    settings[:allow_final_grade_override] = course.allow_final_grade_override?
     settings[:allow_student_discussion_topics] = course.allow_student_discussion_topics?
     settings[:allow_student_forum_attachments] = course.allow_student_forum_attachments?
     settings[:allow_student_discussion_editing] = course.allow_student_discussion_editing?
@@ -75,30 +77,47 @@ module Api::V1::Course
   #     "hide_final_grades" => false,
   #     "apply_assignment_group_weights" => false,
   #     "calendar" => { "ics" => "http://localhost:3000/feeds/calendars/course_Y6uXZZPu965ziva2pqI7c0QR9v1yu2QZk9X0do2D.ics" },
-  #     "permissions" => { :create_discussion_topic => true }
+  #     "permissions" => { :create_discussion_topic => true },
+  #     "uuid" => "WvAHhY5FINzq5IyRIJybGeiXyFkG3SqHUPb7jZY5"
   #   }
   #
-  def course_json(course, user, session, includes, enrollments)
-    if includes.include?('access_restricted_by_date') && enrollments && enrollments.all?(&:inactive?)
+  def course_json(course, user, session, includes, enrollments, subject_user = user, preloaded_progressions: nil, precalculated_permissions: nil)
+    if includes.include?('access_restricted_by_date') && enrollments&.all?(&:inactive?) && !course.grants_right?(user, :read_as_admin)
       return {'id' => course.id, 'access_restricted_by_date' => true}
     end
 
-    Api::V1::CourseJson.to_hash(course, user, includes, enrollments) do |builder, allowed_attributes, methods, permissions_to_include|
+    Api::V1::CourseJson.to_hash(course, user, includes, enrollments,
+        precalculated_permissions: precalculated_permissions) do |builder, allowed_attributes, methods, permissions_to_include|
       hash = api_json(course, user, session, { :only => allowed_attributes, :methods => methods }, permissions_to_include)
       hash['term'] = enrollment_term_json(course.enrollment_term, user, session, enrollments, []) if includes.include?('term')
-      hash['course_progress'] = CourseProgress.new(course, user).to_json if includes.include?('course_progress')
+      if includes.include?('course_progress')
+        hash['course_progress'] = CourseProgress.new(course,
+                                                     subject_user,
+                                                     preloaded_progressions: preloaded_progressions).to_json
+      end
       hash['apply_assignment_group_weights'] = course.apply_group_weights?
       hash['sections'] = section_enrollments_json(enrollments) if includes.include?('sections')
-      hash['total_students'] = course.student_count || course.students.count if includes.include?('total_students')
+      hash['total_students'] = course.student_count || course.student_enrollments.not_fake.distinct.count(:user_id) if includes.include?('total_students')
       hash['passback_status'] = post_grades_status_json(course) if includes.include?('passback_status')
       hash['is_favorite'] = course.favorite_for_user?(user) if includes.include?('favorites')
-      hash['teachers'] = course.teachers.map { |teacher| user_display_json(teacher) } if includes.include?('teachers')
-      hash['tabs'] = tabs_available_json(course, user, session, ['external']) if includes.include?('tabs')
+      if includes.include?('teachers')
+        if course.teacher_count
+          hash['teacher_count'] = course.teacher_count
+        else
+          hash['teachers'] = course.teachers.distinct.map { |teacher| user_display_json(teacher) }
+        end
+      end
+      hash['tabs'] = tabs_available_json(course, user, session, ['external'], precalculated_permissions: precalculated_permissions) if includes.include?('tabs')
       hash['locale'] = course.locale unless course.locale.nil?
+      hash['account'] = account_json(course.account, user, session, []) if includes.include?('account')
+      # undocumented, but leaving for backwards compatibility.
+      hash['subaccount_name'] = course.account.name if includes.include?('subaccount')
       add_helper_dependant_entries(hash, course, builder)
       apply_nickname(hash, course, user) if user
 
       hash['image_download_url'] = course.image if includes.include?('course_image') && course.feature_enabled?('course_card_images')
+      hash['concluded'] = course.concluded? if includes.include?('concluded')
+      apply_master_course_settings(hash, course, user)
 
       # return hash from the block for additional processing in Api::V1::CourseJson
       hash
@@ -138,4 +157,36 @@ module Api::V1::Course
     hash
   end
 
+  def apply_master_course_settings(hash, course, user)
+    is_mc = MasterCourses::MasterTemplate.is_master_course?(course)
+    hash['blueprint'] = is_mc
+
+    if is_mc
+      template = MasterCourses::MasterTemplate.full_template_for(course)
+      if template.use_default_restrictions_by_type
+        hash['blueprint_restrictions_by_object_type'] = template.default_restrictions_by_type_for_api
+      else
+        hash['blueprint_restrictions'] = template.default_restrictions
+      end
+    end
+  end
+
+  def preload_teachers(courses)
+    threshold = params[:teacher_limit].presence&.to_i
+    if threshold
+      teacher_counts = Course.where(:id => courses).joins(:teacher_enrollments).group("courses.id").count
+      to_preload = []
+      courses.each do |course|
+        next unless count = teacher_counts[course.id]
+        if count > threshold
+          course.teacher_count = count
+        else
+          to_preload << course
+        end
+      end
+      ActiveRecord::Associations::Preloader.new.preload(to_preload, [:teachers]) if to_preload.any?
+    else
+      ActiveRecord::Associations::Preloader.new.preload(courses, [:teachers])
+    end
+  end
 end

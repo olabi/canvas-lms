@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -50,7 +50,7 @@ class ContentParticipation < ActiveRecord::Base
   end
 
   def update_participation_count
-    return unless workflow_state_changed?
+    return unless saved_change_to_workflow_state?
     ContentParticipationCount.create_or_update({
       :context => content.context,
       :user => user,

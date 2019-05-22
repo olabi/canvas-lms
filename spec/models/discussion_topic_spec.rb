@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,6 +22,149 @@ describe DiscussionTopic do
   before :once do
     course_with_teacher(:active_all => true)
     student_in_course(:active_all => true)
+  end
+
+  def create_enrolled_user(course, section, opts)
+    opts.reverse_merge!(:active_all => true, :section => section, :enrollment_state => 'active')
+    user = user_factory(opts)
+    user.save!
+    course.enroll_user(user, type=opts[:enrollment_type], opts)
+    return user
+  end
+
+  def add_section_to_topic(topic, section, opts = {})
+    opts.reverse_merge!({
+      :workflow_state => "active"
+    })
+    topic.is_section_specific = true
+    topic.discussion_topic_section_visibilities <<
+      DiscussionTopicSectionVisibility.new(
+        :discussion_topic => topic,
+        :course_section => section,
+        :workflow_state => opts[:workflow_state]
+      )
+  end
+
+  describe '#grading_standard_or_default' do
+    context 'when the DiscussionTopic belongs to a Course' do
+      before(:once) do
+        @assignment = @course.assignments.create(title: "discussion assignment", points_possible: 20)
+        @topic = @course.discussion_topics.create!(assignment: @assignment)
+        @grading_standard = grading_standard_for(@course)
+      end
+
+      it 'returns the grading scheme used by the discussion topic, if one exists' do
+        @assignment.update!(grading_standard: @grading_standard)
+        expect(@topic.grading_standard_or_default).to be @grading_standard
+      end
+
+      it 'returns the grading scheme used by the course, if one exists and the discussion topic is not using one' do
+        @course.update!(default_grading_standard: @grading_standard)
+        expect(@topic.grading_standard_or_default).to be @grading_standard
+      end
+
+      it 'returns the grading scheme used by the topic if the topic and course are using a grading scheme' do
+        @assignment.update!(grading_standard: @grading_standard)
+        course_standard = grading_standard_for(@course, title: 'new scheme')
+        @course.update!(default_grading_standard: course_standard)
+        expect(@topic.grading_standard_or_default).to be @grading_standard
+      end
+
+      it 'returns the Canvas default grading scheme if neither the topic nor course are not using a grading scheme' do
+        expect(@course.grading_standard_or_default.data).to eq GradingStandard.default_grading_standard
+      end
+    end
+
+    context 'when the DiscussionTopic belongs to a Group' do
+      before(:once) do
+        group = @course.groups.create!
+        @topic = group.discussion_topics.create!
+        @grading_standard = grading_standard_for(@course)
+      end
+
+      it 'returns the grading scheme used by the course, if one exists' do
+        @course.update!(default_grading_standard: @grading_standard)
+        expect(@topic.grading_standard_or_default).to be @grading_standard
+      end
+
+      it 'returns the Canvas default grading scheme if neither the topic nor course are not using a grading scheme' do
+        expect(@topic.grading_standard_or_default.data).to eq GradingStandard.default_grading_standard
+      end
+
+      it 'returns the Canvas default grading scheme if the Group belongs to an Account' do
+        group = @course.root_account.groups.create!
+        @topic.update!(context: group)
+        expect(@topic.grading_standard_or_default.data).to eq GradingStandard.default_grading_standard
+      end
+    end
+  end
+
+  describe "default values for boolean attributes" do
+    before(:once) do
+      @topic = @course.discussion_topics.create!
+    end
+
+    let(:values) do
+      DiscussionTopic.where(id: @topic).pluck(
+        :could_be_locked,
+        :podcast_enabled,
+        :podcast_has_student_posts,
+        :require_initial_post,
+        :pinned,
+        :locked,
+        :allow_rating,
+        :only_graders_can_rate,
+        :sort_by_rating
+      ).first
+    end
+
+    it "saves boolean attributes as false if they are set to nil" do
+      @topic.update!(
+        could_be_locked: nil,
+        podcast_enabled: nil,
+        podcast_has_student_posts: nil,
+        require_initial_post: nil,
+        pinned: nil,
+        locked: nil,
+        allow_rating: nil,
+        only_graders_can_rate: nil,
+        sort_by_rating: nil
+      )
+
+      expect(values).to eq([false] * values.length)
+    end
+
+    it "saves boolean attributes as false if they are set to false" do
+      @topic.update!(
+        could_be_locked: false,
+        podcast_enabled: false,
+        podcast_has_student_posts: false,
+        require_initial_post: false,
+        pinned: false,
+        locked: false,
+        allow_rating: false,
+        only_graders_can_rate: false,
+        sort_by_rating: false
+      )
+
+      expect(values).to eq([false] * values.length)
+    end
+
+    it "saves boolean attributes as true if they are set to true" do
+      @topic.update!(
+        could_be_locked: true,
+        podcast_enabled: true,
+        podcast_has_student_posts: true,
+        require_initial_post: true,
+        pinned: true,
+        locked: true,
+        allow_rating: true,
+        only_graders_can_rate: true,
+        sort_by_rating: true
+      )
+
+      expect(values).to eq([true] * values.length)
+    end
   end
 
   it "should santize message" do
@@ -94,7 +237,7 @@ describe DiscussionTopic do
 
     it "should not grant moderate permissions without read permissions" do
       @course.account.role_overrides.create!(:role => teacher_role, :permission => 'read_forum', :enabled => false)
-      expect((@topic.check_policy(@teacher2) & @relevant_permissions)).to be_empty
+      expect(@topic.reload.check_policy(@teacher2)).to eql [:create]
     end
 
     it "should grant permissions if it not locked" do
@@ -133,7 +276,6 @@ describe DiscussionTopic do
 
   describe "visibility" do
     before(:once) do
-      #student_in_course(:active_all => 1)
       @topic = @course.discussion_topics.create!(:user => @teacher)
     end
 
@@ -202,11 +344,33 @@ describe DiscussionTopic do
       expect(@topic.visible_for?(@student)).to be_truthy
     end
 
-    it "should be visible to all teachers in the course" do
+    it "should be visible to teachers not locked to a section in the course" do
       @topic.update_attribute(:delayed_post_at, Time.now + 1.day)
       new_teacher = user_factory
       @course.enroll_teacher(new_teacher).accept!
       expect(@topic.visible_for?(new_teacher)).to be_truthy
+    end
+
+    it "should not be visible to teachers locked to a different section in a course" do
+      section1 = @course.course_sections.create!(name: "Section 1")
+      section2 = @course.course_sections.create!(name: "Section 2")
+      new_teacher = user_factory
+      @course.enroll_teacher(new_teacher, section: section1, allow_multiple_enrollments: true).accept!
+      Enrollment.limit_privileges_to_course_section!(@course, new_teacher, true)
+      ann = @course.announcements.create!(message: "testing", is_section_specific: true, course_sections: [section2])
+      ann.save!
+      expect(ann.visible_for?(new_teacher)).not_to be_truthy
+    end
+
+    it "should be visible to teachers locked to the same section in a course" do
+      section1 = @course.course_sections.create!(name: "Section 1")
+      section2 = @course.course_sections.create!(name: "Section 2")
+      new_teacher = user_factory
+      @course.enroll_teacher(new_teacher, section: section1, allow_multiple_enrollments: true).accept!
+      Enrollment.limit_privileges_to_course_section!(@course, new_teacher, true)
+      ann = @course.announcements.create!(message: "testing", is_section_specific: true, course_sections: [section1])
+      ann.save!
+      expect(ann.visible_for?(new_teacher)).to be_truthy
     end
 
     it "unpublished topics should not be visible to custom account admins by default" do
@@ -224,6 +388,18 @@ describe DiscussionTopic do
       account = @course.root_account
       nobody_role = custom_account_role('NobodyAdmin', account: account)
       account_with_role_changes(account: account, role: nobody_role, role_changes: { read_course_content: true, read_forum: true })
+      admin = account_admin_user(account: account, role: nobody_role, active_user: true)
+      expect(@topic.visible_for?(admin)).to be_truthy
+    end
+
+    it "section-specific-topics should be visible to account admins" do
+      account = @course.root_account
+      section = @course.course_sections.create!(name: "Section of topic")
+      add_section_to_topic(@topic, section)
+      @topic.save!
+      nobody_role = custom_account_role('NobodyAdmin', account: account)
+      account_with_role_changes(account: account, role: nobody_role,
+        role_changes: { read_course_content: true, read_forum: true })
       admin = account_admin_user(account: account, role: nobody_role, active_user: true)
       expect(@topic.visible_for?(admin)).to be_truthy
     end
@@ -306,6 +482,21 @@ describe DiscussionTopic do
           expect(@topic.context).to eq(@course)
           expect(@topic.active_participants_with_visibility.include?(@student1)).to be_truthy
           expect(@topic.active_participants_with_visibility.include?(@student2)).to be_truthy
+        end
+
+        it "should filter out-of-section students" do
+          topic = @course.discussion_topics.create(
+            :title => "foo", :message => "bar", :user => @teacher)
+          section1 = @course.course_sections.create!
+          section2 = @course.course_sections.create!
+          student1 = create_enrolled_user(@course, section1, :name => 'student 1', :enrollment_type => 'StudentEnrollment')
+          student2 = create_enrolled_user(@course, section2, :name => 'student 2', :enrollment_type => 'StudentEnrollment')
+          add_section_to_topic(topic, section2)
+          topic.save!
+          topic.publish!
+          expect(topic.active_participants_with_visibility.include?(student1)).to be_falsey
+          expect(topic.active_participants_with_visibility.include?(student2)).to be_truthy
+          expect(topic.active_participants_with_visibility.include?(@teacher)).to be_truthy
         end
 
         it "should work when ungraded and context is a group" do
@@ -421,6 +612,7 @@ describe DiscussionTopic do
     it "should allow students to create topics by default" do
       expect(@topic.check_policy(@teacher)).to include :create
       expect(@topic.check_policy(@student)).to include :create
+      expect(@topic.check_policy(@course.student_view_student)).to include :create
     end
 
     it "should disallow students from creating topics" do
@@ -429,6 +621,7 @@ describe DiscussionTopic do
       @topic.reload
       expect(@topic.check_policy(@teacher)).to include :create
       expect(@topic.check_policy(@student)).not_to include :create
+      expect(@topic.check_policy(@course.student_view_student)).not_to include :create
     end
 
   end
@@ -629,7 +822,7 @@ describe DiscussionTopic do
       expect(@topic.subtopics_refreshed_at).not_to be_nil
     end
 
-    it "should not allow students to edit sub-topics" do
+    it "should not allow anyone to edit sub-topics" do
       @first_user = @student
       @second_user = user_model
       @course.enroll_student(@second_user).accept
@@ -643,6 +836,8 @@ describe DiscussionTopic do
       @sub_topic.save!
       expect(@group_topic.grants_right?(@second_user, :update)).to eql(false)
       expect(@sub_topic.grants_right?(@second_user, :update)).to eql(false)
+      expect(@group_topic.grants_right?(@teacher, :update)).to eql(true)
+      expect(@sub_topic.grants_right?(@teacher, :update)).to eql(false) # the changes just get undone anyway by refresh_subtopics
     end
   end
 
@@ -881,6 +1076,22 @@ describe DiscussionTopic do
       expect(@teacher.stream_item_instances.count).to eq 1
     end
 
+    it "should send stream items to participating students" do
+      expect { @course.discussion_topics.create!(:title => "topic", :user => @teacher) }.to change { @student.stream_item_instances.count }.by(1)
+    end
+
+    it "should not send stream items to students if the topic isn't published" do
+      topic = nil
+      expect { topic = @course.discussion_topics.create!(:title => "secret topic", :user => @teacher, :workflow_state => 'unpublished') }.to change { @student.stream_item_instances.count }.by(0)
+      expect { topic.discussion_entries.create! }.to change { @student.stream_item_instances.count }.by(0)
+    end
+
+    it "should not send stream items to students if the topic is not available yet" do
+      topic = nil
+      expect { topic = @course.discussion_topics.create!(:title => "secret topic", :user => @teacher, :delayed_post_at => 1.week.from_now) }.to change { @student.stream_item_instances.count }.by(0)
+      expect { topic.discussion_entries.create! }.to change { @student.stream_item_instances.count }.by(0)
+    end
+
     it "should send stream items to students for graded discussions" do
       @topic = @course.discussion_topics.build(:title => "topic")
       @assignment = @course.assignments.build(:submission_types => 'discussion_topic', :title => @topic.title)
@@ -889,6 +1100,19 @@ describe DiscussionTopic do
       @topic.save
 
       expect(@student.stream_item_instances.count).to eq 1
+    end
+
+    it "doesn't send stream items for students that aren't assigned" do
+      @empty_section = @course.course_sections.create!
+      @topic = @course.discussion_topics.build(:title => "topic")
+      @assignment = @course.assignments.build title: @topic.title,
+        submission_types: 'discussion_topic',
+        only_visible_to_overrides: true
+      @assignment.assignment_overrides.build set: @empty_section
+      @assignment.saved_by = :discussion_topic
+      @topic.assignment = @assignment
+      @topic.save
+      expect(@student.stream_item_instances.count).to eq 0
     end
   end
 
@@ -905,6 +1129,15 @@ describe DiscussionTopic do
       expect(@topic.user_can_see_posts?(@teacher)).to eq true
     end
 
+    it "should allow course admins to see posts in concluded group topics without posting" do
+      group_category = @course.group_categories.create(:name => "category")
+      @group = @course.groups.create(:name => "group", :group_category => group_category)
+      @topic.update_attribute(:group_category, group_category)
+      subtopic = @topic.child_topics.first
+      @course.complete!
+      expect(subtopic.user_can_see_posts?(@teacher)).to eq true
+    end
+
     it "should only allow active admins to see posts without posting" do
       @ta_enrollment = course_with_ta(:course => @course, :active_enrollment => true)
       # TA should be able to see
@@ -918,7 +1151,7 @@ describe DiscussionTopic do
       expect(@topic.user_can_see_posts?(@ta)).to eq false
     end
 
-    it "shouldn't allow student (and observer) who hasn't posted to see" do
+    it "shouldn't allow student who hasn't posted to see" do
       expect(@topic.user_can_see_posts?(@student)).to eq false
     end
 
@@ -934,7 +1167,7 @@ describe DiscussionTopic do
       expect { @topic.reply_from(:user => @student, :text => "hai") }.to raise_error(IncomingMail::Errors::ReplyToDeletedDiscussion)
     end
 
-    it "should allow student (and observer) who has posted to see" do
+    it "should allow student who has posted to see" do
       @topic.reply_from(:user => @student, :text => 'hai')
       expect(@topic.user_can_see_posts?(@student)).to eq true
     end
@@ -949,6 +1182,42 @@ describe DiscussionTopic do
       ct.reply_from(user: @student, text: 'ohai')
       ct.user_ids_who_have_posted_and_admins
       expect(ct.user_can_see_posts?(@student)).to be_truthy
+    end
+
+    it "should let account admins see group discussions with require_initial_post" do
+      group_discussion_assignment
+      @topic.require_initial_post = true
+      @topic.save!
+      ct = @topic.child_topics.first
+      account_admin_user(:active_all => true)
+      expect(ct.user_can_see_posts?(@admin)).to be_truthy
+    end
+
+    describe "observers" do
+      before :once do
+        @other_student = user_factory(:active_all => true)
+        @course.enroll_student(@other_student, :enrollment_state => 'active')
+        @course.enroll_user(@observer, 'ObserverEnrollment',
+                            :associated_user_id => @student, :enrollment_state => 'active')
+        @course.enroll_user(@observer, 'ObserverEnrollment',
+                            :associated_user_id => @other_student, :enrollment_state => 'active')
+      end
+
+      it "does not allow observers to see replies to a discussion linked students haven't posted in" do
+        expect(@topic.initial_post_required?(@observer)).to be
+      end
+
+      # previously this worked for exactly one observer enrollment, whichever became @context_enrollment
+      # so test both ways
+      it "allows observers to see replies in a discussion a linked student has posted in (1/2)" do
+        @topic.reply_from(:user => @student, :text => 'wat')
+        expect(@topic.initial_post_required?(@observer)).not_to be
+      end
+
+      it "allows observers to see replies in a discussion a linked student has posted in (2/2)" do
+        @topic.reply_from(:user => @other_student, :text => 'wat')
+        expect(@topic.initial_post_required?(@observer)).not_to be
+      end
     end
   end
 
@@ -1174,16 +1443,28 @@ describe DiscussionTopic do
     end
 
     it "should create submissions for existing entries when setting the assignment (even if locked)" do
-      @topic.reply_from(:user => @student, :text => "entry")
+      entry = @topic.reply_from(:user => @student, :text => "entry")
       @student.reload
       expect(@student.submissions).to be_empty
 
+      entry_time = 1.minute.ago
+      DiscussionEntry.where(:id => entry.id).update_all(:created_at => entry_time)
       @assignment = assignment_model(:course => @course, :lock_at => 1.day.ago)
       @topic.assignment = @assignment
       @topic.save
       @student.reload
       expect(@student.submissions.size).to eq 1
-      expect(@student.submissions.first.submission_type).to eq 'discussion_topic'
+      sub = @student.submissions.first
+      expect(sub.submission_type).to eq 'discussion_topic'
+      expect(sub.submitted_at).to eq entry_time # the submission time should be backdated to the entry creation time
+    end
+
+    it 'should use fancy midnight' do
+      @topic.lock_at = Time.zone.parse('Sat, 31 Mar 2018')
+      @topic.save!
+      expect(@topic.lock_at.hour).to eq 23
+      expect(@topic.lock_at.min).to eq 59
+      expect(@topic.lock_at.sec).to eq 59
     end
 
     it "should create submissions for existing entries in group topics when setting the assignment (even if locked)" do
@@ -1319,6 +1600,9 @@ describe DiscussionTopic do
       @topic.ensure_submission(@student)
       sub = @assignment.submissions.where(:user_id => @student).first
       expect(sub.attachments.to_a).to eq [@attachment]
+
+      entry.destroy
+      expect(sub.reload.attachments.to_a).to eq [] # should update the attachments right away and not depend on another entry being created
     end
 
     it "should associate attachments with graded discussion submissions even with silly deleted topics" do
@@ -1368,6 +1652,17 @@ describe DiscussionTopic do
   end
 
   context "read/unread state" do
+    def check_read_state_scopes(read: false, user: nil)
+      return unless user
+      if read
+        expect(DiscussionTopic.read_for(user)).to be_include @topic
+        expect(DiscussionTopic.unread_for(user)).not_to be_include @topic
+      else
+        expect(DiscussionTopic.read_for(user)).not_to be_include @topic
+        expect(DiscussionTopic.unread_for(user)).to be_include @topic
+      end
+    end
+
     before(:once) do
       @topic = @course.discussion_topics.create!(:title => "title", :message => "message", :user => @teacher)
     end
@@ -1375,11 +1670,13 @@ describe DiscussionTopic do
     it "should mark a topic you created as read" do
       expect(@topic.read?(@teacher)).to be_truthy
       expect(@topic.unread_count(@teacher)).to eq 0
+      check_read_state_scopes read: true, user: @teacher
     end
 
     it "should be unread by default" do
       expect(@topic.read?(@student)).to be_falsey
       expect(@topic.unread_count(@student)).to eq 0
+      skip("check_read_state_scopes user: @student") # TODO: Fix
     end
 
     it "should allow being marked unread" do
@@ -1387,6 +1684,7 @@ describe DiscussionTopic do
       @topic.reload
       expect(@topic.read?(@teacher)).to be_falsey
       expect(@topic.unread_count(@teacher)).to eq 0
+      check_read_state_scopes user: @teacher
     end
 
     it "should allow being marked read" do
@@ -1394,6 +1692,7 @@ describe DiscussionTopic do
       @topic.reload
       expect(@topic.read?(@student)).to be_truthy
       expect(@topic.unread_count(@student)).to eq 0
+      check_read_state_scopes read: true, user: @student
     end
 
     it "should allow mark all as unread with forced_read_state" do
@@ -1412,6 +1711,7 @@ describe DiscussionTopic do
       expect(@reply.find_existing_participant(@teacher)).to be_forced_read_state
 
       expect(@topic.unread_count(@teacher)).to eq 2
+      check_read_state_scopes user: @teacher
     end
 
     it "should allow mark all as read without forced_read_state" do
@@ -1431,20 +1731,21 @@ describe DiscussionTopic do
       expect(@reply.find_existing_participant(@student)).to be_forced_read_state
 
       expect(@topic.unread_count(@student)).to eq 0
+      check_read_state_scopes read: true, user: @student
     end
 
     it "should use unique_constaint_retry when updating read state" do
-      DiscussionTopic.expects(:unique_constraint_retry).once
+      expect(DiscussionTopic).to receive(:unique_constraint_retry).once
       @topic.change_read_state("read", @student)
     end
 
     it "should use unique_constaint_retry when updating all read state" do
-      DiscussionTopic.expects(:unique_constraint_retry).once
+      expect(DiscussionTopic).to receive(:unique_constraint_retry).once
       @topic.change_all_read_state("unread", @student)
     end
 
     it "should sync unread state with the stream item" do
-      @stream_item = @topic.stream_item(true)
+      @stream_item = @topic.reload_stream_item
       expect(@stream_item.stream_item_instances.detect{|sii| sii.user_id == @teacher.id}).to be_read
       expect(@stream_item.stream_item_instances.detect{|sii| sii.user_id == @student.id}).to be_unread
 
@@ -1661,7 +1962,7 @@ describe DiscussionTopic do
       group_discussion_assignment
       @topic.destroy
 
-      @topic.reload.assignment.expects(:restore).with(:discussion_topic).once
+      expect(@topic.reload.assignment).to receive(:restore).with(:discussion_topic).once
       @topic.restore
       expect(@topic.reload).to be_unpublished
       @topic.child_topics.each { |ct| expect(ct.reload).to be_unpublished }
@@ -1674,6 +1975,24 @@ describe DiscussionTopic do
 
       ann.restore
       expect(ann.reload).to be_active
+    end
+
+    it "should restore an announcement to active state with sections" do
+      section = @course.course_sections.create!
+      @course.save!
+      announcement = Announcement.create!(
+        :title => "some topic",
+        :message => "I announce that i am lying",
+        :user => @teacher,
+        :context => @course,
+        :workflow_state => "published"
+      )
+      add_section_to_topic(announcement, section)
+      announcement.save!
+      announcement.destroy
+
+      announcement.restore
+      expect(announcement.reload).to be_active
     end
 
     it "should restore a topic with submissions to active state" do
@@ -1720,6 +2039,13 @@ describe DiscussionTopic do
       expect(announcement.reload.comments_disabled?).to be_truthy
     end
 
+    it "should reflect account setting for when lock_all_announcements is enabled" do
+      announcement = @course.announcements.create!(message: "Lock this")
+      expect(announcement.comments_disabled?).to be_falsey
+      @course.account.tap{|a| a.settings[:lock_all_announcements] = {:value => true, :locked => true}; a.save!}
+      expect(announcement.reload.comments_disabled?).to be_truthy
+    end
+
     it "should not allow replies from students to topics locked based on date" do
       course_with_teacher(:active_all => true)
       discussion_topic_model(:context => @course)
@@ -1728,38 +2054,6 @@ describe DiscussionTopic do
       @topic.reply_from(:user => @teacher, :text => "reply") # should not raise error
       student_in_course(:course => @course).accept!
       expect { @topic.reply_from(:user => @student, :text => "reply") }.to raise_error(IncomingMail::Errors::ReplyToLockedTopic)
-    end
-  end
-
-  describe "locked flag" do
-    before :once do
-      discussion_topic_model
-    end
-
-    it "should ignore workflow_state if the flag is set" do
-      @topic.locked = true
-      @topic.workflow_state = 'active'
-      expect(@topic.locked?).to be_truthy
-      @topic.locked = false
-      @topic.workflow_state = 'locked'
-      expect(@topic.locked?).to be_falsey
-    end
-
-    it "should fall back to the workflow_state if the flag is nil" do
-      @topic.locked = nil
-      @topic.workflow_state = 'active'
-      expect(@topic.locked?).to be_falsey
-      @topic.workflow_state = 'locked'
-      expect(@topic.locked?).to be_truthy
-    end
-
-    it "should fix up a 'locked' workflow_state" do
-      @topic.workflow_state = 'locked'
-      @topic.locked = nil
-      @topic.save!
-      @topic.unlock!
-      expect(@topic.workflow_state).to eql 'active'
-      expect(@topic.locked?).to be_falsey
     end
   end
 
@@ -1772,6 +2066,182 @@ describe DiscussionTopic do
       ids = new_order.map {|x| topics[x-1].id}
       topics[0].update_order(ids)
       expect(topics.first.list_scope.map(&:id)).to eq ids
+    end
+  end
+
+  describe "section specific announcements" do
+    before :once do
+      @course = course_factory({ :course_name => "Course 1", :active_all => true })
+      @section = @course.course_sections.create!
+      @course.save!
+      @announcement = Announcement.create!(
+        :title => "some topic",
+        :message => "I announce that i am lying",
+        :user => @teacher,
+        :context => @course,
+        :workflow_state => "published"
+      )
+    end
+
+    def course_with_two_sections
+      course = course_factory({ :course_name => "Course 1", :active_all => true })
+      course.course_sections.create!
+      course.course_sections.create!
+      course.save!
+      course
+    end
+
+    def basic_announcement_model(opts = {})
+      opts.reverse_merge!({
+        :title => "Default title",
+        :message => "Default message",
+        :is_section_specific => false
+      })
+      announcement = Announcement.create!(
+        :title => opts[:title],
+        :message => opts[:message],
+        :user => @teacher,
+        :context => opts[:course],
+        :workflow_state => "published",
+      )
+      announcement.is_section_specific = opts[:is_section_specific]
+      announcement
+    end
+
+    it "only section specific topics can have sections" do
+      announcement = basic_announcement_model(course: @course)
+      add_section_to_topic(announcement, @section)
+      expect(announcement.valid?).to eq true
+      announcement.is_section_specific = false
+      expect(announcement.valid?).to eq false
+      announcement.discussion_topic_section_visibilities.first.destroy
+      expect(announcement.valid?).to eq true
+    end
+
+    it "section specific topics must have sections" do
+      @announcement.is_section_specific = true
+      expect(@announcement.valid?).to eq false
+      errors = @announcement.errors[:is_section_specific]
+      expect(errors).to eq ["Section specific topics must have sections"]
+    end
+
+    it "group topics cannot be section specific" do
+      group_category = @course.group_categories.create(:name => "new category")
+      @group = @course.groups.create(:name => "group", :group_category => group_category)
+      student_in_course(active_all: true)
+      @group.add_user(@student)
+      announcement = basic_announcement_model(course: @group)
+      add_section_to_topic(announcement, @section)
+      expect(announcement.valid?).to eq false
+      errors = announcement.errors[:is_section_specific]
+      # note that the feature flag validation will also fail here, but we still want this
+      # validation to trigger too.
+      expect(errors.include?("Only course announcements and discussions can be section-specific")).to eq true
+    end
+
+    it "allows discussions to be section-specific if the feature is enabled" do
+      topic = DiscussionTopic.create!(:title => "some title", :context => @course,
+        :user => @teacher)
+      add_section_to_topic(topic, @section)
+      expect(topic.valid?).to eq true
+    end
+
+    it "does not allow graded discussions to be section-specific" do
+      group_discussion_assignment
+      add_section_to_topic(@topic, @section)
+      expect(@topic.valid?).to eq false
+    end
+
+    it "does not allow course grouped discussions to be section-specific" do
+      group_discussion_topic_model
+      add_section_to_topic(@group_topic, @section)
+      expect(@group_topic.valid?).to eq false
+    end
+
+    it "should not include deleted sections" do
+      course = course_with_two_sections
+      announcement = basic_announcement_model(
+        :course => course,
+      )
+      add_section_to_topic(announcement, course.course_sections.first)
+      add_section_to_topic(announcement, course.course_sections.second)
+      announcement.save!
+      expect(announcement.course_sections.length).to eq 2
+      course.course_sections.second.reload
+      course.course_sections.second.destroy
+      announcement.reload
+      expect(announcement.course_sections.length).to eq 1
+      expect(announcement.course_sections.first.id).to eq course.course_sections.first.id
+    end
+
+    it "should allow deletion of announcement" do
+      course = course_with_two_sections
+      announcement = basic_announcement_model(
+        :course => course,
+        :is_section_specific => true
+      )
+      add_section_to_topic(announcement, course.course_sections.first)
+      add_section_to_topic(announcement, course.course_sections.second)
+      announcement.save!
+      Announcement.find(announcement.id).destroy
+      announcement.reload
+      expect(announcement.workflow_state).to eq "deleted"
+    end
+
+    it "scope allows non-section-specific announcements" do
+      course = course_with_two_sections
+      announcement = basic_announcement_model(
+        :course => course,
+        :is_section_specific => false
+      )
+      announcement.save!
+      topics = DiscussionTopic.in_sections(course.course_sections)
+      expect(topics.length).to eq 1
+    end
+
+    it "scope allows section-specific announcements if in right section" do
+      course = course_with_two_sections
+      announcement = basic_announcement_model(
+        :course => course,
+      )
+      add_section_to_topic(announcement, course.course_sections.first)
+      announcement.save!
+      topics = DiscussionTopic.in_sections(course.course_sections)
+      expect(topics.length).to eq 1
+    end
+
+    it "scope forbids section-specific announcements if in wrong section" do
+      course = course_with_two_sections
+      announcement = basic_announcement_model(
+        :course => course,
+      )
+      add_section_to_topic(announcement, course.course_sections.second)
+      announcement.save!
+      topics = DiscussionTopic.in_sections([course.course_sections.first])
+      expect(topics.length).to eq 0
+    end
+
+    it "scope forbids sections from multiple courses" do
+      course1 = course_with_two_sections
+      course2 = course_with_two_sections
+      sections = [ course1.course_sections.first, course2.course_sections.first ]
+      expect { DiscussionTopic.in_sections(sections) }.
+        to raise_error(DiscussionTopic::QueryError,
+          "Searching for announcements in sections must span exactly one course")
+    end
+
+    it "don't return duplicates if matched multiple sections" do
+      course = course_with_two_sections
+      announcement = basic_announcement_model(
+        :course => course,
+      )
+      add_section_to_topic(announcement, course.course_sections.first)
+      add_section_to_topic(announcement, course.course_sections.second)
+      announcement.save!
+      topics = DiscussionTopic.in_sections(
+        [course.course_sections.first, course.course_sections.second]
+      )
+      expect(topics.length).to eq 1
     end
   end
 
@@ -1920,6 +2390,7 @@ describe DiscussionTopic do
       @course.offer!
       topic = @course.discussion_topics.create!(:title => "title")
       expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to be_include(@user)
+      expect(topic.messages_sent['New Discussion Topic'].first.from_name).to eq @course.name
     end
 
     it "should not send a message for an unpublished course" do
@@ -1943,6 +2414,108 @@ describe DiscussionTopic do
         topic = @group.discussion_topics.create!(:title => "title")
         expect(topic.messages_sent["New Discussion Topic"]).to be_blank
       end
+    end
+  end
+
+  it "should let course admins reply to concluded topics" do
+    course_with_teacher(:active_all => true)
+    topic = @course.discussion_topics.create!
+    group_model(:context => @course)
+    group_topic = @group.discussion_topics.create!
+    @course.complete!
+    expect(topic.grants_right?(@teacher, :reply)).to be_truthy
+    expect(group_topic.grants_right?(@teacher, :reply)).to be_truthy
+  end
+
+  describe "duplicating topics" do
+    before :once do
+      course_with_teacher(:active_all => true)
+      student_in_course(:active_all => true)
+      @course_section1 = @course.course_sections.create!
+      @course_section2 = @course.course_sections.create!
+    end
+
+    it "without custom opts" do
+      group_discussion_assignment() # Discussion has title "topic"
+      @topic.podcast_has_student_posts = true
+      new_topic = @topic.duplicate({ :user => @teacher })
+      expect(new_topic.title).to eql "topic Copy"
+      expect(new_topic.assignment).not_to be_nil
+      expect(new_topic.assignment.new_record?).to be true
+      expect(new_topic.podcast_has_student_posts).to be true
+      # Child topics don't get duplicated.  The hooks create those for us
+      expect(new_topic.child_topics.length).to eq 0
+      new_topic.save!
+      # Verify that saving indeed created the appropriate child topics
+      new_topic = DiscussionTopic.find(new_topic.id)
+      expect(new_topic.child_topics.length).not_to eq 0
+    end
+
+    it "respect provided title" do
+      discussion_topic_model({ :title => "not foobar" })
+      @topic.save! # only saved topics can be duplicated
+      new_topic = @topic.duplicate({ :copy_title => "foobar" })
+      expect(new_topic.title).to eql "foobar"
+    end
+
+    it "respect provided user" do
+      discussion_topic_model()
+      @topic.save!
+      new_topic = @topic.duplicate({ :user => @student })
+      expect(new_topic.user_id).to eq @student.id
+    end
+
+    it "duplicates sections" do
+      discussion_topic_model(:context => @course)
+      @topic.is_section_specific = true
+      @topic.course_sections = [@course_section1, @course_section2]
+      @topic.save!
+      new_topic = @topic.duplicate
+      expect(new_topic.discussion_topic_section_visibilities.length).to eq 2
+      new_course_sections = new_topic.discussion_topic_section_visibilities.map(&:course_section_id).to_set
+      expect(new_course_sections).to eq [@course_section1.id, @course_section2.id].to_set
+      expect(new_topic).to be_valid
+    end
+
+    it "does not duplicate deleted visibilities" do
+      discussion_topic_model(:context => @course)
+      @topic.is_section_specific = true
+      @topic.course_sections = [@course_section1, @course_section2]
+      @topic.discussion_topic_section_visibilities.second.destroy!
+      @topic.save!
+      new_topic = @topic.duplicate
+      expect(new_topic.discussion_topic_section_visibilities.length).to eq 1
+      expect(new_topic.discussion_topic_section_visibilities.first.course_section_id).to eq @course_section1.id
+      expect(new_topic).to be_valid
+    end
+  end
+
+  describe "users with permissions" do
+    before :once do
+      @course = course_factory(:active_all => true)
+      @section1 = @course.course_sections.create!
+      @section2 = @course.course_sections.create!
+      @limited_teacher = create_enrolled_user(@course, @section1, :name => 'limited teacher',
+        :enrollment_type => 'TeacherEnrollment', :limit_privileges_to_course_section => true)
+      @student1 = create_enrolled_user(@course, @section1, :name => 'student 1', :enrollment_type => 'StudentEnrollment')
+      @student2 = create_enrolled_user(@course, @section2, :name => 'student 2', :enrollment_type => 'StudentEnrollment')
+      @all_users = [@teacher, @limited_teacher, @student1, @student2]
+    end
+
+    it "non-specific-topic is visible to everyone" do
+      topic = @course.discussion_topics.create!(:title => 'foo', :message => 'bar',
+        :workflow_state => 'published')
+      users = topic.users_with_permissions(@all_users)
+      expect(users.map(&:id).to_set).to eq(@all_users.map(&:id).to_set)
+    end
+
+    it "specific topic limits properly" do
+      topic = DiscussionTopic.new(:title => 'foo', :message => 'bar',
+        :context => @course, :user => @teacher)
+      add_section_to_topic(topic, @section2)
+      topic.save!
+      users = topic.users_with_permissions(@all_users)
+      expect(users.map(&:id).to_set).to eq([@teacher.id, @student2.id].to_set)
     end
   end
 end

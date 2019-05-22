@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,7 +24,7 @@ module SIS
       importer = Work.new(@batch, @root_account, @logger)
 
       Enrollment.skip_touch_callbacks(:course) do
-        Enrollment.suspend_callbacks(:update_cached_due_dates) do
+        Enrollment.suspend_callbacks(:set_update_cached_due_dates) do
           User.skip_updating_account_associations do
             yield importer
           end
@@ -32,8 +32,8 @@ module SIS
       end
 
       importer.user_observers_to_update_sis_batch_ids.in_groups_of(1000, false) do |batch|
-        UserObserver.where(id: batch).update_all(sis_batch_id: @batch)
-      end if @batch
+        UserObservationLink.where(id: batch).update_all(sis_batch_id: @batch.id)
+      end
 
       User.update_account_associations(importer.users_to_update_account_associations.to_a)
 
@@ -61,8 +61,9 @@ module SIS
 
         raise ImportError, "No observer_id given for a user observer" if observer_id.blank?
         raise ImportError, "No user_id given for a user observer" if student_id.blank?
-        raise ImportError, "Can't observe yourself" if student_id == observer_id
+        raise ImportError, "Can't observe yourself user #{student_id}" if student_id == observer_id
         raise ImportError, "Improper status \"#{status}\" for a user_observer" unless status =~ /\A(active|deleted)\z/i
+        return if @batch.skip_deletes? && status =~ /deleted/i
 
         o_pseudo = @root_account.pseudonyms.active.where(sis_user_id: observer_id).take
         raise ImportError, "An observer referenced a non-existent user #{observer_id}" unless o_pseudo
@@ -72,28 +73,36 @@ module SIS
 
         observer = o_pseudo.user
         student = s_pseudo.user
-        raise ImportError, "Can't observe yourself" if observer == student
+        raise ImportError, "Can't observe yourself user #{student_id}" if observer == student
 
         add_remove_observer(observer, student, observer_id, student_id, status)
       end
 
       def add_remove_observer(observer, student, observer_id, student_id, status)
-        case status
+        case status.downcase
         when 'active'
-          user_observer = observer.user_observees.create_or_restore(user_id: student)
+          check_observer_notification_settings(observer)
+          user_observer = UserObservationLink.create_or_restore(observer: observer, student: student, root_account: @root_account)
         when 'deleted'
-          user_observer = observer.user_observees.active.where(user_id: student).take
+          user_observer = observer.as_observer_observation_links.for_root_accounts(@root_account).where(user_id: student).take
           if user_observer
             user_observer.destroy
           else
             raise ImportError, "Can't delete a non-existent observer for observer: #{observer_id}, student: #{student_id}"
           end
         end
+        raise ImportError, "Failed to return user observer for observer: #{observer_id}, student: #{student_id}" unless user_observer
         @users_to_update_account_associations.add observer.id
         @user_observers_to_update_sis_batch_ids << user_observer.id
         @success_count += 1
       end
 
+      def check_observer_notification_settings(observer)
+        if @root_account.settings[:default_notifications_disabled_for_observers]
+          observer.default_notifications_disabled = true
+          observer.save if observer.changed?
+        end
+      end
     end
   end
 end

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/helpers/assignments_common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/discussions_common')
 
@@ -22,13 +39,11 @@ describe "discussion assignments" do
 
   context "create group discussion" do
     before do
-      get "/courses/#{@course.id}/discussion_topics"
-      expect_new_page_load{f("#new-discussion-btn").click}
+      get "/courses/#{@course.id}/discussion_topics/new"
       f("#discussion-title").send_keys("New Discussion Title")
       type_in_tiny('textarea[name=message]', 'Discussion topic message body')
       f("#has_group_category").click
       drop_down = get_options('#assignment_group_category_id').map(&:text).map(&:strip)
-      expect(drop_down).to include('category 1')
       click_option('#assignment_group_category_id', 'category 1')
     end
 
@@ -67,7 +82,7 @@ describe "discussion assignments" do
       expect(f('.new-and-total-badge .new-items').text).to include ""
       user_session(@student1)
       get "/courses/#{@course.id}/discussion_topics"
-      expect_new_page_load{fln('assignment topic title').click}
+      expect_new_page_load{f('.discussion-title').click}
       expect(f('#breadcrumbs').text).to include('some group')
       f('.discussion-reply-action').click
       type_in_tiny 'textarea', 'something to submit'

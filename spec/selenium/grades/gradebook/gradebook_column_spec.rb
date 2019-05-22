@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../helpers/gradebook_common'
 require_relative '../../helpers/assignment_overrides'
 
@@ -68,11 +85,11 @@ describe "assignment column headers" do
     }
     @user.save!
     @fourth_assignment = assignment_model({
-      :course => @course,
-      :name => "new assignment",
-      :due_at => nil,
-      :points_possible => 150,
-      :assignment_group => nil,
+      course: @course,
+      name: "new assignment",
+      due_at: nil,
+      points_possible: 150,
+      assignment_group: nil,
       })
     @fourth_assignment.grade_student(@student_1, grade: 150, grader: @teacher)
 
@@ -115,7 +132,7 @@ describe "assignment column headers" do
   it "should show letter grade in total column", priority: "1", test_id: 220035 do
     get "/courses/#{@course.id}/gradebook"
     expect(f('#gradebook_grid .container_1 .slick-row:nth-child(1) .total-cell .letter-grade-points')).to include_text("A")
-    edit_grade('#gradebook_grid .slick-row:nth-child(2) .l2', '50')
+    edit_grade('#gradebook_grid .slick-row:nth-child(2) .b2', '50')
     expect(f('#gradebook_grid .container_1 .slick-row:nth-child(2) .total-cell .letter-grade-points')).to include_text("A")
   end
 end

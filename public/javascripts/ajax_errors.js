@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,18 +12,18 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'INST', // INST
-  'i18n!ajax_errors',
-  'jquery', // $
-  'str/htmlEscape',
-  'jquery.ajaxJSON', // ajaxJSON, defaultAjaxError
-  'compiled/jquery.rails_flash_notifications', // flashError
-  'jqueryui/effects/drop'
-], function(INST, I18n, $, htmlEscape) {
+
+import INST from './INST'
+import I18n from 'i18n!ajax_errors'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import './jquery.ajaxJSON' // ajaxJSON, defaultAjaxError
+import 'compiled/jquery.rails_flash_notifications' // flashError
+import 'jqueryui/effects/drop'
+
   INST.errorCount = 0;
   window.onerror = function (msg, url, line, column, errorObj) {
     INST.errorCount += 1;
@@ -42,8 +42,9 @@ define([
       $.ajaxJSON(location.protocol + '//' + location.host + "/simple_response.json?rnd=" + Math.round(Math.random() * 9999999), 'GET', {}, function() {
         if ($.ajaxJSON.isUnauthenticated(request)) {
           var message = htmlEscape(I18n.t('errors.logged_out', "You are not currently logged in, possibly due to a long period of inactivity."))
-          message += "<br\/><a href='/login' target='_new'>" + htmlEscape(I18n.t('links.login', 'Login')) + "<\/a>";
-          $.flashError({ html: message }, 30000);
+          message += "<br\/><a href='/login' id='inactivity_login_link' target='_new'>" + htmlEscape(I18n.t('links.login', 'Login')) + "<\/a>";
+          $.flashError({ html: message }, 30000)
+          $('#inactivity_login_link').focus();
         } else if (status != 409) {
           ajaxErrorFlash(I18n.t('errors.unhandled', "Oops! The last request didn't work out."), request);
         }
@@ -54,7 +55,7 @@ define([
       var ajaxErrorFlash = function(message, xhr) {
         var i = $obj[0];
         if(!i) { return; }
-        var d = i.contentDocument || 
+        var d = i.contentDocument ||
                 (i.contentWindow && i.contentWindow.document) ||
                 window.frames[$obj.attr('id')].document;
         var $body = $(d).find("body");
@@ -108,4 +109,3 @@ define([
     });
 
   });
-});

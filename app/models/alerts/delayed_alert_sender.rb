@@ -1,16 +1,36 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Alerts
   class DelayedAlertSender
     def self.process
-      Account.root_accounts.active.find_each do |account|
+      Account.root_accounts.active.non_shadow.find_each do |account|
         next unless account.settings[:enable_alerts]
-        self.send_later_if_production_enqueue_args(:evaluate_for_root_account, { :priority => Delayed::LOW_PRIORITY }, account)
+        account.all_courses.active.find_ids_in_batches(batch_size: 200) do |batch|
+          self.send_later_if_production_enqueue_args(:evaluate_courses,
+                                                     {n_strand: ['delayed_alert_sender_evaluate_courses', account.global_id],
+                                                      priority: Delayed::LOW_PRIORITY}, batch)
+        end
       end
     end
 
-    def self.evaluate_for_root_account(account)
-      return unless account.settings[:enable_alerts]
+    def self.evaluate_courses(course_ids)
       alerts_cache = {}
-      account.associated_courses.where(:workflow_state => 'available').find_each do |course|
+      Course.where(id: course_ids).find_each do |course|
         alerts_cache[course.account_id] ||= course.account.account_chain.map { |a| a.alerts.to_a }.flatten
         self.evaluate_for_course(course, alerts_cache[course.account_id])
       end
@@ -69,7 +89,13 @@ module Alerts
 
     def self.send_alert(alert, user_ids, student_enrollment)
       notification = BroadcastPolicy.notification_finder.by_name("Alert")
-      notification.create_message(alert, user_ids, {:asset_context => student_enrollment})
+      notification.create_message(alert, user_ids, {
+        data: {
+          student_name: student_enrollment.user.name,
+          user_id: student_enrollment.user_id,
+          course_id: student_enrollment.course_id
+        }
+      })
     end
   end
 end

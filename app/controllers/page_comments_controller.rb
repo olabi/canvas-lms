@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 
 class PageCommentsController < ApplicationController
   def create
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
+    @portfolio = Eportfolio.active.find(params[:eportfolio_id])
     @page = @portfolio.eportfolio_entries.find(params[:entry_id])
     if authorized_action(@page, @current_user, :comment)
       @comment = @page.page_comments.build(params.require(:page_comment).permit(:message))
@@ -44,7 +44,7 @@ class PageCommentsController < ApplicationController
   end
 
   def destroy
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
+    @portfolio = Eportfolio.active.find(params[:eportfolio_id])
     @page = @portfolio.eportfolio_entries.find(params[:entry_id])
     @comment = @page.page_comments.find(params[:id])
     if authorized_action(@portfolio, @current_user, :update)

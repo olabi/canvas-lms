@@ -1,4 +1,22 @@
 /*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
 will make the element semi-transparent and disable any :inputs untill a defferred completes.
 example:
 
@@ -14,20 +32,23 @@ $('#form').disableWhileLoading(promise, {
 });
 
 */
-define([
-  'i18n!instructure',
-  'compiled/util/objectCollection',
-  'jquery' /* $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'spin.js/jquery.spin' /* /\.spin/ */
-], function(I18n, objectCollection, $) {
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
+import 'spin.js/jquery.spin'
+
+function eraseFromArray (array, victim) {
+  array.forEach((prospect, index) => {
+    if (prospect === victim) array.splice(index, 1)
+  })
+}
 
   $.fn.disableWhileLoading = function(deferred, options) {
     return this.each(function() {
       var opts = $.extend(true, {}, $.fn.disableWhileLoading.defaults, options),
           $this = $(this),
           data = $this.data(),
-          thingsToWaitOn = data.disabledWhileLoadingDeferreds || (data.disabledWhileLoadingDeferreds = objectCollection([])),
+          thingsToWaitOn = data.disabledWhileLoadingDeferreds || (data.disabledWhileLoadingDeferreds = []),
           myDeferred = $.Deferred();
 
       $.when.apply($, thingsToWaitOn).done(function() {
@@ -76,7 +97,7 @@ define([
               if(typeof selector === 'number') var selector = ''+this; // for arrays
               $disabledArea.find(selector).text(function() { return $(this).data(dataKey) });
             });
-            thingsToWaitOn.erase(myDeferred); //speed up so that $.when doesn't have to look at myDeferred any more
+            eraseFromArray(thingsToWaitOn, myDeferred); //speed up so that $.when doesn't have to look at myDeferred any more
             myDeferred.resolve();
             if (opts.onComplete) {
               opts.onComplete();
@@ -91,4 +112,3 @@ define([
     opacity: 0.5,
     buttons: ['button[type="submit"], .ui-dialog-buttonpane .ui-button .ui-button-text']
   };
-});

@@ -1,8 +1,25 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!outcomes'
   'underscore'
   'Backbone'
-  'compiled/models/Outcome'
+  '../../models/Outcome'
   'timezone'
 ], (I18n, _, {Model, Collection}, Outcome, tz) ->
 
@@ -56,7 +73,10 @@ define [
     scaledScore: ->
       is_aggregate_score = @get('question_bank_result')
       return unless @scoreDefined() && is_aggregate_score
-      @get('percent') * @get('points_possible')
+      if @get('points_possible') > 0
+        @get('percent') * @get('points_possible')
+      else
+        @get('percent') * @get('mastery_points')
 
     score: ->
       @get('scaled_score') || @get('score')

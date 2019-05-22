@@ -1,15 +1,32 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'Backbone'
   'i18n!content_migrations'
   'jst/content_migrations/ProgressingContentMigration'
   'jst/content_migrations/ProgressingIssues'
-  'compiled/views/PaginatedCollectionView'
-  'compiled/views/content_migrations/ContentMigrationIssueView'
-  'compiled/views/content_migrations/ProgressBarView'
-  'compiled/views/content_migrations/ProgressStatusView'
-  'compiled/views/content_migrations/SelectContentView'
-  'compiled/views/content_migrations/SourceLinkView'
+  '../PaginatedCollectionView'
+  './ContentMigrationIssueView'
+  './ProgressBarView'
+  './ProgressStatusView'
+  './SelectContentView'
+  './SourceLinkView'
 ], ($, Backbone, I18n, template, progressingIssuesTemplate, PaginatedCollectionView, ContentMigrationIssueView, ProgressBarView, ProgressStatusView, SelectContentView, SourceLinkView) ->
   class ProgressingContentMigrationView extends Backbone.View
     template: template
@@ -79,6 +96,7 @@ define [
                          collection: @issues
                          itemView: ContentMigrationIssueView
                          template: progressingIssuesTemplate
+                         autoFetch: true
       @$migrationIssues.html issuesCollectionView.render().el
 
       progressStatus = new ProgressStatusView

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Migration::ExternalContent
   class ServiceInterface
     class << self
@@ -20,7 +37,7 @@ module Canvas::Migration::ExternalContent
         # retrieve_export(export_data)
         #   return the data that we need to save in the package
         #
-        # send_imported_content(course, imported_content)
+        # send_imported_content(course, content_migration, imported_content)
         #   gives back the translated data for importing to the service
         #   return information needed to verify import is complete
         #
@@ -31,7 +48,7 @@ module Canvas::Migration::ExternalContent
           :begin_export => 2,
           :export_completed? => 1,
           :retrieve_export => 1,
-          :send_imported_content => 2,
+          :send_imported_content => 3,
           :import_completed? => 1
         }
         methods.each do |method_name, arity|

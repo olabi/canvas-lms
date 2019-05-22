@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module DataFixup::RebuildQuizSubmissionsFromQuizSubmissionEvents
   LOG_PREFIX = "RebuildingQuizSubmissions - ".freeze
 
@@ -94,7 +111,7 @@ module DataFixup::RebuildQuizSubmissionsFromQuizSubmissionEvents
       tally = 0
       submission_data ||= qs.submission_data
       user_answers = []
-      qs.questions_as_object.each do |q|
+      qs.questions.each do |q|
         user_answer = Quizzes::SubmissionGrader.score_question(q, submission_data)
         user_answers << user_answer
         tally += (user_answer[:points] || 0) if user_answer[:correct]

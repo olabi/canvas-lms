@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,9 +20,9 @@ require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
 
 describe CommunicationChannel do
   before(:each) do
-    @pseudonym = mock('Pseudonym')
-    @pseudonym.stubs(:destroyed?).returns(false)
-    Pseudonym.stubs(:find_by_user_id).returns(@pseudonym)
+    @pseudonym = double('Pseudonym')
+    allow(@pseudonym).to receive(:destroyed?).and_return(false)
+    allow(Pseudonym).to receive(:find_by_user_id).and_return(@pseudonym)
   end
 
   it "should create a new instance given valid attributes" do
@@ -85,7 +85,7 @@ describe CommunicationChannel do
   end
 
   it "should set a confirmation code unless one has been set" do
-    CanvasSlug.expects(:generate).at_least(1).returns('abc123')
+    expect(CanvasSlug).to receive(:generate).at_least(1).and_return('abc123')
     communication_channel_model
     expect(@cc.confirmation_code).to eql('abc123')
   end
@@ -95,6 +95,16 @@ describe CommunicationChannel do
     old_cc = @cc.confirmation_code
     @cc.set_confirmation_code(true)
     expect(@cc.confirmation_code).not_to eql(old_cc)
+  end
+
+  it "should not send two reset confirmation code" do
+    cc = communication_channel_model
+    enable_cache do
+      expect(cc).to receive(:set_confirmation_code).twice # once from create, once from first forgot
+      cc.forgot_password!
+      cc.forgot_password!
+      cc.forgot_password!
+    end
   end
 
   it "should use a 15-digit confirmation code for default or email path_type settings" do
@@ -116,9 +126,9 @@ describe CommunicationChannel do
   end
 
   it "should provide a confirmation url" do
-    HostUrl.expects(:protocol).returns('https')
-    HostUrl.expects(:context_host).returns('test.canvas.com')
-    CanvasSlug.expects(:generate).returns('abc123')
+    expect(HostUrl).to receive(:protocol).and_return('https')
+    expect(HostUrl).to receive(:context_host).and_return('test.canvas.com')
+    expect(CanvasSlug).to receive(:generate).and_return('abc123')
     communication_channel_model
     expect(@cc.confirmation_url).to eql('https://test.canvas.com/register/abc123')
   end
@@ -133,6 +143,12 @@ describe CommunicationChannel do
 
     @cc.path_type = 'not valid'; @cc.save
     expect(@cc.path_type).to eql('email')
+  end
+
+  it 'should sort of validate emails' do
+    user = User.create!
+    invalid_stuff = {username: "invalid", user: user, pseudonym_id: "1" }
+    expect{communication_channel(user, invalid_stuff)}.to raise_error(ActiveRecord::RecordInvalid)
   end
 
   it "should act as list" do
@@ -160,6 +176,25 @@ describe CommunicationChannel do
     expect(@cc1.position).to eql(2)
     @cc3.reload
     expect(@cc3.position).to eql(1)
+  end
+
+  it "should correctly count the number of confirmations sent" do
+    account = Account.create!
+    @u1 = User.create!
+    @cc1 = @u1.communication_channels.create!(:path => 'landong@instructure.com')
+    @cc1.send_confirmation!(account)
+    @cc1.send_confirmation!(account)
+    @cc1.send_confirmation!(account)
+    # Note this 4th one should not count up
+    @cc1.send_confirmation!(account)
+    @cc2 = @u1.communication_channels.create!(:path => 'steveb@instructure.com')
+    @cc2.send_confirmation!(account)
+    @cc2.send_confirmation!(account)
+    @cc3 = @u1.communication_channels.create!(:path => 'aaronh@instructure.com')
+    @cc3.send_confirmation!(account)
+    expect(@cc1.confirmation_sent_count).to eql(3)
+    expect(@cc2.confirmation_sent_count).to eql(2)
+    expect(@cc3.confirmation_sent_count).to eql(1)
   end
 
   context "can_notify?" do
@@ -209,9 +244,9 @@ describe CommunicationChannel do
       @user.register!
       @cc = @user.communication_channels.create!(:path => 'user1@example.com')
       account = Account.create!
-      HostUrl.stubs(:context_host).with(account).returns('someserver.com')
-      HostUrl.stubs(:context_host).with(@cc).returns('someserver.com')
-      HostUrl.stubs(:context_host).with(nil).returns('default')
+      allow(HostUrl).to receive(:context_host).with(account).and_return('someserver.com')
+      allow(HostUrl).to receive(:context_host).with(@cc).and_return('someserver.com')
+      allow(HostUrl).to receive(:context_host).with(nil).and_return('default')
       @cc.send_confirmation!(account)
       message = Message.where(:communication_channel_id => @cc, :notification_id => notification).first
       expect(message).not_to be_nil
@@ -321,7 +356,7 @@ describe CommunicationChannel do
       cc3.confirm!
       Account.default.pseudonyms.create!(:user => user3, :unique_id => 'user3')
 
-      User.any_instance.expects(:all_active_pseudonyms).once.returns([true])
+      expect_any_instance_of(User).to receive(:all_active_pseudonyms).once.and_return([true])
       expect(cc1.has_merge_candidates?).to be_truthy
     end
 
@@ -478,7 +513,7 @@ describe CommunicationChannel do
       specs_require_sharding
 
       it "should find a match on another shard" do
-        Enrollment.stubs(:cross_shard_invitations?).returns(true)
+        allow(Enrollment).to receive(:cross_shard_invitations?).and_return(true)
         @shard1.activate do
           @user2 = User.create!
           cc2 = @user2.communication_channels.create!(:path => 'jt@instructure.com')
@@ -494,7 +529,7 @@ describe CommunicationChannel do
       end
 
       it "should search a non-default shard *only*" do
-        Enrollment.stubs(:cross_shard_invitations?).returns(false)
+        allow(Enrollment).to receive(:cross_shard_invitations?).and_return(false)
         cc1.confirm!
         Account.default.pseudonyms.create!(:user => user1, :unique_id => 'user1')
 
@@ -546,6 +581,34 @@ describe CommunicationChannel do
           expect(@cc3.bouncing?).to be_truthy
         end
       end
+    end
+  end
+
+  describe "#send_otp!" do
+    let(:cc) do
+      cc = CommunicationChannel.new
+      cc.path = '8015555555@txt.att.net'
+      cc
+    end
+
+    it "sends directly via SMS if configured" do
+      expect(cc.e164_path).to eq '+18015555555'
+      account = double()
+      allow(account).to receive(:feature_enabled?).and_return(true)
+      expect(Services::NotificationService).to receive(:process).with(
+        "otp:#{cc.global_id}",
+        anything,
+        'sms',
+        cc.e164_path
+      )
+      expect(cc).to receive(:send_otp_via_sms_gateway!).never
+      cc.send_otp!('123456', account)
+    end
+
+    it "sends via email if not configured" do
+      expect(Services::NotificationService).to receive(:process).never
+      expect(cc).to receive(:send_otp_via_sms_gateway!).once
+      cc.send_otp!('123456')
     end
   end
 end

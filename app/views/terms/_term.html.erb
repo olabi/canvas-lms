@@ -1,4 +1,23 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% term ||= nil %>
+<% default_term = @context.default_enrollment_term %>
 <tr class="term" id="term_<%= term ? term.id : "blank" %>" style="<%= hidden unless term %>">
   <td class="header">
     <div class="show_term">
@@ -25,7 +44,7 @@
         <div class="control-group edit_term">
           <label class="control-label" for="enrollment_term_name"><%= t :name, 'Term Name:' %></label>
           <div class="controls">
-            <%= f.text_field :name, :class => "input-xlarge" %>
+            <%= f.text_field :name, :class => "input-xlarge", :disabled => (term && term == default_term) %>
           </div>
         </div>
       <% if can_do(@root_account, @current_user, :manage_sis) %>
@@ -36,10 +55,6 @@
           </div>
         </div>
       <% end %>
-      <div class="edit_term edit_term_buttons">
-        <button class="btn button-secondary cancel_button" type="button"><%= t '#buttons.cancel', "Cancel" %></button>
-        <button class="btn btn-primary submit_button" type="submit"><%= term ? t('buttons.update', "Update Term") : t('buttons.add', "Add Term") %></button>
-      </div>
     <% end %>
   </td>
   <% types = [StudentEnrollment, TeacherEnrollment, TaEnrollment, DesignerEnrollment] %>
@@ -91,13 +106,22 @@
                                                         :date_class_prefix => "#{type_string}_", :whenever => [start_whenever, false] } %>
       </tr>
     <% end %>
+    <tr class="edit-buttons">
+      <td></td>
+      <td></td>
+      <td></td>
+      <td class="edit_term edit_term_buttons">
+        <button class="btn button-secondary cancel_button" type="button"><%= t '#buttons.cancel', "Cancel" %></button>
+        <button class="btn btn-primary submit_button" type="button"><%= term ? t('buttons.update', "Update Term") : t('buttons.add', "Add Term") %></button>
+      </td>
+    </tr>
     </table>
   </td>
   <td class="links">
     <a href="#" class="edit_term_link no-hover" title="<%= t 'Edit Term %{name}', name: term.try(:name) %>"><i class="icon-edit standalone-icon" aria-hidden="true"></i></a>
     <% if term && @course_counts_by_term[term.id].to_i > 0 %>
       <a href="#" class="cant_delete_term_link no-hover" title="<%= t 'Delete Term %{name}', name: term.try(:name) %>"><i class="icon-end standalone-icon" aria-hidden="true"></i></a>
-    <% elsif term != @context.default_enrollment_term %>
+    <% elsif term != default_term %>
       <a href="#" class="delete_term_link no-hover" title="<%= t 'Delete Term %{name}', name: term.try(:name) %>"><i class="icon-trash standalone-icon" aria-hidden="true"></i></a>
     <% end %>
   </td>

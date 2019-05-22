@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'cgi'
 module Qti
 class CalculatedInteraction < AssessmentItemConverter
@@ -40,7 +57,7 @@ class CalculatedInteraction < AssessmentItemConverter
 
     apply_d2l_fixes if @flavor == Qti::Flavors::D2L
 
-    if @question[:formulas].empty? && @question[:imported_formula]
+    if @question[:formulas]&.empty? && @question[:imported_formula]
       @question[:formulas] << {:formula => @question[:imported_formula]}
     end
     @question
@@ -66,7 +83,8 @@ class CalculatedInteraction < AssessmentItemConverter
 
   def get_answer_sets
     @doc.css('calculated var_sets var_set').each do |vs|
-      set = {:variables=>[], :id=>unique_local_id, :weight=>100}
+      set = {:variables=>[], :weight=>100}
+      set[:id] = vs['ident'].presence || unique_local_id
       @question[:answers] << set
       set[:answer] = vs.at_css('answer').text.to_f if vs.at_css('answer')
 
@@ -104,6 +122,18 @@ class CalculatedInteraction < AssessmentItemConverter
       method_substitutions = {"sqr" => "sqrt", "Factorial" => "fact", "exp" => "e"}
       method_substitutions.each do |orig_method, new_method|
         @question[:imported_formula].gsub!("#{orig_method}(", "#{new_method}(")
+      end
+    end
+    if @question[:variables].count == 1
+      # is this secretly a simple numeric question in disguise
+      var = @question[:variables].first
+      if (var[:min] == var[:max]) && (@question[:imported_formula] == var[:name]) # yup the formula for the answer is "x" and there's only one possible value
+        [:variables, :formulas, :imported_formula, :formula_decimal_places, :answer_tolerance].each{|k| @question.delete(k)}
+        @question[:question_type] = 'numerical_question'
+        @question[:answers] = [
+          {:weight => 100, :id => unique_local_id, :text => 'answer_text',
+            :numerical_answer_type => "exact_answer", :exact => var[:min]}
+        ]
       end
     end
   end

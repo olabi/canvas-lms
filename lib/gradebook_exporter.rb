@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,19 @@
 #
 
 class GradebookExporter
-  include GradebookTransformer
   include GradebookSettingsHelpers
+  include LocaleSelection
+
+  # You may see a pattern in this file of things that look like `<< nil << nil`
+  # to create 'buffer' cells for columns. Let's try to stop using that pattern
+  # and instead define the 'buffer' columns here in the BUFFER_COLUMN_DEFINITIONS
+  # hash. Use the buffer_columns and buffer_column_headers methods to populate the
+  # relevant rows.
+  BUFFER_COLUMN_DEFINITIONS = {
+    grading_standard: ['Current Grade', 'Unposted Current Grade', 'Final Grade', 'Unposted Final Grade'].freeze,
+    override_score: ['Override Score'].freeze,
+    override_grade: ['Override Grade'].freeze
+  }.freeze
 
   def initialize(course, user, options = {})
     @course  = course
@@ -27,9 +38,53 @@ class GradebookExporter
   end
 
   def to_csv
-    enrollment_scope = @course.apply_enrollment_visibility(gradebook_enrollment_scope, @user, nil,
-                                                           include: gradebook_includes)
-    student_enrollments = enrollments_for_csv(enrollment_scope, @options)
+    I18n.locale = @options[:locale] || infer_locale(
+      context:      @course,
+      user:         @user,
+      root_account: @course.root_account
+    )
+
+    @options[:col_sep] ||= determine_column_separator
+    @options[:encoding] ||= I18n.t('csv.encoding', 'UTF-8')
+
+    # Wikipedia: Microsoft compilers and interpreters, and many pieces of software on Microsoft Windows such as
+    # Notepad treat the BOM as a required magic number rather than use heuristics. These tools add a BOM when saving
+    # text as UTF-8, and cannot interpret UTF-8 unless the BOM is present or the file contains only ASCII.
+    # https://en.wikipedia.org/wiki/Byte_order_mark#UTF-8
+    bom = include_bom?(@options[:encoding]) ? "\xEF\xBB\xBF" : ''
+    csv_data.prepend(bom)
+  end
+
+  private
+
+  def include_bom?(encoding)
+    encoding == 'UTF-8' && @user.feature_enabled?(:include_byte_order_mark_in_gradebook_exports)
+  end
+
+  def buffer_column_headers(column_name)
+    BUFFER_COLUMN_DEFINITIONS.fetch(column_name).dup
+  end
+
+  def buffer_columns(column_name, buffer_value=nil)
+    column_count = BUFFER_COLUMN_DEFINITIONS.fetch(column_name).length
+    Array.new(column_count, buffer_value)
+  end
+
+  def determine_column_separator
+    return ';' if @user.feature_enabled?(:use_semi_colon_field_separators_in_gradebook_exports)
+    return ',' unless @user.feature_enabled?(:autodetect_field_separators_for_gradebook_exports)
+
+    I18n.t('number.format.separator', '.') == ',' ? ';' : ','
+  end
+
+  def csv_data
+    enrollment_scope = @course.apply_enrollment_visibility(
+      gradebook_enrollment_scope(user: @user, course: @course),
+      @user,
+      nil,
+      include: gradebook_includes(user: @user, course: @course)
+    ).preload(:root_account, :sis_pseudonym)
+    student_enrollments = enrollments_for_csv(enrollment_scope)
 
     student_section_names = {}
     student_enrollments.each do |enrollment|
@@ -40,11 +95,9 @@ class GradebookExporter
     # remove duplicate enrollments for students enrolled in multiple sections
     student_enrollments = student_enrollments.uniq(&:user_id)
 
-    # grading_period_id == 0 means no grading period selected
-    unless @options[:grading_period_id].try(:to_i) == 0
-      grading_period = GradingPeriod.for(@course).find_by(id: @options[:grading_period_id])
-    end
-
+    # TODO: Stop using the grade calculator and instead use the scores table entirely.
+    # This cannot be done until we are storing points values in the scores table, which
+    # will be implemented as part of GRADE-8.
     calc = GradeCalculator.new(student_enrollments.map(&:user_id), @course,
                                ignore_muted: false,
                                grading_period: grading_period)
@@ -53,7 +106,7 @@ class GradebookExporter
     submissions = {}
     calc.submissions.each { |s| submissions[[s.user_id, s.assignment_id]] = s }
 
-    assignments = select_in_grading_period calc.assignments, @course, grading_period
+    assignments = select_in_grading_period calc.assignments
 
     assignments = assignments.sort_by do |a|
       [a.assignment_group_id, a.position || 0, a.due_at || CanvasSort::Last, a.title]
@@ -64,47 +117,70 @@ class GradebookExporter
     include_root_account = @course.root_account.trust_exists?
     should_show_totals = show_totals?
     include_sis_id = @options[:include_sis_id]
-    CSV.generate do |csv|
+
+    CSV.generate(@options.slice(:encoding, :col_sep)) do |csv|
       # First row
       row = ["Student", "ID"]
       row << "SIS User ID" if include_sis_id
       row << "SIS Login ID"
       row << "Root Account" if include_sis_id && include_root_account
       row << "Section"
+
+      custom_gradebook_columns.each do |column|
+        row << column.title
+      end
+
       row.concat assignments.map(&:title_with_id)
-      include_points = !@course.apply_group_weights?
 
       if should_show_totals
         groups.each do |group|
-          if include_points
+          if include_points?
             row << "#{group.name} Current Points" << "#{group.name} Final Points"
           end
-          row << "#{group.name} Current Score" << "#{group.name} Final Score"
+          row << "#{group.name} Current Score"
+          row << "#{group.name} Unposted Current Score"
+          row << "#{group.name} Final Score"
+          row << "#{group.name} Unposted Final Score"
         end
-        row << "Current Points" << "Final Points" if include_points
-        row << "Current Score" << "Final Score"
-        if @course.grading_standard_enabled?
-          row << "Current Grade" << "Final Grade"
+        row << "Current Points" << "Final Points" if include_points?
+        row << "Current Score" << "Unposted Current Score" << "Final Score" << "Unposted Final Score"
+        row.concat(buffer_column_headers(:grading_standard)) if @course.grading_standard_enabled?
+        if include_final_grade_override?
+          row.concat(buffer_column_headers(:override_score))
+          row.concat(buffer_column_headers(:override_grade)) if @course.grading_standard_enabled?
         end
       end
       csv << row
 
-      group_filler_length = groups.size * (include_points ? 4 : 2)
+      group_filler_length = groups.size * column_count_per_group
 
       # Possible muted row
       if assignments.any?(&:muted)
         # This is is not translated since we look for this exact string when we upload to gradebook.
         row = [nil, nil, nil, nil]
-        row << nil if include_sis_id
+        if include_sis_id
+          row << nil
+          row << nil if include_root_account
+        end
+
+        # Custom Columns
+        custom_gradebook_columns.count.times do
+          row << nil
+        end
+
         row.concat(assignments.map { |a| 'Muted' if a.muted? })
 
         if should_show_totals
           row.concat([nil] * group_filler_length)
-          row << nil << nil if include_points
-          row << nil << nil
+          row << nil << nil if include_points?
+          row << nil << nil << nil << nil
         end
 
-        row << nil if @course.grading_standard_enabled?
+        row.concat(buffer_columns(:grading_standard)) if @course.grading_standard_enabled?
+        if include_final_grade_override?
+          row.concat(buffer_columns(:override_score))
+          row.concat(buffer_columns(:override_grade)) if @course.grading_standard_enabled?
+        end
         csv << row
       end
 
@@ -114,51 +190,84 @@ class GradebookExporter
         row << nil
         row << nil if include_root_account
       end
-      row.concat assignments.map(&:points_possible)
+
+      # Custom Columns
+      custom_gradebook_columns.each do |column|
+        row << (column.read_only? ? read_only : nil)
+      end
+
+      row.concat(assignments.map{ |a| format_numbers(a.points_possible) })
 
       if should_show_totals
         row.concat([read_only] * group_filler_length)
-        row << read_only << read_only if include_points
-        row << read_only << read_only
-        row << read_only if @course.grading_standard_enabled?
+        row << read_only << read_only if include_points?
+        row << read_only << read_only << read_only << read_only
+        row.concat(buffer_columns(:grading_standard, read_only)) if @course.grading_standard_enabled?
+        if include_final_grade_override?
+          row.concat(buffer_columns(:override_score, read_only))
+          row.concat(buffer_columns(:override_grade, read_only)) if @course.grading_standard_enabled?
+        end
       end
+
       csv << row
 
+      # Rest of the Rows
       student_enrollments.each_slice(100) do |student_enrollments_batch|
 
-        visible_assignments = AssignmentStudentVisibility.visible_assignment_ids_in_course_by_user(
-          user_id: student_enrollments_batch.map(&:user_id),
-          course_id: @course.id
-        )
+        student_ids = student_enrollments_batch.map(&:user_id)
+
+        visible_assignments = @course.submissions.
+          active.
+          where(user_id: student_ids.uniq).
+          pluck(:assignment_id, :user_id).
+          each_with_object(Hash.new {|hash, key| hash[key] = Set.new}) do |ids, reducer|
+            assignment_key = ids.first
+            student_key = ids.second
+            reducer[assignment_key].add(student_key)
+          end
+
+        # Custom Columns, custom_column_data are hashes
+        custom_column_data = CustomGradebookColumnDatum.where(
+          custom_gradebook_column: custom_gradebook_columns,
+          user_id: student_ids
+        ).group_by(&:user_id)
 
         student_enrollments_batch.each do |student_enrollment|
           student = student_enrollment.user
           student_sections = student_section_names[student.id].sort.to_sentence
           student_submissions = assignments.map do |a|
-            if visible_assignments[student.id] && !visible_assignments[student.id].include?(a.id)
-              "N/A"
-            else
+            if visible_assignments[a.id].include? student.id
               submission = submissions[[student.id, a.id]]
               if submission.try(:excused?)
                 "EX"
               elsif a.grading_type == "gpa_scale" && submission.try(:score)
                 a.score_to_grade(submission.score)
               else
-                submission.try(:score)
+                format_numbers(submission.try(:score))
               end
+            else
+              "N/A"
             end
           end
           row = [student_name(student), student.id]
-          pseudonym = SisPseudonym.for(student, @course, include_root_account)
+          pseudonym = SisPseudonym.for(student, student_enrollment, type: :implicit, require_sis: false)
           row << pseudonym.try(:sis_user_id) if include_sis_id
-          pseudonym ||= student.find_pseudonym_for_account(@course.root_account, include_root_account)
           row << pseudonym.try(:unique_id)
           row << (pseudonym && HostUrl.context_host(pseudonym.account)) if include_sis_id && include_root_account
           row << student_sections
+
+          # Custom Columns Data
+          custom_gradebook_columns.each do |column|
+            row << custom_column_data[student.id]&.find {|datum| column.id == datum.custom_gradebook_column_id}&.content
+          end
+
           row.concat(student_submissions)
 
           if should_show_totals
-            row += show_totals(grades.shift, groups, include_points)
+            student_grades = grades.shift
+
+            row += show_group_totals(student_enrollment, student_grades, groups)
+            row += show_overall_totals(student_enrollment, student_grades)
           end
 
           csv << row
@@ -167,50 +276,76 @@ class GradebookExporter
     end
   end
 
-  private
-  def enrollments_for_csv(scope, options={})
+  def enrollments_for_csv(scope)
     # user: used for name in csv output
     # course_section: used for display_name in csv output
     # user > pseudonyms: used for sis_user_id/unique_id if options[:include_sis_id]
-    # user > pseudonyms > account: used in find_pseudonym_for_account > works_for_account
-    includes = {:user => {:pseudonyms => :account}, :course_section => []}
+    # user > pseudonyms > account: used in SisPseudonym > works_for_account
+    includes = {:user => {:pseudonyms => :account}, :course_section => [], :scores => []}
 
     enrollments = scope.preload(includes).eager_load(:user).order_by_sortable_name.to_a
+    enrollments.each { |e| e.course = @course }
     enrollments.partition { |e| e.type != "StudentViewEnrollment" }.flatten
   end
 
-  def show_totals(grade, groups, include_points)
+  def format_numbers(number)
+    # Always pass a precision value so that I18n.n doesn't try to add thousands
+    # separators. 2 is the maximum number of digits we display in the front end.
+    I18n.n(number, precision: 2)
+  end
+
+  def show_group_totals(student_enrollment, grade, groups)
     result = []
 
     groups.each do |group|
-      if include_points
-        result << grade[:current_groups][group.id][:score]
-        result << grade[:final_groups][group.id][:score]
+      if include_points?
+        result << format_numbers(grade[:current_groups][group.id][:score])
+        result << format_numbers(grade[:final_groups][group.id][:score])
       end
 
-      result << grade[:current_groups][group.id][:grade]
-      result << grade[:final_groups][group.id][:grade]
+      result << format_numbers(student_enrollment.computed_current_score(assignment_group_id: group.id))
+      result << format_numbers(student_enrollment.unposted_current_score(assignment_group_id: group.id))
+      result << format_numbers(student_enrollment.computed_final_score(assignment_group_id: group.id))
+      result << format_numbers(student_enrollment.unposted_final_score(assignment_group_id: group.id))
     end
 
-    if include_points
-      result << grade[:current][:total]
-      result << grade[:final][:total]
+    result
+  end
+
+  def show_overall_totals(student_enrollment, grade)
+    result = []
+
+    if include_points?
+      result << format_numbers(grade[:current][:total])
+      result << format_numbers(grade[:final][:total])
     end
 
-    result << grade[:current][:grade]
-    result << grade[:final][:grade]
+    score_opts = grading_period ? { grading_period_id: grading_period.id } : Score.params_for_course
+    result << format_numbers(student_enrollment.computed_current_score(score_opts))
+    result << format_numbers(student_enrollment.unposted_current_score(score_opts))
+    result << format_numbers(student_enrollment.computed_final_score(score_opts))
+    result << format_numbers(student_enrollment.unposted_final_score(score_opts))
 
     if @course.grading_standard_enabled?
-      result << @course.score_to_grade(grade[:current][:grade])
-      result << @course.score_to_grade(grade[:final][:grade])
+      result << student_enrollment.computed_current_grade(score_opts)
+      result << student_enrollment.unposted_current_grade(score_opts)
+      result << student_enrollment.computed_final_grade(score_opts)
+      result << student_enrollment.unposted_final_grade(score_opts)
     end
+
+    if include_final_grade_override?
+      result << student_enrollment.override_score(score_opts)
+      result << student_enrollment.override_grade(score_opts) if @course.grading_standard_enabled?
+    end
+
     result
   end
 
   def show_totals?
-    return true if !@course.feature_enabled?(:multiple_grading_periods)
+    return true unless @course.grading_periods?
     return true if @options[:grading_period_id].try(:to_i) != 0
-    @course.feature_enabled?(:all_grading_periods_totals)
+
+    @course.display_totals_for_all_grading_periods?
   end
 
   STARTS_WITH_EQUAL = /^\s*=/
@@ -222,5 +357,39 @@ class GradebookExporter
     name = @course.list_students_by_sortable_name? ? student.sortable_name : student.name
     name = "=\"#{name}\"" if name =~ STARTS_WITH_EQUAL
     name
+  end
+
+  def grading_period
+    return @grading_period if defined? @grading_period
+
+    @grading_period = nil
+    # grading_period_id == 0 means no grading period selected
+    if @options[:grading_period_id].to_i != 0
+      @grading_period = GradingPeriod.for(@course).find_by(id: @options[:grading_period_id])
+    end
+  end
+
+  def custom_gradebook_columns
+    @custom_gradebook_columns ||= @course.custom_gradebook_columns.active.to_a
+  end
+
+  def select_in_grading_period(assignments)
+    if grading_period
+      grading_period.assignments(assignments)
+    else
+      assignments
+    end
+  end
+
+  def include_points?
+    !@course.apply_group_weights?
+  end
+
+  def column_count_per_group
+    include_points? ? 6 : 4
+  end
+
+  def include_final_grade_override?
+    @course.allow_final_grade_override?
   end
 end

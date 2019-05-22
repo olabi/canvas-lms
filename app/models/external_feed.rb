@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,9 +20,10 @@ class ExternalFeed < ActiveRecord::Base
   belongs_to :user
   belongs_to :context, polymorphic: [:course, :group]
 
-  has_many :external_feed_entries, :dependent => :destroy
-  has_many :discussion_topics, dependent: :nullify
+  has_many :external_feed_entries
+  has_many :discussion_topics
 
+  before_destroy :destroy_entries_and_unlink_topics
   before_validation :infer_defaults
 
   include CustomValidations
@@ -58,6 +59,15 @@ class ExternalFeed < ActiveRecord::Base
   scope :to_be_polled, ->(start) {
     where("external_feeds.consecutive_failures<5 AND external_feeds.refresh_at<?", start).order(:refresh_at)
   }
+
+  def destroy_entries_and_unlink_topics
+    while self.external_feed_entries.limit(100).delete_all > 0; end
+    while self.discussion_topics.limit(100).update_all(:external_feed_id => nil) > 0; end
+  end
+
+  def inactive?
+    !self.context || self.context.root_account.deleted? || self.context.inactive?
+  end
 
   def add_rss_entries(rss)
     items = rss.items.map{|item| add_entry(item, rss, :rss) }.compact
@@ -128,6 +138,7 @@ class ExternalFeed < ActiveRecord::Base
       uuid = item.id || Digest::MD5.hexdigest("#{item.title}#{item.published.utc.strftime('%Y-%m-%d')}")
       entry = self.external_feed_entries.where(uuid: uuid).first
       entry ||= self.external_feed_entries.where(url: item.links.alternate.to_s).first
+      author = item.authors.first || OpenObject.new
       description = entry && entry.message
       if !description || description.empty?
         description = "<a href='#{ERB::Util.h(item.links.alternate.to_s)}'>#{ERB::Util.h(t(:original_article, "Original article"))}</a><br/><br/>"
@@ -146,7 +157,6 @@ class ExternalFeed < ActiveRecord::Base
       end
       return nil if self.header_match && !item.title.downcase.include?(self.header_match.downcase)
       return nil if (item.published && self.created_at > item.published rescue false)
-      author = item.authors.first || OpenObject.new
       description = "<a href='#{ERB::Util.h(item.links.alternate.to_s)}'>#{ERB::Util.h(t(:original_article, "Original article"))}</a><br/><br/>"
       description += format_description(item.content || item.title)
       entry = self.external_feed_entries.new(

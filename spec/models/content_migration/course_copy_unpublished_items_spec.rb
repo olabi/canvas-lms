@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -36,7 +53,7 @@ describe ContentMigration do
 
     it "should copy links to unpublished items in modules" do
       mod1 = @copy_from.context_modules.create!(:name => "some module")
-      page = @copy_from.wiki.wiki_pages.create(:title => "some page")
+      page = @copy_from.wiki_pages.create(:title => "some page")
       page.workflow_state = :unpublished
       page.save!
       mod1.add_item({:id => page.id, :type => 'wiki_page'})
@@ -74,13 +91,13 @@ describe ContentMigration do
     end
 
     it "should copy unpublished wiki pages" do
-      wiki = @copy_from.wiki.wiki_pages.create(:title => "wiki", :body => "ohai")
+      wiki = @copy_from.wiki_pages.create(:title => "wiki", :body => "ohai")
       wiki.workflow_state = :unpublished
       wiki.save!
 
       run_course_copy
 
-      wiki2 = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(wiki)).first
+      wiki2 = @copy_to.wiki_pages.where(migration_id: mig_id(wiki)).first
       expect(wiki2.workflow_state).to eq 'unpublished'
     end
 
@@ -108,6 +125,8 @@ describe ContentMigration do
     end
 
     it "should not re-unpublish module items on re-copy" do
+      skip 'Requires QtiMigrationTool' unless Qti.qti_enabled?
+
       mod = @copy_from.context_modules.create!(:name => "some module")
       tags = []
 
@@ -122,7 +141,7 @@ describe ContentMigration do
       topic = @copy_from.discussion_topics.create!(:title => "some topic")
       tags << mod.add_item({ :id => topic.id, :type => 'discussion_topic' })
 
-      page = @copy_from.wiki.wiki_pages.create!(:title => "some page")
+      page = @copy_from.wiki_pages.create!(:title => "some page")
       tags << mod.add_item({ :id => page.id, :type => 'wiki_page' })
 
       file = @copy_from.attachments.create!(:display_name => "some file", :uploaded_data => default_uploaded_data, :locked => true)

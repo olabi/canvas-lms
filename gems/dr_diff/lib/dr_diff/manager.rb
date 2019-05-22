@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module DrDiff
   class Manager
     attr_reader :git
@@ -9,21 +26,27 @@ module DrDiff
     attr_reader :campsite
     private :campsite
 
+    attr_reader :base_dir
+    private :base_dir
+
     # all levels: %w(error warn info)
     SEVERE_LEVELS = %w(error warn).freeze
 
-    def initialize(git: nil, git_dir: nil, sha: nil, campsite: true)
+    def initialize(git: nil, git_dir: nil, sha: nil, campsite: true, base_dir: nil)
       @git_dir = git_dir
       @git = git || GitProxy.new(git_dir: git_dir, sha: sha)
       @campsite = campsite
+      @base_dir = base_dir || ""
     end
+
+    extend Forwardable
+    def_delegators :@git, :wip?, :changes
 
     def files(regex = /./)
       all_files = git.files.split("\n")
 
-      if git_dir
-        all_files = all_files.map { |file_path| git_dir + file_path }
-      end
+      dir = git_dir || base_dir
+      all_files = all_files.map { |file_path| dir + file_path }
 
       all_files.select do |file_path|
         file_path =~ regex && File.exist?(file_path)

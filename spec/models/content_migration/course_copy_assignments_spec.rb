@@ -1,4 +1,22 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
+require File.expand_path(File.dirname(__FILE__) + '/../../lti2_spec_helper')
 
 describe ContentMigration do
   context "course copy assignments" do
@@ -153,6 +171,12 @@ describe ContentMigration do
       assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
       @assignment.turnitin_enabled = true
       @assignment.vericite_enabled = true
+      @assignment.vericite_settings = {
+          :originality_report_visibility => "after_grading",
+          :exclude_quoted => '1',
+          :exclude_self_plag => '0',
+          :store_in_index => '1'
+      }
       @assignment.peer_reviews = true
       @assignment.peer_review_count = 2
       @assignment.automatic_peer_reviews = true
@@ -162,21 +186,125 @@ describe ContentMigration do
       @assignment.muted = true
       @assignment.omit_from_final_grade = true
       @assignment.only_visible_to_overrides = true
+      @assignment.post_to_sis = true
+      @assignment.allowed_attempts = 10
 
       @assignment.save!
 
-      attrs = [:turnitin_enabled, :vericite_enabled, :peer_reviews,
+      expect_any_instantiation_of(@copy_to).to receive(:turnitin_enabled?).at_least(1).and_return(true)
+      expect_any_instantiation_of(@copy_to).to receive(:vericite_enabled?).at_least(1).and_return(true)
+
+      attrs = [:turnitin_enabled, :vericite_enabled, :turnitin_settings, :peer_reviews,
           :automatic_peer_reviews, :anonymous_peer_reviews,
           :grade_group_students_individually, :allowed_extensions,
-          :position, :peer_review_count, :muted, :omit_from_final_grade]
+          :position, :peer_review_count, :omit_from_final_grade, :post_to_sis, :allowed_attempts]
 
       run_course_copy
 
       new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
       attrs.each do |attr|
-        expect(@assignment[attr]).to eq new_assignment[attr]
+        if @assignment[attr].class == Hash
+          expect(@assignment[attr].stringify_keys).to eq new_assignment[attr].stringify_keys
+        else
+          expect(@assignment[attr]).to eq new_assignment[attr]
+        end
       end
+      expect(new_assignment.muted).to be_falsey
       expect(new_assignment.only_visible_to_overrides).to be_falsey
+    end
+
+    it "should unset allowed extensions" do
+      assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload',
+        :grading_type => 'points', :allowed_extensions => ["txt", "doc"])
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
+      expect(new_assignment.allowed_extensions).to eq ["txt", "doc"]
+      @assignment.update_attribute(:allowed_extensions, [])
+
+      run_course_copy
+
+      expect(new_assignment.reload.allowed_extensions).to eq []
+    end
+
+    describe "allowed_attempts copying" do
+      it "copies nil over properly" do
+        assignment_model(course: @copy_from, points_possible: 40, submission_types: 'file_upload', grading_type: 'points')
+        @assignment.allowed_attempts = nil
+        @assignment.save!
+
+        run_course_copy
+        new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).last
+        expect(new_assignment.allowed_attempts).to be_nil
+      end
+
+      it "copies -1 over properly" do
+        assignment_model(course: @copy_from, points_possible: 40, submission_types: 'file_upload', grading_type: 'points')
+        @assignment.allowed_attempts = -1
+        @assignment.save!
+
+        run_course_copy
+        new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).last
+        expect(new_assignment.allowed_attempts).to eq(-1)
+      end
+
+      it "copies values > 0 over properly" do
+        assignment_model(course: @copy_from, points_possible: 40, submission_types: 'file_upload', grading_type: 'points')
+        @assignment.allowed_attempts = 3
+        @assignment.save!
+
+        run_course_copy
+        new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).last
+        expect(new_assignment.allowed_attempts).to eq(3)
+      end
+    end
+
+    it "should copy other feature-dependent assignment attributes (if enabled downstream)" do
+      assignment_model(:course => @copy_from)
+      @assignment.moderated_grading = true
+      @assignment.grader_count = 2
+      @assignment.grader_comments_visible_to_graders = true
+      @assignment.anonymous_grading = true
+      @assignment.graders_anonymous_to_graders = true
+      @assignment.grader_names_visible_to_final_grader = true
+      @assignment.anonymous_instructor_annotations = true
+      @assignment.save!
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
+      [:moderated_grading, :anonymous_grading].each do |attr|
+        expect(new_assignment.send(attr)).to eq false
+      end
+
+      @copy_to.enable_feature!(:moderated_grading)
+      @copy_to.enable_feature!(:anonymous_marking)
+
+      run_course_copy
+
+      new_assignment.reload
+      [:moderated_grading, :grader_count, :grader_comments_visible_to_graders,
+        :anonymous_grading, :graders_anonymous_to_graders, :grader_names_visible_to_final_grader,
+        :anonymous_instructor_annotations].each do |attr|
+        expect(new_assignment.send(attr)).to eq @assignment.send(attr)
+      end
+    end
+
+    it "shouldn't copy turnitin/vericite_enabled if it's not enabled on the copyee's account" do
+      assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
+      @assignment.turnitin_enabled = true
+      @assignment.vericite_enabled = true
+      @assignment.save!
+
+      expect_any_instantiation_of(@copy_to).to receive(:turnitin_enabled?).at_least(1).and_return(false)
+      expect_any_instantiation_of(@copy_to).to receive(:vericite_enabled?).at_least(1).and_return(false)
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
+      expect(new_assignment[:turnitin_enabled]).to be_falsey
+      expect(new_assignment[:vericite_enabled]).to be_falsey
     end
 
     it "should copy group assignment setting" do
@@ -192,14 +320,6 @@ describe ContentMigration do
       new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
       expect(new_assignment).to be_has_group_category
       expect(new_assignment.group_category.name).to eq "Project Groups"
-    end
-
-    it "should copy moderated_grading setting" do
-      assignment_model(:course => @copy_from, :points_possible => 40,
-                       :submission_types => 'file_upload', :grading_type => 'points', :moderated_grading => true)
-      run_course_copy
-      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
-      expect(new_assignment).to be_moderated_grading
     end
 
     it "should not copy peer_reviews_assigned" do
@@ -218,8 +338,8 @@ describe ContentMigration do
       mod1 = @copy_from.context_modules.create!(:name => "some module")
       asmnt1 = @copy_from.assignments.create!(:title => "some assignment")
       mod1.add_item({:id => asmnt1.id, :type => 'assignment', :indent => 1})
-      page = @copy_from.wiki.wiki_pages.create!(:title => "some page")
-      page2 = @copy_from.wiki.wiki_pages.create!(:title => "some page 2")
+      page = @copy_from.wiki_pages.create!(:title => "some page")
+      page2 = @copy_from.wiki_pages.create!(:title => "some page 2")
       mod1.add_item({:id => page.id, :type => 'wiki_page'})
       att = Attachment.create!(:filename => 'first.png', :uploaded_data => StringIO.new('ohai'), :folder => Folder.root_folders(@copy_from).first, :context => @copy_from)
       att2 = Attachment.create!(:filename => 'first.png', :uploaded_data => StringIO.new('ohai'), :folder => Folder.root_folders(@copy_from).first, :context => @copy_from)
@@ -259,7 +379,7 @@ describe ContentMigration do
 
 
       expect(@copy_to.assignments.where(migration_id: mig_id(asmnt1)).first).not_to be_nil
-      expect(@copy_to.wiki.wiki_pages.where(migration_id: mig_id(page)).first).not_to be_nil
+      expect(@copy_to.wiki_pages.where(migration_id: mig_id(page)).first).not_to be_nil
       expect(@copy_to.attachments.where(migration_id: mig_id(att)).first).not_to be_nil
       expect(@copy_to.context_external_tools.where(migration_id: mig_id(tool)).first).not_to be_nil
       expect(@copy_to.discussion_topics.where(migration_id: mig_id(topic)).first).not_to be_nil
@@ -268,7 +388,7 @@ describe ContentMigration do
       expect(@copy_to.context_modules.where(migration_id: mig_id(mod2)).first).to be_nil
       expect(@copy_to.assignments.where(migration_id: mig_id(asmnt2)).first).to be_nil
       expect(@copy_to.attachments.where(migration_id: mig_id(att2)).first).to be_nil
-      expect(@copy_to.wiki.wiki_pages.where(migration_id: mig_id(page2)).first).to be_nil
+      expect(@copy_to.wiki_pages.where(migration_id: mig_id(page2)).first).to be_nil
       expect(@copy_to.context_external_tools.where(migration_id: mig_id(tool2)).first).to be_nil
       expect(@copy_to.discussion_topics.where(migration_id: mig_id(topic2)).first).to be_nil
       expect(@copy_to.quizzes.where(migration_id: mig_id(quiz2)).first).to be_nil
@@ -385,8 +505,8 @@ describe ContentMigration do
         run_course_copy(warnings)
 
         asmnt_2 = @copy_to.assignments.where(migration_id: mig_id(@asmnt)).first
-        expect(asmnt_2.freeze_on_copy).to be_nil
-        expect(asmnt_2.copied).to be_nil
+        expect(asmnt_2.freeze_on_copy).to be false
+        expect(asmnt_2.copied).to be false
       end
     end
 
@@ -551,6 +671,80 @@ describe ContentMigration do
         expect(to_override.due_at).to eq due_at
         expect(to_override.due_at_overridden).to eq true
         expect(to_override.unlock_at_overridden).to eq false
+      end
+
+      it "preserves only_visible_to_overrides for page assignments" do
+        a1 = assignment_model(context: @copy_from, title: 'a1', submission_types: 'wiki_page', only_visible_to_overrides: true)
+        a1.build_wiki_page(title: a1.title, context: a1.context).save!
+        a2 = assignment_model(context: @copy_from, title: 'a2', submission_types: 'wiki_page', only_visible_to_overrides: false)
+        a2.build_wiki_page(title: a2.title, context: a2.context).save!
+        run_course_copy
+        a1_to = @copy_to.assignments.where(migration_id: mig_id(a1)).take
+        expect(a1_to.only_visible_to_overrides).to eq true
+        a2_to = @copy_to.assignments.where(migration_id: mig_id(a2)).take
+        expect(a2_to.only_visible_to_overrides).to eq false
+      end
+    end
+
+    context 'external tools' do
+      include_context 'lti2_spec_helper'
+
+      let(:assignment) { @copy_from.assignments.create!(name: 'test assignment') }
+      let(:resource_link_id) { assignment.lti_context_id }
+      let(:custom_data) { {'setting_one' => 'value one'} }
+      let(:custom_parameters) { {'param_one' => 'param value one'} }
+      let(:tool_settings) do
+        Lti::ToolSetting.create!(
+          tool_proxy: tool_proxy,
+          resource_link_id: resource_link_id,
+          context: assignment.course,
+          custom: custom_data,
+          custom_parameters: custom_parameters,
+          product_code: tool_proxy.product_family.product_code,
+          vendor_code: tool_proxy.product_family.vendor_code
+        )
+      end
+
+      before do
+        allow_any_instance_of(Lti::AssignmentSubscriptionsHelper).to receive(:create_subscription) { SecureRandom.uuid }
+        allow(Lti::ToolProxy).to receive(:find_active_proxies_for_context_by_vendor_code_and_product_code) do
+          Lti::ToolProxy.where(id: tool_proxy.id)
+        end
+        product_family.update_attributes!(
+          product_code: 'product_code',
+          vendor_code: 'vendor_code'
+        )
+        tool_proxy.update_attributes!(
+          resources: [resource_handler],
+          context: @copy_to
+        )
+        tool_settings
+        AssignmentConfigurationToolLookup.create!(
+          assignment: assignment,
+          tool_id: message_handler.id,
+          tool_type: 'Lti::MessageHandler',
+          tool_product_code: product_family.product_code,
+          tool_vendor_code: product_family.vendor_code
+        )
+      end
+
+      it 'creates tool settings for associated plagiarism tools' do
+        expect{run_course_copy}.to change{Lti::ToolSetting.count}.from(1).to(2)
+      end
+
+      it 'sets the context of the tool setting to the new course' do
+        run_course_copy
+        expect(Lti::ToolSetting.last.context).to eq @copy_to
+      end
+
+      it 'sets the custom field of the new tool setting' do
+        run_course_copy
+        expect(Lti::ToolSetting.last.custom).to eq custom_data
+      end
+
+      it 'sets the custom parameters of the new tool setting' do
+        run_course_copy
+        expect(Lti::ToolSetting.last.custom_parameters).to eq custom_parameters
       end
     end
   end

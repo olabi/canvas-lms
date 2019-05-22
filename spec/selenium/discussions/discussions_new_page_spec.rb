@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 
 describe "discussions" do
@@ -32,8 +49,10 @@ describe "discussions" do
       end
 
       it "should add an attachment to a new topic", priority: "1", test_id: 150466 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         topic_title = 'new topic with file'
         get url
+        wait_for_tiny(f('textarea[name=message]'))
         replace_content(f('input[name=title]'), topic_title)
         add_attachment_and_validate
         expect(DiscussionTopic.where(title: topic_title).first.attachment_id).to be_present
@@ -41,6 +60,7 @@ describe "discussions" do
 
       it "should create a podcast enabled topic", priority: "1", test_id: 150467 do
         get url
+        wait_for_tiny(f('textarea[name=message]'))
         replace_content(f('input[name=title]'), "This is my test title")
         type_in_tiny('textarea[name=message]', 'This is the discussion description.')
 
@@ -52,12 +72,20 @@ describe "discussions" do
         expect(DiscussionTopic.last.podcast_enabled).to be_truthy
       end
 
+      it "should not display the section specific announcer if the FF is disabled" do
+        get url
+        graded_checkbox = f('input[type=checkbox][name="assignment[set_assignment]"]')
+        graded_checkbox.click
+        expect(f("body")).not_to contain_css('input[id^="Autocomplete"]')
+      end
+
       context "graded" do
         it "should allow creating multiple due dates", priority: "1", test_id: 150468 do
           assignment_group
           group_category
           new_section
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           f('input[type=checkbox][name="assignment[set_assignment]"]').click
 
@@ -142,6 +170,7 @@ describe "discussions" do
 
       it "should create a delayed discussion", priority: "1", test_id: 150470 do
         get url
+        wait_for_tiny(f('textarea[name=message]'))
         replace_content(f('input[name=title]'), "Student Delayed")
         type_in_tiny('textarea[name=message]', 'This is the discussion description.')
         target_time = 1.day.from_now
@@ -151,19 +180,23 @@ describe "discussions" do
         expect_new_page_load {submit_form('.form-actions')}
         expect(f('.entry-content').text).to include("This topic is locked until #{unlock_text}")
         expect_new_page_load{f('#section-tabs .discussions').click}
-        expect(f(' .discussion').text).to include("Not available until #{unlock_text_index_page}")
+        expect(f('.discussion-availability').text).to include("Not available until #{unlock_text_index_page}")
       end
 
       it "should allow a student to create a discussion", priority: "1", test_id: 150471 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         get url
+        wait_for_tiny(f('textarea[name=message]'))
         replace_content(f('input[name=title]'), "Student Discussion")
         type_in_tiny('textarea[name=message]', 'This is the discussion description.')
+        expect(f("#discussion-edit-view")).to_not contain_css("#has_group_category")
         expect_new_page_load {submit_form('.form-actions')}
         expect(f('.discussion-title').text).to eq "Student Discussion"
         expect(f("#content")).not_to contain_css('#topic_publish_button')
       end
 
       it "should not show file attachment if allow_student_forum_attachments is not true", priority: "2", test_id: 223507 do
+        skip_if_safari(:alert)
         # given
         get url
         expect(f("#content")).not_to contain_css('#disussion_attachment_uploaded_data')
@@ -179,6 +212,7 @@ describe "discussions" do
         let(:url) { "/groups/#{group.id}/discussion_topics/new" }
 
         it "should not show file attachment if allow_student_forum_attachments is not true", priority: "2", test_id: 223508 do
+          skip_if_safari(:alert)
           # given
           get url
           expect(f("#content")).not_to contain_css('label[for=discussion_attachment_uploaded_data]')

@@ -1,13 +1,29 @@
-require([
-  'i18n!accounts' /* I18n.t */,
-  'jquery' /* $ */,
-  'str/htmlEscape',
-  'jquery.instructure_forms' /* formSubmit */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'compiled/jquery.rails_flash_notifications',
-  'jquery.templateData' /* fillTemplateData */
-], function(I18n, $, htmlEscape) {
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import I18n from 'i18n!accounts'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import './jquery.instructure_forms' /* formSubmit */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import 'compiled/jquery.rails_flash_notifications'
+import './jquery.templateData' /* fillTemplateData */
 
   $(".add_course_link").click(function(event) {
     event.preventDefault();
@@ -53,5 +69,3 @@ require([
   $("#add_course_dialog .cancel_button").click(function() {
     $("#add_course_dialog").dialog('close');
   });
-});
-

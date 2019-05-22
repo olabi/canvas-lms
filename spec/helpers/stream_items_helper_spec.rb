@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,20 +21,18 @@ require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
 describe StreamItemsHelper do
   before :once do
     Notification.create!(:name => "Assignment Created", :category => "TestImmediately")
-    course_with_teacher(:active_all => true)
-    course_with_student(:active_all => true, :course => @course)
+    course_with_teacher(active_all: true)
+    @reviewee_student = course_with_student(active_all: true, course: @course).user
+    @reviewer_student = course_with_student(active_all: true, course: @course).user
     @other_user = user_factory
     @another_user = user_factory
 
     @context = @course
     @discussion = discussion_topic_model
     @announcement = announcement_model
-    @assignment = assignment_model(:course => @course)
-    @submission = submission_model(assignment: @assignment, user: @student)
-    @assessor_submission = submission_model(assignment: @assignment, user: @teacher)
-    @assessment_request = AssessmentRequest.create!(assessor: @teacher, asset: @submission, user: @student, assessor_asset: @assessor_submission)
-    @assessment_request.workflow_state = 'assigned'
-    @assessment_request.save
+    @assignment = assignment_model(:course => @course, peer_reviews: true)
+    @assignment.assign_peer_review(@teacher, @student)
+    @assignment.assign_peer_review(@reviewer_student, @reviewee_student)
     # this conversation will not be shown, since the teacher is the last author
     conversation(@another_user, @teacher).conversation.add_message(@teacher, 'zomg')
     # whereas this one will be shown
@@ -81,6 +79,18 @@ describe StreamItemsHelper do
       })
       expect(@student.recent_stream_items).not_to include @group_assignment_discussion
       expect(@teacher.recent_stream_items).not_to include @group_assignment_discussion
+    end
+
+    it "should skip assessment requests the user doesn't have permission to read" do
+      @items = @reviewer_student.recent_stream_items
+      @categorized = helper.categorize_stream_items(@items, @reviewer_student)
+      expect(@categorized["AssessmentRequest"].size).to eq 1
+      @assignment.peer_reviews = false
+      @assignment.save!
+      AdheresToPolicy::Cache.clear
+      @items = @reviewer_student.recent_stream_items
+      @categorized = helper.categorize_stream_items(@items, @reviewer_student)
+      expect(@categorized["AssessmentRequest"].size).to eq 0
     end
 
     context "across shards" do
@@ -155,6 +165,20 @@ describe StreamItemsHelper do
       expect(@categorized["Assignment"].first.context.id).to eq @course.id
       expect(@categorized["DiscussionTopic"].first.context.id).to eq @course.id
       expect(@categorized["AssessmentRequest"].first.context.id).to eq @course.id
+    end
+  end
+
+  context "extract_updated_at" do
+    it "should find the correct updated_at time for a conversation participant" do
+      @conversation.updated_at = 1.hour.ago
+      @conversation.save!
+
+      @items = @teacher.recent_stream_items
+      @categorized = helper.categorize_stream_items(@items, @teacher)
+      @convo_participant = @conversation.conversation_participants.find_by(user: @teacher)
+      @stream_item_updated_at = @categorized["Conversation"].first.updated_at
+      expect(@stream_item_updated_at).not_to eq @conversation.updated_at
+      expect(@stream_item_updated_at).to eq @convo_participant.last_message_at
     end
   end
 

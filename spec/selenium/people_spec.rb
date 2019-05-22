@@ -1,10 +1,27 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "people" do
   include_context "in-process server selenium tests"
 
-  before(:once) do
-    driver.manage.window.maximize
+  before(:each) do
+    make_full_screen
   end
 
   def add_user(option_text, username, user_list_selector)
@@ -99,36 +116,32 @@ describe "people" do
     before (:each) do
       course_with_teacher_logged_in
 
-      #add first student
+      # add first student
       @student_1 = create_user('student@test.com')
 
       enroll_student(@student_1)
 
-      #adding users for tests to work correctly
-
-      #teacher user
+      # adding users for tests to work correctly
       @test_teacher = create_user('teacher@test.com')
-      #student user
       @student_2 = create_user('student2@test.com')
-      #ta user
       @test_ta = create_user('ta@test.com')
-      #observer user
       @test_observer = create_user('observer@test.com')
 
       enroll_ta(@test_ta)
-
-      get "/courses/#{@course.id}/users"
     end
 
     it "should have tabs" do
+      get "/courses/#{@course.id}/users"
       expect(f('.collectionViewItems>li:first-child').text).to match "Everyone"
     end
 
     it "should display a dropdown menu when item cog is clicked" do
+      get "/courses/#{@course.id}/users"
       open_dropdown_menu
     end
 
     it "should display the option to remove a student from a course if manually enrolled" do
+      get "/courses/#{@course.id}/users"
       open_dropdown_menu("tr[id=user_#{@student_1.id}]")
       expect(dropdown_item_visible?('removeFromCourse', "tr[id=user_#{@student_1.id}]")).to be true
     end
@@ -165,11 +178,13 @@ describe "people" do
     end
 
     it "should display the option to remove a ta from the course" do
+      get "/courses/#{@course.id}/users"
       open_dropdown_menu("tr[id=user_#{@test_ta.id}]")
       expect(dropdown_item_visible?('removeFromCourse', "tr[id=user_#{@test_ta.id}]")).to be true
     end
 
     it "should display activity report on clicking Student Interaction button", priority: "1", test_id: 244446 do
+      get "/courses/#{@course.id}/users"
       f("#people-options .Button").click
       fln("Student Interactions Report").click
       expect(f("h1").text).to eq "Teacher Activity Report for #{@user.name}"
@@ -182,21 +197,22 @@ describe "people" do
     end
 
     it "should focus on the + Group Set button after the tabs" do
+      get "/courses/#{@course.id}/users"
       driver.execute_script("$('.collectionViewItems > li:last a').focus()")
       active = driver.execute_script("return document.activeElement")
       active.send_keys(:tab)
       check_element_has_focus(f('.group-categories-actions .btn-primary'))
     end
 
-    # focus test removed. delegated to inst-ui which now implements the modal
-
     it "should validate the main page" do
+      get "/courses/#{@course.id}/users"
       users = ff('.roster_user_name')
       expect(users[1].text).to match @student_1.name
       expect(users[0].text).to match @teacher.name
     end
 
     it "should navigate to registered services on profile page" do
+      get "/courses/#{@course.id}/users"
       f("#people-options .Button").click
       fln('View Registered Services').click
       fln('Link web services to my account').click
@@ -204,10 +220,12 @@ describe "people" do
     end
 
     it "should make a new set of student groups" do
+      get "/courses/#{@course.id}/users"
       create_student_group
     end
 
     it "should test self sign up functionality" do
+      get "/courses/#{@course.id}/users"
       f("#people-options .Button").click
       expect_new_page_load { fln('View User Groups').click }
       dialog = open_student_group_dialog
@@ -217,6 +235,7 @@ describe "people" do
     end
 
     it "should test self sign up / group structure functionality" do
+      get "/courses/#{@course.id}/users"
       group_count = "4"
       expect_new_page_load do
         f("#people-options .Button").click
@@ -233,6 +252,7 @@ describe "people" do
     end
 
     it "should test group structure functionality" do
+      get "/courses/#{@course.id}/users"
       enroll_more_students
 
       group_count = "4"
@@ -254,6 +274,7 @@ describe "people" do
     end
 
     it "should edit a student group" do
+      get "/courses/#{@course.id}/users"
       new_group_name = "new group edit name"
       create_student_group
       fj('.group-category-actions:visible a:visible').click
@@ -266,6 +287,7 @@ describe "people" do
     end
 
     it "should delete a student group" do
+      get "/courses/#{@course.id}/users"
       create_student_group
       fj('.group-category-actions:visible a:visible').click
       f('.delete-category').click
@@ -314,6 +336,32 @@ describe "people" do
       expect(enrollments[0]).to include_text @students[0].name
       expect(enrollments[1]).to include_text @students[1].name
     end
+
+    it "allows conclude/restore without profiles enabled" do
+      get "/courses/#{@course.id}/users/#{@student_1.id}"
+      f('.more_user_information_link').click
+      wait_for_animations
+      f('.conclude_enrollment_link').click
+      accept_alert
+      wait_for_ajaximations
+      f('.unconclude_enrollment_link').click
+      wait_for_ajaximations
+      expect(f('.conclude_enrollment_link')).to be_displayed
+    end
+
+    it "allows conclude/restore with profiles enabled" do
+      account = Account.default
+      account.settings[:enable_profiles] = true
+      account.save!
+
+      get "/courses/#{@course.id}/users/#{@student_1.id}"
+      f('.conclude_enrollment_link').click
+      accept_alert
+      wait_for_ajaximations
+      f('.unconclude_enrollment_link').click
+      wait_for_ajaximations
+      expect(f('.conclude_enrollment_link')).to be_displayed
+    end
   end
 
   context "people as a TA" do
@@ -327,11 +375,27 @@ describe "people" do
       expect(f("#content")).not_to contain_css('.delete_course_link')
       expect(f("#content")).not_to contain_css('.reset_course_content_button')
       get "/courses/#{@course.id}/confirm_action?event=conclude"
-      expect(f('.ui-state-error')).to include_text('Unauthorized')
+      expect(f('#unauthorized_message')).to include_text('Access Denied')
     end
 
     # TODO reimplement per CNVS-29609, but make sure we're testing at the right level
     it "should validate that a TA cannot rename a teacher"
+  end
+
+  context "people as a student" do
+
+    before (:each) do
+      course_with_student_logged_in(:active_all => true)
+    end
+
+    it "should not link avatars to a user's profile page if profiles are disabled" do
+      @course.account.settings[:enable_profiles] = false
+      @course.account.enable_service(:avatars)
+      @course.account.save!
+      get "/courses/#{@course.id}/users/#{@student.id}"
+      expect(f('.avatar')['href']).not_to be_present
+    end
+
   end
 
   context "course with multiple sections", priority: "2" do
@@ -368,7 +432,7 @@ describe "people" do
       student = create_user("student@example.com")
       enroll_student(student)
       get "/courses/#{@course.id}/users"
-      f(".StudentEnrollment .icon-settings").click
+      f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
       f(".token_input.browsable").click
       section_input_element = driver.find_element(:name, "token_capture")
@@ -385,12 +449,28 @@ describe "people" do
      @course.enroll_student(@student, allow_multiple_enrollments: true)
      @course.enroll_student(@student, section: @section2, allow_multiple_enrollments: true)
      get "/courses/#{@course.id}/users"
-     f(".StudentEnrollment .icon-settings").click
+     f(".StudentEnrollment .icon-more").click
      fln("Edit Sections").click
      fln("Remove user from section2").click
      ff('.ui-button-text')[1].click
      wait_for_ajaximations
      expect(ff(".StudentEnrollment")[0]).not_to include_text("section2")
+    end
+
+    it "removes students linked to an observer" do
+      @student1 = user_factory; @course.enroll_student(@student1, enrollment_state: :active)
+      @student2 = user_factory; @course.enroll_student(@student2, enrollment_state: :active)
+      @observer = user_factory
+      @course.enroll_user(@observer, 'ObserverEnrollment', enrollment_state: :active, associated_user_id: @student1.id, allow_multiple_enrollments: true)
+      @course.enroll_user(@observer, 'ObserverEnrollment', enrollment_state: :active, associated_user_id: @student2.id, allow_multiple_enrollments: true)
+      get "/courses/#{@course.id}/users"
+      f(".ObserverEnrollment .icon-more").click
+      fln("Link to Students").click
+      fln("Remove linked student #{@student1.name}", f("#token_#{@student1.id}")).click
+      f('.ui-dialog-buttonset .btn-primary').click
+      wait_for_ajax_requests
+      expect(@observer.enrollments.not_deleted.map(&:associated_user_id)).not_to include @student1.id
+      expect(@observer.enrollments.not_deleted.map(&:associated_user_id)).to include @student2.id
     end
 
     it "should gray out sections the user doesn't have permission to remove" do
@@ -400,7 +480,7 @@ describe "people" do
       e.sis_batch_id = sis.id
       e.save!
       get "/courses/#{@course.id}/users"
-      ff(".icon-settings")[1].click
+      ff(".icon-more")[1].click
       fln("Edit Sections").click
       expect(f('#user_sections li.cannot_remove').text).to include @course.default_section.name
 
@@ -414,7 +494,7 @@ describe "people" do
       f('.ui-dialog-buttonset .btn-primary').click
       wait_for_ajaximations
 
-      ff(".icon-settings")[1].click
+      ff(".icon-more")[1].click
       fln("Edit Sections").click
       expect(f('#user_sections li.cannot_remove').text).to include @course.default_section.name
       expect(f("a[title='Remove user from section2']")).not_to be_nil
@@ -459,7 +539,7 @@ describe "people" do
       @section = @course.course_sections.create!(name: "section1")
 
       @teacher = user_with_pseudonym(:active_all => true)
-      @enrollment = @course.enroll_teacher(@teacher)
+      @enrollment = @course.enroll_teacher(@teacher, enrollment_state: 'active')
     end
 
     before :each do
@@ -496,7 +576,7 @@ describe "people" do
 
       open_role_dialog(@teacher)
 
-      expect(f("#edit_roles #role_id option[selected]")).to include_text("Teacher")
+      expect(fj("#edit_roles #role_id option:selected")).to include_text("Teacher")
       expect(f("#edit_roles #role_id option[value='#{student_role.id}']")).to be_present
       expect(f("#edit_roles #role_id option[value='#{observer_role.id}']")).to be_present
     end
@@ -524,7 +604,7 @@ describe "people" do
       click_option("#edit_roles #role_id", role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(f("#user_#{@teacher.id}")).to include_text(role_name)
       @enrollment.reload
@@ -544,7 +624,7 @@ describe "people" do
       click_option("#edit_roles #role_id", ta_role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to be_deleted
@@ -565,7 +645,7 @@ describe "people" do
       click_option("#edit_roles #role_id", ta_role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to_not be_deleted
@@ -582,7 +662,7 @@ describe "people" do
       click_option("#edit_roles #role_id", student_role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to be_deleted
@@ -626,5 +706,37 @@ describe "people" do
       expect_new_page_load { group_link.click }
       expect(driver.current_url).to include("/courses/#{@course.id}/groups")
     end
+
+    context "student tray" do
+
+      before(:each) do
+        preload_graphql_schema
+        @account = Account.default
+        @account.enable_feature!(:student_context_cards)
+        @student = create_user('student@test.com')
+        @course.enroll_student(@student, enrollment_state: :active)
+      end
+
+      it "course people page should display student name in tray", priority: "1", test_id: 3022066 do
+        get("/courses/#{@course.id}/users")
+        f("a[data-student_id='#{@student.id}']").click
+        expect(f(".StudentContextTray-Header__Name h2 a")).to include_text("student@test.com")
+      end
+    end
+  end
+
+  it "should not show unenroll link to admins without permissions" do
+    account_admin_user(:active_all => true)
+    user_session(@admin)
+
+    course_with_student(:active_all => true)
+    get "/users/#{@student.id}"
+
+    expect(f("#courses")).to contain_css(".unenroll_link")
+
+    Account.default.role_overrides.create!(:permission => "manage_students", :enabled => false, :role => admin_role)
+    refresh_page
+
+    expect(f("#courses")).to_not contain_css(".unenroll_link")
   end
 end

@@ -1,4 +1,21 @@
-//
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // Buttons
 // --------------------------------------------------
 
@@ -131,7 +148,7 @@ listen to the "click" and "keyclick" events and add `tabindex="0"` and `role="bu
 
 .btn,       // <-- deprecated- do not use
 .Button {
-  @include canvas-button($ic-color-medium-light, $ic-color-dark);
+  @include canvas-button($ic-color-medium-light, $ic-color-dark, true);
   border-radius: $baseBorderRadius;
   transition: background-color 0.2s ease-in-out;
   display: inline-block;
@@ -205,9 +222,9 @@ listen to the "click" and "keyclick" events and add `tabindex="0"` and `role="bu
 .Button--block {
   display: block;
   width: 100%;
-  padding-left: 0;
-  padding-right: 0;
-  @include box-sizing(border-box);
+  padding-#{direction(left)}: 0;
+  padding-#{direction(right)}: 0;
+  box-sizing: border-box;
 }
 
 // Vertically space out stacked block buttons
@@ -223,11 +240,20 @@ input[type="button"] {
 // The colors for these come from app/stylesheets/brandable_variables.json
 // Or the values the account sets in the Theme Editor
 
-
 // Primary appears as blue
 .btn-primary, // <-- deprecated- do not use
 .Button--primary {
-  @include canvas-button($button--primary-bgd, $button--primary-text);
+  @if $use_high_contrast {
+    @include canvas-button(#0770A3, $ic-color-light);
+  } @else {
+    @include canvas-button(
+      var(--ic-brand-button--primary-bgd),
+      var(--ic-brand-button--primary-text),
+      false,
+      var(--ic-brand-button--primary-bgd-darkened-5),
+      var(--ic-brand-button--primary-bgd-darkened-15)
+    );
+  }
 }
 // Warning appears as orange
 .btn-warning, // <-- deprecated- do not use
@@ -247,11 +273,18 @@ input[type="button"] {
 // Info appears as a neutral blue
 .btn-info, // <-- deprecated- do not use
 .Button--secondary {
-  @include canvas-button($ic-brand-button--secondary-bgd, $ic-brand-button--secondary-text);
+  @if $use_high_contrast {
+    @include canvas-button($ic-color-dark, $ic-color-light);
+  } @else {
+    @include canvas-button(
+      var(--ic-brand-button--secondary-bgd),
+      var(--ic-brand-button--secondary-text),
+      false,
+      var(--ic-brand-button--secondary-bgd-darkened-5),
+      var(--ic-brand-button--secondary-bgd-darkened-15)
+    );
+  }
 }
-
-// Inverse appears as dark gray <-- deprecated- do not use
-.btn-inverse { @include buttonBackground($btnInverseBackground, $btnInverseBackgroundHighlight); }
 
 
 // Link buttons
@@ -270,30 +303,38 @@ input[type="button"] {
 .Button--link {
   border-color: transparent;
   cursor: pointer;
-  color: $ic-link-color;
+  color: var(--ic-link-color);
+
+  @if $use_high_contrast {
+    text-decoration: underline;
+  }
 
   body.Underline-All-Links__enabled & {
     text-decoration: underline;
   }
 
   &:hover {
-    color: $ic-link-color-hover;
+    color: var(--ic-link-color-darkened-10);
     text-decoration: underline;
     background: transparent;
+
+    @if $use_high_contrast {
+      text-decoration: none;
+    }
 
     body.Underline-All-Links__enabled & {
       text-decoration: none;
     }
-    &:focus { color: $ic-link-color; }
+    &:focus { color: var(--ic-link-color); }
   }
 
-  &:focus { color: $ic-link-color; }
+  &:focus { color: var(--ic-link-color); }
 
   &.active, &.Button--active, &:active {
     background: rgba($ic-color-dark, 0.05);
     box-shadow: none;
     border-color: transparent;
-    color: $ic-link-color;
+    color: var(--ic-link-color);
   }
 
   &.disabled, &[disabled] {
@@ -302,8 +343,16 @@ input[type="button"] {
   }
 
   i[class*=icon-], i[class^=icon-] {
-    margin-right: 3px;
+    margin-#{direction(right)}: 3px;
   }
+}
+
+.Button--link--has-divider {
+  display: block;
+  text-align: direction(left);
+  border-bottom: 1px solid $ic-border-color;
+  color: $ic-color-dark;
+  padding: $ic-sp;
 }
 
 // Icon "action" buttons
@@ -327,7 +376,7 @@ input[type="button"] {
     background: transparent;
     box-shadow: none;
     border-color: transparent;
-    color: $ic-link-color;
+    color: var(--ic-link-color);
   }
 }
 
@@ -354,4 +403,27 @@ input[type="button"] {
 
 .Button--theme-editor-apply {
   text-decoration: none;
+}
+
+
+// "Beta" buttons
+// --------------------------------------------------
+
+// Adds a 'Beta' background image to the button
+
+.btn-beta,
+.Button--beta {
+  @mixin beta-tag {
+    background-image: url(/images/beta-tag.png);
+    background-repeat: no-repeat;
+    background-position: bottom right;
+    background-size: auto 80%;
+  }
+  @include beta-tag;
+  padding-#{direction(right)}: 20px;
+
+  // Prevent the beta background image from disappearing on hover
+  &:hover {
+    @include beta-tag;
+  }
 }

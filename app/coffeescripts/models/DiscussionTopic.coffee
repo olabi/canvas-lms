@@ -1,14 +1,33 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!discussion_topics'
   'Backbone'
   'jquery'
   'underscore'
-  'compiled/collections/ParticipantCollection'
-  'compiled/collections/DiscussionEntriesCollection'
-  'compiled/models/Assignment'
-  'compiled/models/DateGroup'
+  'jsx/shared/FlashAlert'
+  '../collections/ParticipantCollection'
+  '../collections/DiscussionEntriesCollection'
+  '../models/Assignment'
+  '../models/DateGroup'
   'str/stripTags'
-], (I18n, Backbone, $, _, ParticipantCollection, DiscussionEntriesCollection, Assignment, DateGroup, stripTags) ->
+  'axios'
+], (I18n, Backbone, $, _, { showFlashError } , ParticipantCollection, DiscussionEntriesCollection, Assignment, DateGroup, stripTags, axios) ->
 
   class DiscussionTopic extends Backbone.Model
     resourceName: 'discussion_topics'
@@ -77,6 +96,7 @@ define [
 
     toJSON: ->
       json = super
+      delete json.message if (ENV.MASTER_COURSE_DATA?.is_master_course_child_content && ENV.MASTER_COURSE_DATA?.master_course_restrictions?.content)
       delete json.assignment unless json.set_assignment
       _.extend json,
         summary: @summary()
@@ -87,6 +107,11 @@ define [
         isRootTopic: @isRootTopic()
       delete json.assignment.rubric if json.assignment
       json
+
+    duplicate: (context_type, context_id, callback) =>
+      axios.post("/api/v1/#{context_type}s/#{context_id}/discussion_topics/#{@id}/duplicate", {})
+        .then(callback)
+        .catch(showFlashError(I18n.t("Could not duplicate discussion")))
 
     toView: ->
       _.extend @toJSON(),

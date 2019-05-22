@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -56,7 +56,7 @@ module Canvas::Migration::Worker
     att = nil
     
     begin
-      Zip::File.open(zip_file, 'w') do |zipfile|
+      Zip::File.open(zip_file, Zip::File::CREATE) do |zipfile|
         Dir["#{folder}/**/**"].each do |file|
           next if File.basename(file) == file_name
           file_path = file.sub(folder+'/', '')

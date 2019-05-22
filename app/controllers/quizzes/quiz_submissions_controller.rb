@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,9 +22,9 @@ class Quizzes::QuizSubmissionsController < ApplicationController
   include ::Filters::QuizSubmissions
 
   protect_from_forgery :except => [:create, :backup, :record_answer], with: :exception
-  before_filter :require_context
-  before_filter :require_quiz, :only => [ :index, :create, :extensions, :show, :update, :log ]
-  before_filter :require_quiz_submission, :only => [ :show, :log ]
+  before_action :require_context
+  before_action :require_quiz, :only => [ :index, :create, :extensions, :show, :update, :log ]
+  before_action :require_quiz_submission, :only => [ :show, :log ]
   batch_jobs_in_actions :only => [:update, :create], :batch => { :priority => Delayed::LOW_PRIORITY }
 
   def index
@@ -44,7 +44,7 @@ class Quizzes::QuizSubmissionsController < ApplicationController
       # If the submission is a preview, we don't add it to the user's submission history,
       # and it actually gets keyed by the temporary_user_code column instead of
       if @current_user.nil? || is_previewing?
-        @submission = @quiz.quiz_submissions.where(temporary_user_code: temporary_user_code(false)).first
+        @submission = @quiz.quiz_submissions.where(temporary_user_code: temporary_user_code(false), user_id: nil).first
         @submission ||= @quiz.generate_submission(temporary_user_code(false) || @current_user, is_previewing?)
       else
         @submission = @quiz.quiz_submissions.where(user_id: @current_user).first if @current_user.present?
@@ -83,7 +83,7 @@ class Quizzes::QuizSubmissionsController < ApplicationController
     end
     if authorized_action(@quiz, @current_user, :submit)
       if @current_user.nil? || is_previewing?
-        @submission = @quiz.quiz_submissions.where(temporary_user_code: temporary_user_code(false)).first
+        @submission = @quiz.quiz_submissions.where(temporary_user_code: temporary_user_code(false), user_id: nil).first
       else
         @submission = @quiz.quiz_submissions.where(user_id: @current_user).first
         if @submission.present? && !@submission.valid_token?(params[:validation_token])
@@ -96,9 +96,9 @@ class Quizzes::QuizSubmissionsController < ApplicationController
         end
       end
 
-      if @quiz.ip_filter && !@quiz.valid_ip?(request.remote_ip)
-      elsif is_previewing? || (@submission && @submission.temporary_user_code == temporary_user_code(false)) ||
-                              (@submission && @submission.grants_right?(@current_user, session, :update))
+      if !@submission || (@quiz.ip_filter && !@quiz.valid_ip?(request.remote_ip))
+      elsif is_previewing? || (@submission.temporary_user_code == temporary_user_code(false)) ||
+                              (@submission.grants_right?(@current_user, session, :update))
         if !@submission.completed? && (!@submission.overdue? || is_previewing?)
           if params[:action] == 'record_answer'
             if last_question = params[:last_question_id]
@@ -111,8 +111,8 @@ class Quizzes::QuizSubmissionsController < ApplicationController
           else
             @submission.backup_submission_data(params)
             render :json => {:backup => true,
-                             :end_at => @submission && @submission.end_at,
-                             :time_left => @submission && @submission.time_left}
+                             :end_at => @submission.end_at,
+                             :time_left => @submission.time_left}
             return
           end
         end
@@ -136,8 +136,8 @@ class Quizzes::QuizSubmissionsController < ApplicationController
   end
 
   def extensions
-    @student = @context.students.where(id: params[:user_id]).first
-    @submission = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@student || @current_user, nil, 'settings_only')
+    @student = @context.users_visible_to(@current_user, false, include_inactive: true).find_by!(id: params[:user_id])
+    @submission = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@student, nil, 'settings_only')
     if authorized_action(@submission, @current_user, :add_attempts)
       @submission.extra_attempts ||= 0
       @submission.extra_attempts = params[:extra_attempts].to_i if params[:extra_attempts]
@@ -162,7 +162,7 @@ class Quizzes::QuizSubmissionsController < ApplicationController
   def update
     @submission = @quiz.quiz_submissions.find(params[:id])
     if authorized_action(@submission, @current_user, :update_scores)
-      @submission.update_scores(params.merge(:grader_id => @current_user.id))
+      @submission.update_scores(params.to_unsafe_h.merge(:grader_id => @current_user.id))
       if params[:headless]
         redirect_to named_context_url(@context, :context_quiz_history_url, @quiz, :user_id => @submission.user_id, :version => (params[:submission_version_number] || @submission.version_number), :headless => 1, :score_updated => 1, :hide_student_name => params[:hide_student_name])
       else
@@ -199,10 +199,7 @@ class Quizzes::QuizSubmissionsController < ApplicationController
 
     respond_to do |format|
       if attachment.zipped?
-        if Attachment.s3_storage?
-          format.html { redirect_to attachment.inline_url }
-          format.zip { redirect_to attachment.inline_url }
-        else
+        if attachment.stored_locally?
           cancel_cache_buster
 
           format.html do
@@ -218,6 +215,10 @@ class Quizzes::QuizSubmissionsController < ApplicationController
               :disposition => 'inline'
             })
           end
+        else
+          inline_url = authenticated_inline_url(attachment)
+          format.html { redirect_to inline_url }
+          format.zip { redirect_to inline_url }
         end
 
         format.any(:json, :jsonapi) { render :json => attachment.as_json(:methods => :readable_size) }

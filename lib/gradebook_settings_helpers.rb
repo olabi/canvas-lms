@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,24 +19,30 @@
 module GradebookSettingsHelpers
   private
 
-  def gradebook_includes
+  def gradebook_includes(user:, course:)
     @gradebook_includes ||= begin
-      course_id = @course.id
-      gb_settings = @user.preferences.fetch(:gradebook_settings, {}).fetch(course_id, {})
+      course_id = course.id
+      gb_settings = user.preferences.fetch(:gradebook_settings, {}).fetch(course_id, {})
 
       includes = []
       includes << :inactive if gb_settings.fetch('show_inactive_enrollments', "false") == "true"
-      if gb_settings.fetch('show_concluded_enrollments', "false") == "true" || @course.concluded?
+      if gb_settings.fetch('show_concluded_enrollments', "false") == "true" || course.completed?
         includes << :completed
       end
       includes
     end
   end
 
-  def gradebook_enrollment_scope(course = @course)
+  def gradebook_enrollment_scope(user:, course:)
     scope = course.all_accepted_student_enrollments
-    scope = scope.where("enrollments.workflow_state <> 'inactive'") unless gradebook_includes.include?(:inactive)
-    scope = scope.where("enrollments.workflow_state <> 'completed'") unless gradebook_includes.include?(:completed)
+
+    unless gradebook_includes(user: user, course: course).include?(:inactive)
+      scope = scope.where("enrollments.workflow_state <> 'inactive'")
+    end
+    unless gradebook_includes(user: user, course: course).include?(:completed)
+      scope = scope.where("enrollments.workflow_state <> 'completed'")
+    end
+
     scope
   end
 

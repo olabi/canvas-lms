@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -82,13 +82,13 @@ oo: !ruby/object:OpenObject
 --- !ruby/object:ActionController::Base
 real_format:
 YAML
-    expect { YAML.load yaml }.to raise_error
+    expect { YAML.load yaml }.to raise_error("Unknown YAML tag '!ruby/object:ActionController::Base'")
     result = YAML.unsafe_load yaml
     expect(result.class).to eq ActionController::Base
   end
 
   it "doesn't allow deserialization of arbitrary classes" do
-    expect { YAML.load(YAML.dump(ActionController::Base)) }.to raise_error
+    expect { YAML.load(YAML.dump(ActionController::Base)) }.to raise_error("YAML deserialization of constant not allowed: ActionController::Base")
   end
 
   it "allows deserialization of arbitrary classes when unsafe_loading" do
@@ -193,12 +193,16 @@ YAML
   end
 
   it "should be able to dump and load BigDecimals" do
-    hash = {blah: BigDecimal.new("1.2")}
+    hash = {blah: BigDecimal("1.2")}
     expect(YAML.load(YAML.dump(hash))).to eq hash
   end
 
   it "should be able to dump and load these strings in stuff" do
     hash = {:blah => "<<"}
     expect(YAML.load(YAML.dump(hash))).to eq hash
+  end
+
+  it "dumps and loads singletons" do
+    expect(YAML.load(YAML.dump(Mime::NullType.instance))).to eq Mime::NullType.instance
   end
 end

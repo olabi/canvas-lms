@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../cc_spec_helper')
 
 describe "MediaConverter" do
@@ -83,6 +100,15 @@ describe "MediaConverter" do
 
       expect(doc.search("a[href*='#{mov_path}']").empty?).to be_truthy
       expect(doc.search("span").any?).to be_truthy
+    end
+
+    it "shouldn't explode with non standard file names" do
+      other_doc = Nokogiri::HTML::DocumentFragment.parse(
+        "<div><a href=\"#{CGI.escape(MediaConverterTest::WEB_CONTENT_TOKEN)}/path/to/im%28g.jpg\"}>blah</a>")
+
+      test_instance.convert_media_paths!(other_doc)
+
+      expect(other_doc.at_css("a")["href"]).to eq "#{CC::Exporter::Epub::FILE_PATH}/path/to/im%28g.jpg"
     end
   end
 

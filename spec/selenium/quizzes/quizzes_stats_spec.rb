@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -31,6 +48,7 @@ describe 'quizzes stats' do
 
     context 'teacher preview' do
       it 'should not show a quiz stats button if there was a teacher preview', priority: "2", test_id: 140645 do
+        skip_if_safari(:alert)
         quiz_with_new_questions(!:goto_edit)
         get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
 
@@ -62,6 +80,7 @@ describe 'quizzes stats' do
         end
 
         it 'should download a csv when pressing #{report_type} button ', priority: "1", test_id: 270039 do
+          skip("QUIZ-5120")
           button = fj(".generate-report:contains('#{report_type}')")
           button.click
           wait_for_ajaximations

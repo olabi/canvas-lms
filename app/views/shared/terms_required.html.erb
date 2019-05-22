@@ -1,5 +1,23 @@
 <%
-  content_for :page_title, t('updated_terms_of_use', 'Updated Terms of Use')
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
+  content_for :page_title, t('updated_terms_of_use', 'Updated Acceptable Use Policy')
 
   js_bundle :terms_of_use
   css_bundle :login_confirm
@@ -15,16 +33,21 @@
     <%= image_tag("login/canvas-logo@2x.png", class:"ic-Login-confirmation__logo", alt:"Canvas by Instructure") %>
   </header>
   <div class="ic-Login-confirmation__content">
-    <h2 class="ic-Login-confirmation__headline"><%= t 'updated_terms_of_use', 'Updated Terms of Use' %></h2>
+    <h2 class="ic-Login-confirmation__headline"><%= t('Acceptable Use Policy') %></h2>
+    <% if @domain_root_account.terms_required? %>
+      <% TermsOfService.ensure_terms_for_account(@domain_root_account) %>
+      <% js_env(:TERMS_OF_SERVICE_CUSTOM_CONTENT => @domain_root_account.terms_of_service.terms_of_service_content&.content) %>
+      <% js_bundle :terms_of_service_modal %>
+    <% end %>
     <p>
-      <%= t "Either you're a new user or the *terms of use* have changed since you last agreed to them.  Please agree to the *terms of use* and **privacy policy** before you continue.",
-            wrapper: {
-                '*' => link_to('\1', terms_of_use_url, target: '_blank'),
-                '**' => link_to('\1', privacy_policy_url, target: '_blank')
-            }
-      %>
-    </p>
-    <p>
+      <p>
+        <div class="terms-of-service__link" id=terms_of_service_link></div>
+        <%= t "Either you're a new user or the *terms of use* has changed since you last agreed to it.  Please agree to the *terms of use* before you continue.",
+              wrapper: {
+                  '*' => link_to('\1', "#", class: 'terms_of_service_link'),
+              }
+        %>
+      </p>
       <label class="checkbox">
         <input type="checkbox" name="user[terms_of_use]" value="1">
         <%= agree_to_terms %>

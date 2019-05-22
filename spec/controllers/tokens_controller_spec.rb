@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,18 +22,18 @@ describe TokensController do
   describe "developer keys" do
     context "not logged in" do
       it "should require being logged in to create an access token" do
-        post 'create', :access_token => {:purpose => "test"}
+        post 'create', params: {:access_token => {:purpose => "test"}}
         expect(response).to be_redirect
         expect(assigns[:token]).to be_nil
       end
 
       it "should require being logged in to delete an access token" do
-        delete 'destroy', :id => 5
+        delete 'destroy', params: {:id => 5}
         expect(response).to be_redirect
       end
 
       it "should require being logged in to retrieve an access token" do
-        get 'show', :id => 5
+        get 'show', params: {:id => 5}
         expect(response).to be_redirect
       end
     end
@@ -48,8 +48,8 @@ describe TokensController do
       end
 
       it "should allow creating an access token" do
-        post 'create', :access_token => {:purpose => "test", :expires_at => "jun 1 2011"}
-        expect(response).to be_success
+        post 'create', params: {:access_token => {:purpose => "test", :expires_at => "jun 1 2011"}}
+        expect(response).to be_successful
         expect(assigns[:token]).not_to be_nil
         expect(assigns[:token].developer_key).to eq DeveloperKey.default
         expect(assigns[:token].purpose).to eq "test"
@@ -60,13 +60,13 @@ describe TokensController do
         Account.site_admin.account_users.create!(user: @user)
         session[:become_user_id] = user_with_pseudonym.id
 
-        post 'create', :access_token => {:purpose => "test", :expires_at => "jun 1 2011"}
+        post 'create', params: {:access_token => {:purpose => "test", :expires_at => "jun 1 2011"}}
         assert_status(401)
       end
 
       it "should not allow explicitly setting the token value" do
-        post 'create', :access_token => {:purpose => "test", :expires_at => "jun 1 2011", :token => "mytoken"}
-        expect(response).to be_success
+        post 'create', params: {:access_token => {:purpose => "test", :expires_at => "jun 1 2011", :token => "mytoken"}}
+        expect(response).to be_successful
         expect(response.body).not_to match(/mytoken/)
         expect(assigns[:token]).not_to be_nil
         expect(assigns[:token].full_token).not_to match(/mytoken/)
@@ -79,9 +79,9 @@ describe TokensController do
       it "should allow deleting an access token" do
         token = @user.access_tokens.create!
         expect(token.user_id).to eq @user.id
-        delete 'destroy', :id => token.id
-        expect(response).to be_success
-        expect(assigns[:token]).to be_frozen
+        delete 'destroy', params: {:id => token.id}
+        expect(response).to be_successful
+        expect(assigns[:token]).to be_deleted
       end
 
       it "should not allow deleting an access token while masquerading" do
@@ -90,7 +90,7 @@ describe TokensController do
         Account.site_admin.account_users.create!(user: @user)
         session[:become_user_id] = user_with_pseudonym.id
 
-        delete 'destroy', :id => token.id
+        delete 'destroy', params: {:id => token.id}
         assert_status(401)
       end
 
@@ -98,7 +98,7 @@ describe TokensController do
         user2 = User.create!
         token = user2.access_tokens.create!
         expect(token.user_id).to eq user2.id
-        delete 'destroy', :id => token.id
+        delete 'destroy', params: {:id => token.id}
         assert_status(404)
       end
 
@@ -108,8 +108,8 @@ describe TokensController do
         token.save!
         expect(token.user_id).to eq @user.id
         expect(token.protected_token?).to eq false
-        get 'show', :id => token.id
-        expect(response).to be_success
+        get 'show', params: {:id => token.id}
+        expect(response).to be_successful
         expect(assigns[:token]).to eq token
         expect(response.body).to match(/#{assigns[:token].token_hint}/)
       end
@@ -119,8 +119,8 @@ describe TokensController do
         token = @user.access_tokens.create!(developer_key: key)
         expect(token.user_id).to eq @user.id
         expect(token.protected_token?).to eq true
-        get 'show', :id => token.id
-        expect(response).to be_success
+        get 'show', params: {:id => token.id}
+        expect(response).to be_successful
         expect(assigns[:token]).to eq token
         expect(response.body).not_to match(/#{assigns[:token].token_hint}/)
       end
@@ -129,7 +129,7 @@ describe TokensController do
         user2 = User.create!
         token = user2.access_tokens.create!
         expect(token.user_id).to eq user2.id
-        get 'show', :id => token.id
+        get 'show', params: {:id => token.id}
         assert_status(404)
       end
 
@@ -139,8 +139,8 @@ describe TokensController do
         token.save!
         expect(token.user_id).to eq @user.id
         expect(token.protected_token?).to eq false
-        put 'update', :id => token.id, :access_token => {:purpose => 'new purpose'}
-        expect(response).to be_success
+        put 'update', params: {:id => token.id, :access_token => {:purpose => 'new purpose'}}
+        expect(response).to be_successful
         expect(assigns[:token]).to eq token
         expect(assigns[:token].purpose).to eq "new purpose"
         expect(response.body).to match(/#{assigns[:token].token_hint}/)
@@ -152,8 +152,8 @@ describe TokensController do
         token.save!
         expect(token.user_id).to eq @user.id
         expect(token.protected_token?).to eq false
-        put 'update', :id => token.id, :access_token => {:regenerate => '1'}
-        expect(response).to be_success
+        put 'update', params: {:id => token.id, :access_token => {:regenerate => '1'}}
+        expect(response).to be_successful
         expect(assigns[:token]).to eq token
         expect(assigns[:token].crypted_token).not_to eq token.crypted_token
         expect(response.body).to match(/#{assigns[:token].full_token}/)
@@ -167,7 +167,7 @@ describe TokensController do
         expect(token.protected_token?).to eq false
         Account.site_admin.account_users.create!(user: @user)
         session[:become_user_id] = user_with_pseudonym.id
-        put 'update', :id => token.id, :access_token => {:regenerate => '1'}
+        put 'update', params: {:id => token.id, :access_token => {:regenerate => '1'}}
         assert_status(401)
       end
 
@@ -176,8 +176,8 @@ describe TokensController do
         token = @user.access_tokens.create!(developer_key: key)
         expect(token.user_id).to eq @user.id
         expect(token.protected_token?).to eq true
-        put 'update', :id => token.id, :access_token => {:regenerate => '1'}
-        expect(response).to be_success
+        put 'update', params: {:id => token.id, :access_token => {:regenerate => '1'}}
+        expect(response).to be_successful
         expect(assigns[:token]).to eq token
         expect(assigns[:token].crypted_token).to eq token.crypted_token
         expect(response.body).not_to match(/#{assigns[:token].token_hint}/)
@@ -187,7 +187,7 @@ describe TokensController do
         user2 = User.create!
         token = user2.access_tokens.create!
         expect(token.user_id).to eq user2.id
-        put 'update', :id => token.id
+        put 'update', params: {:id => token.id}
         assert_status(404)
       end
     end

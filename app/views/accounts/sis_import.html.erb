@@ -1,5 +1,23 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% add_crumb t(:sis_import_crumb, "SIS Import") %>
-<% @active_tab = "sis-import" %>
+<% @active_tab = "sis_import" %>
 <% content_for :page_title do %><%= t(:page_title, "SIS Import") %>
 <% end %>
 
@@ -16,7 +34,7 @@
         <p class="instruction"><%= mt(:select_file_instructions,
                                       "Select the zip file that you want imported.  \n" +
                                           "For a description of how to generate these zip files, [please see this documentation](%{url}).",
-                                      :url => "/doc/api/sis_csv.html") %></p>
+                                      :url => "/doc/api/file.sis_csv.html") %></p>
         <div>
           <input type="file" name="attachment" style="font-size: 1.2em;"/>
           <p/>
@@ -38,6 +56,9 @@
               <%= mt(:batch_import_instructions,
                      "If selected, this will delete everything for this term, which includes all courses and enrollments that are not in the selected import file above.  \nSee the documentation for details.") %>
             </p>
+            <label id="batch_mode_term_id_label" for="batch_mode_term_id">
+              <%= t('Term:') %>
+            </label>
             <select id="batch_mode_term_id" name="batch_mode_term_id">
               <%= options_from_collection_for_select(@terms, :id, :name, @terms.first.try(:id)) %>
             </select>
@@ -51,7 +72,7 @@
                 <%= mt(:override_sis_stickiness_instructions,
                        "By default, UI changes have priority over SIS import changes; for a number of fields, the SIS import will not change that field's data if an admin has changed that field through the UI. If you select this option, this SIS import will override UI changes.  \nSee the documentation for details.") %>
               </p>
-              <div id="add_sis_stickiness_container" style="padding-left: 20px;">
+              <div id="add_sis_stickiness_container" style="padding-<%= direction('left') %>: 20px;">
                 <input type="checkbox" name="add_sis_stickiness" value="1" id="add_sis_stickiness"/>
                 <label for="add_sis_stickiness"><%= t(:add_sis_stickiness_label, "Process as UI changes") %></label>
                 <p class='instruction'>
@@ -59,7 +80,7 @@
                          "With this option selected, changes made through this SIS import will be processed as if they are UI changes, preventing subsequent non-overriding SIS imports from changing the fields changed here.") %>
                 </p>
               </div>
-              <div id="clear_sis_stickiness_container" style="padding-left: 20px;">
+              <div id="clear_sis_stickiness_container" style="padding-<%= direction('left') %>: 20px;">
                 <input type="checkbox" name="clear_sis_stickiness" value="1" id="clear_sis_stickiness"/>
                 <label for="clear_sis_stickiness"><%= t(:clear_sis_stickiness_label, "Clear UI-changed state") %></label>
                 <p class='instruction'>
@@ -113,12 +134,35 @@
         <%= print_counts @last_batch %>
       <% elsif @last_batch.workflow_state == 'imported_with_messages' %>
         <%= t(:imported_with_messages_message, "The SIS data was imported but with these messages:") %>
+        <% if @last_batch.errors_attachment_id %>
+          <p><%= t('Download the complete list of errors and warnings here.') %>
+          <%= link_to "<i class='icon-download'></i>".html_safe,
+                      file_download_url(@last_batch.errors_attachment,
+                                        verifier: @last_batch.errors_attachment.uuid,
+                                        download: '1',
+                                        download_frd: '1'),
+                      'aria-label' => t('Download errors_attchment'),
+                      'title' => t('Download errors_attchment') %></p>
+        <% end %>
         <%= print_messages(@last_batch) %>
         <%= print_counts @last_batch %>
       <% elsif @last_batch.workflow_state == 'failed' %>
-        <%= t(:import_failed_message, "There was an error importing your SIS data. No records were imported.") %>
+        <%= t(:import_failed_message, "There was an error importing your SIS data.") %>
       <% elsif @last_batch.workflow_state == 'failed_with_messages' %>
-        <%= t(:import_failed_with_messages_message, "No SIS records were imported. The import failed with these messages:") %>
+        <%= t(:import_failed_with_messages_message, "The import failed with these messages:") %>
+        <% if @last_batch.errors_attachment_id %>
+          <p><%= t('Download the complete list of errors and warnings here.') %>
+            <%= link_to "<i class='icon-download'></i>".html_safe,
+                        file_download_url(@last_batch.errors_attachment,
+                                          verifier: @last_batch.errors_attachment.uuid,
+                                          download: '1',
+                                          download_frd: '1'),
+                        'aria-label' => t('Download errors_attchment'),
+                        'title' => t('Download errors_attchment') %></p>
+        <% end %>
+        <%= print_messages(@last_batch) %>
+      <% elsif @last_batch.workflow_state == 'aborted' %>
+        <%= t('The previous SIS batch was aborted') %>
         <%= print_messages(@last_batch) %>
       <% end %>
       </p>

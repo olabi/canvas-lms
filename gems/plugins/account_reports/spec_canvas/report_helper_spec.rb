@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 - 2014 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,18 +30,73 @@ end
 
 describe "report helper" do
   let(:account) { Account.default }
-  let(:account_report) { AccountReport.new(:report_type => 'test_report', :account => account) }
+  let(:user) { User.create }
+  let(:account_report) { AccountReport.new(report_type: 'test_report', account: account, user: user) }
   let(:report) { AccountReports::TestReport.new(account_report) }
+
+  it 'should handle basic math' do
+    # default min
+    expect(report.number_of_items_per_runner(1)).to eq 25
+    # divided by 99 to make for 100 jobs except for when exactly divisible by 99
+    expect(report.number_of_items_per_runner(13001)).to eq 131
+    # default max
+    expect(report.number_of_items_per_runner(1801308213)).to eq 1000
+    # override min
+    expect(report.number_of_items_per_runner(100, min: 10)).to eq 10
+    # override max
+    expect(report.number_of_items_per_runner(109213081, max: 100)).to eq 100
+  end
+
+  it 'should create report runners with a single trip' do
+    account_report.save!
+    expect(AccountReport).to receive(:bulk_insert_objects).once.and_call_original
+    report.create_report_runners((1..50).to_a, 50)
+    expect(account_report.account_report_runners.count).to eq 2
+  end
+
+  it 'should create report runners with few trips to the db' do
+    account_report.save!
+    # lower the setting so we can do more than one trip with less data
+    Setting.set("ids_per_report_runner_batch", 1_000)
+    # once with 1_008 ids and 84 runners and then once with 200 ids and the
+    # other runners
+    expect(AccountReport).to receive(:bulk_insert_objects).twice.and_call_original
+    # also got to pass min so that we get runners with 12 ids instead of 25
+    report.create_report_runners((1..1_200).to_a, 1_201, min: 10)
+    expect(account_report.account_report_runners.count).to eq 100
+  end
+
+  describe "load pseudonyms" do
+    it 'should do one query for pseudonyms' do
+      user_with_pseudonym(active_all: true, account: account, user: user)
+      course = account.courses.create!(name: 'reports')
+      role = Enrollment.get_built_in_role_for_type('StudentEnrollment')
+      e = course.enrollments.create!(user: user,
+                                     workflow_state: 'active',
+                                     sis_pseudonym: user.pseudonym,
+                                     type: 'StudentEnrollment',
+                                     role: role)
+      report.preload_logins_for_users([user])
+      expect(SisPseudonym).to receive(:for).never
+      report.loaded_pseudonym({user.id => [user.pseudonym]}, user, enrollment: e)
+    end
+  end
 
   describe "#send_report" do
     before do
-      AccountReports.stubs(available_reports: {account_report.report_type => {title: 'test_report'}})
-      report.stubs(:report_title).returns('TitleReport')
+      allow(AccountReports).to receive(:available_reports).and_return(account_report.report_type => {title: 'test_report'})
+      allow(report).to receive(:report_title).and_return('TitleReport')
     end
 
     it "Should not break for nil parameters" do
-      AccountReports.expects(:message_recipient)
+      expect(AccountReports).to receive(:message_recipient)
       report.send_report
+    end
+
+    it "Should allow aborting" do
+      account_report.workflow_state = 'deleted'
+      account_report.save!
+      expect{report.write_report(['header']) { |csv| csv << 'hi' }}.to raise_error(/aborted/)
     end
   end
 
@@ -103,7 +158,7 @@ describe "report helper" do
       it 'should add course scope if course is set' do
         courses = Course.all
 
-        report.stubs(:course).returns(@course3)
+        allow(report).to receive(:course).and_return(@course3)
         courses = report.add_course_scope(courses)
         expect(courses.count(:all)).to eq(1)
       end
@@ -111,7 +166,7 @@ describe "report helper" do
       it 'should not add course scope if course is not set' do
         courses = Course.all
 
-        report.stubs(:course).returns(nil)
+        allow(report).to receive(:course).and_return(nil)
         courses = report.add_course_scope(courses)
         expect(courses.count(:all)).to eq(3)
       end
@@ -122,7 +177,7 @@ describe "report helper" do
       it 'should add term scope if term is set' do
         courses = Course.all
 
-        report.stubs(:term).returns(@enrollment_term)
+        allow(report).to receive(:term).and_return(@enrollment_term)
         courses = report.add_term_scope(courses)
         expect(courses.count(:all)).to eq(2)
       end
@@ -130,7 +185,7 @@ describe "report helper" do
       it 'should not add term scope if term is not set' do
         courses = Course.all
 
-        report.stubs(:term).returns(nil)
+        allow(report).to receive(:term).and_return(nil)
         courses = report.add_term_scope(courses)
         expect(courses.count(:all)).to eq(3)
       end

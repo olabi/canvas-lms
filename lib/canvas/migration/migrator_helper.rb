@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -432,6 +432,19 @@ module MigratorHelper
         @overview[:external_tools] << tool
         tool[:migration_id] = ct[:migration_id]
         tool[:title] = ct[:title]
+      end
+    end
+
+    if @course[:tool_profiles]
+      @overview[:tool_profiles] = []
+      @course[:tool_profiles].each do |tool_profile|
+        title = tool_profile.dig('tool_profile', 'product_instance', 'product_info', 'product_name', 'default_value')
+        next unless title
+        profile = {
+          migration_id: tool_profile['migration_id'],
+          title: title
+        }
+        @overview[:tool_profiles] << profile
       end
     end
 

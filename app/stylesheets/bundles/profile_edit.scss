@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import 'base/environment';
 @import 'pages/shared/feature_flags';
 
@@ -78,14 +96,14 @@ li[id$=service_google_docs] {
   }
 
   .service a {
-    text-align: left;
+    text-align: direction(left);
   }
 }
 
 .profile_pic_link {
   position: relative;
-  float: left;
-  margin-right: 5px;
+  float: direction(left);
+  margin-#{direction(right)}: 5px;
 
   .icon-edit {
     background: rgba(0, 0, 0, .75);
@@ -93,7 +111,7 @@ li[id$=service_google_docs] {
     color: #fff;
     padding: 2px;
     position: absolute;
-    right: 0;
+    #{direction(right)}: 0;
     visibility: hidden;
   }
 
@@ -106,7 +124,7 @@ li[id$=service_google_docs] {
   .img {
     cursor: pointer;
     display: inline-block;
-    float: left;
+    float: direction(left);
     margin: 2px;
     overflow: hidden;
     padding: 4px;
@@ -184,7 +202,7 @@ li[id$=service_google_docs] {
   display: block;
   @include fontSize(18px);
   font-weight: bold;
-  padding: 0 0 16px 0;
+  padding: 0 0 16px;
   text-align: center;
   text-decoration: none;
 
@@ -200,7 +218,7 @@ li[id$=service_google_docs] {
 .icon-select-photo {
   display: block !important;
   height: 256px !important;
-  margin: 0 auto 16px auto;
+  margin: 0 auto 16px;
   width: 256px !important;
 
   &:before {
@@ -241,13 +259,13 @@ li[id$=service_google_docs] {
 }
 
 .webcam-clip {
-  margin: 0 auto 16px auto;
+  margin: 0 auto 16px;
   overflow: hidden;
 }
 
 .webcam-preview {
   display: block;
-  margin: 0 auto 16px auto;
+  margin: 0 auto 16px;
   max-height: 350px;
   max-width: 350px;
 }

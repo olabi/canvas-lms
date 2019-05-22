@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module DiscussionsCommon
@@ -20,6 +37,7 @@ module DiscussionsCommon
   end
 
   def edit_topic(discussion_name, message)
+    wait_for_tiny(f('textarea[name=message]'))
     replace_content(f('input[name=title]'), discussion_name)
     type_in_tiny('textarea[name=message]', message)
     expect_new_page_load { submit_form('.form-actions') }
@@ -28,10 +46,10 @@ module DiscussionsCommon
 
   def edit_entry(entry, text)
     wait_for_ajaximations
-    click_entry_option(entry, '.al-options:visible li:eq(1) a')
+    click_entry_option(entry, '.al-options li:nth-of-type(2) a')
     wait_for_ajaximations
     type_in_tiny 'textarea', text
-    f('.edit_html_done').click
+    move_to_click('.edit_html_done')
     wait_for_ajaximations
     validate_entry_text(entry, text)
   end
@@ -64,13 +82,13 @@ module DiscussionsCommon
 
     if attachment.present?
       filename, fullpath, data = get_file(attachment)
+      scroll_to(@last_entry.find_element(:css, '.discussion-reply-add-attachment'))
       @last_entry.find_element(:css, '.discussion-reply-add-attachment').click
       wait_for_ajaximations
       @last_entry.find_element(:css, '.discussion-reply-attachments input').send_keys(fullpath)
     end
-
-    submit_form(@last_entry.find_element(:css, ".discussion-reply-form"))
-    wait_for_ajaximations
+    fj('button:contains("Post Reply"):visible').click
+    wait_for(method: nil, timeout: 5) { f('#discussion_subentries .discussion_entry').displayed? }
     id = DiscussionEntry.last.id
     @last_entry = f "#entry-#{id}"
   end
@@ -80,7 +98,7 @@ module DiscussionsCommon
   end
 
   def validate_entry_text(discussion_entry, text)
-    expect(f("#entry-#{discussion_entry.id}")).to include_text(text)
+    expect(f("#entry-#{discussion_entry.id}").text).to include(text)
   end
 
   def check_entry_option(discussion_entry, menu_item_selector)
@@ -95,10 +113,12 @@ module DiscussionsCommon
   def click_entry_option(discussion_entry, menu_item_selector)
     li_selector = "#entry-#{discussion_entry.id}"
     expect(fj(li_selector)).to be_displayed
-    expect(fj("#{li_selector} .al-trigger")).to be_displayed
-    fj("#{li_selector} .al-trigger").click
+    menu_button = fj("#{li_selector} .al-trigger")
+    scroll_to(menu_button)
+    menu_button.click
+    expect(menu_button).to be_displayed
     wait_for_ajaximations
-    menu_item = fj(menu_item_selector)
+    menu_item = fj("#{li_selector} #{menu_item_selector}")
     expect(menu_item).to be_displayed
     menu_item.click
   end
@@ -146,7 +166,7 @@ module DiscussionsCommon
     yield if block_given?
     expect_new_page_load { submit_form('.form-actions') }
     wait_for_ajaximations
-    expect(f('.zip')).to include_text(filename)
+    expect(fxpath('//a[contains(text(), ".zip")]')).to include_text(filename)
   end
 
   def edit(title, message)

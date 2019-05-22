@@ -1,20 +1,37 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
   'i18n!discussions'
-  'compiled/discussions/MarkAsReadWatcher'
-  'compiled/arr/walk'
+  '../../discussions/MarkAsReadWatcher'
+  '../../arr/walk'
   'Backbone'
-  'compiled/collections/EntryCollection'
+  '../../collections/EntryCollection'
   'jst/discussions/_entry_content'
   'jst/discussions/_deleted_entry'
   'jst/discussions/entry_with_replies'
   'jst/discussions/entryStats'
-  'compiled/discussions/Reply'
-  'compiled/discussions/EntryEditor'
+  '../../discussions/Reply'
+  '../../discussions/EntryEditor'
   'str/htmlEscape'
   'vendor/jquery.ba-tinypubsub'
-  'compiled/str/apiUserContent'
+  '../../str/apiUserContent'
   'jst/_avatar'
   'jst/discussions/_reply_form'
 ], ($, _, I18n, MarkAsReadWatcher, walk, Backbone, EntryCollection, entryContentPartial, deletedEntriesTemplate, entryWithRepliesTemplate, entryStatsTemplate, Reply, EntryEditor, htmlEscape, {publish}, apiUserContent) ->
@@ -139,12 +156,6 @@ define [
 
     addCountsToHeader: ->
       stats = @countPosterity()
-      html = """
-        <div class='new-and-total-badge'>
-          <span class="new-items">#{htmlEscape stats.unread}</span>
-          <span class="total-items">#{htmlEscape stats.total}</span>
-        </div>
-        """
       @$headerBadges.append entryStatsTemplate({stats})
       @addedCountsToHeader = true
 

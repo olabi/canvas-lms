@@ -18,13 +18,13 @@
 
 /* icon support */
 .ui-menu-icons { position: relative; }
-.ui-menu-icons .ui-menu-item a { position: relative; padding-left: 2em; }
+.ui-menu-icons .ui-menu-item a { position: relative; padding-#{direction(left)}: 2em; }
 
 /* left-aligned */
-.ui-menu .ui-icon { position: absolute; top: .5em; left: .4em; }
+.ui-menu .ui-icon { position: absolute; top: .5em; #{direction(left)}: .4em; }
 
 /* right-aligned */
-.ui-menu .ui-menu-icon { position: static; float: right; }
+.ui-menu .ui-menu-icon { position: static; float: direction(right); }
 
 
 .ui-menu .ui-menu-input-group {
@@ -34,7 +34,7 @@
   @include fontSize(12px);
 }
 
-.ui-menu-item span.ui-menu-input-group { padding-left: 2em; }
+.ui-menu-item span.ui-menu-input-group { padding-#{direction(left)}: 2em; }
 
 .ui-menu-item label { cursor: pointer; }
 
@@ -81,7 +81,7 @@ $kyle-menu-border-radius: $baseBorderRadius;
   position: absolute; // take it out of the "flow" so that it pops on top and doesnt push things down
   z-index: 9999;
   margin-top: $kyle-menu-carat-size;
-  text-align: left;
+  text-align: direction(left);
   border: 1px solid $ic-border-light;
   box-shadow: 0px 0px 6px rgba(black, 0.1);
   background-color: $ic-color-light;
@@ -102,8 +102,8 @@ $kyle-menu-border-radius: $baseBorderRadius;
   // have to use first-of-type instead of :first-child because the carat that gets inserted becomes
   // :first-child but the carat is not an <li>, so this gets the first <li> which is what we want.
   // doesn't work in ie8- but that's ok because neither does the border radius we are trying to fix.
-  li:first-of-type a { border-top-left-radius: $kyle-menu-border-radius; border-top-right-radius:$kyle-menu-border-radius; }
-  li:last-child a { border-bottom-left-radius: $kyle-menu-border-radius; border-bottom-right-radius:$kyle-menu-border-radius; }
+  li:first-of-type a { border-top-#{direction(left)}-radius: $kyle-menu-border-radius; border-top-#{direction(right)}-radius:$kyle-menu-border-radius; }
+  li:last-child a { border-bottom-#{direction(left)}-radius: $kyle-menu-border-radius; border-bottom-#{direction(right)}-radius:$kyle-menu-border-radius; }
   .ui-state-focus {
     font-weight: bold !important;
     border: none;

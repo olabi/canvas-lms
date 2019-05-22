@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // Shared between:
 // - compiler-course_settings.scss
 // - compiler-assignments.scss
@@ -23,7 +41,7 @@
   }
   &.react_grading_standards {
     .cancel_button {
-      margin-right: 6px;
+      margin-#{direction(right)}: 6px;
     }
   }
 }
@@ -58,7 +76,7 @@
       display: table-row;
     }
     .standard_title div {
-      float: left;
+      float: direction(left);
     }
   }
   &.react_grading_standard {
@@ -69,8 +87,8 @@
       width: 175px;
     }
     .name_header {
-      text-align: left;
-      padding-right: 10px;
+      text-align: direction(left);
+      padding-#{direction(right)}: 10px;
       width: 24%;
     }
     .insert_row_container {
@@ -78,18 +96,18 @@
       width: 4%;
     }
     .links {
-      float: right;
+      float: direction(right);
     }
     .disabled-buttons {
-      float: right;
+      float: direction(right);
       opacity: 0.5;
     }
     .cannot-manage-notification {
       font-weight: normal;
-      margin-left: 4px;
+      margin-#{direction(left)}: 4px;
     }
     .icon-edit {
-      margin-right: 5px;
+      margin-#{direction(right)}: 5px;
     }
     .form-actions {
       background-color: transparent;
@@ -99,8 +117,8 @@
     .range_container {
       width: 72%;
       .range_label {
-        float: left;
-        margin-left: 10px;
+        float: direction(left);
+        margin-#{direction(left)}: 10px;
       }
     }
     table {
@@ -119,26 +137,26 @@
       margin-bottom: 5px;
     }
     .insert_row_icon_container {
-      padding: 2px 2px;
+      padding: 2px;
       width: 4%;
     }
     .row_name_container {
       width: 24%;
     }
     .standard_name {
-      width: 25px;
+      width: 100px;
     }
     .standard_value {
       width: 37px;
     }
     .last_row_cell {
-      padding-left: 15px;
+      padding-#{direction(left)}: 15px;
     }
     .row_cell {
-      padding: 2px 2px;
+      padding: 2px;
       width: 24%;
       .range_to {
-        padding-right: 5px;
+        padding-#{direction(right)}: 5px;
       }
     }
     &.border_below {

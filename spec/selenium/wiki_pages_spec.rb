@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/wiki_and_tiny_common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/public_courses_context')
@@ -21,8 +38,8 @@ describe "Wiki Pages" do
     end
 
     it "should navigate to pages tab with no front page set", priority: "1", test_id: 126843 do
-      @course.wiki.wiki_pages.create!(title: 'Page1')
-      @course.wiki.wiki_pages.create!(title: 'Page2')
+      @course.wiki_pages.create!(title: 'Page1')
+      @course.wiki_pages.create!(title: 'Page2')
       get "/courses/#{@course.id}"
       f('.pages').click
       expect(driver.current_url).to include("/courses/#{@course.id}/pages")
@@ -33,7 +50,7 @@ describe "Wiki Pages" do
     end
 
     it "should navigate to front page when set", priority: "1", test_id: 126844 do
-      front = @course.wiki.wiki_pages.create!(title: 'Front')
+      front = @course.wiki_pages.create!(title: 'Front')
       front.set_as_front_page!
       front.save!
       get "/courses/#{@course.id}"
@@ -47,15 +64,9 @@ describe "Wiki Pages" do
     end
 
     it "should have correct front page UI elements when set as home page", priority: "1", test_id: 126848 do
-      front = @course.wiki.wiki_pages.create!(title: 'Front')
+      front = @course.wiki_pages.create!(title: 'Front')
       front.set_as_front_page!
-      front.save!
-      get "/courses/#{@course.id}/wiki"
-      fln('Home').click
-      # setting front-page as home page
-      fj('.btn.button-sidebar-wide:contains("Choose Home Page")').click
-      fj('input[type=radio][value=wiki]').click
-      fj('button.btn.btn-primary.button_type_submit.ui-button.ui-widget.ui-state-default.ui-corner-all.ui-button-text-only').click
+      @course.update_attribute :default_view, "wiki"
       get "/courses/#{@course.id}"
       wait_for_ajaximations
       # validations
@@ -70,7 +81,7 @@ describe "Wiki Pages" do
     end
 
     it "navigates to the wiki pages edit page from the show page" do
-      wikiPage = @course.wiki.wiki_pages.create!(:title => "Foo")
+      wikiPage = @course.wiki_pages.create!(:title => "Foo")
       edit_url = edit_course_wiki_page_url(@course, wikiPage)
       get course_wiki_page_path(@course, wikiPage)
 
@@ -85,7 +96,8 @@ describe "Wiki Pages" do
     end
 
     it "should update the page with changes made in another window", priority: "1", test_id: 126833 do
-      @course.wiki.wiki_pages.create!(title: 'Page1')
+      skip('CORE-2714 when the rcs is enabled, this raises SpecTimeLimit::Error: Exceeded the 31 sec historical threshold for this particular spec.')
+      @course.wiki_pages.create!(title: 'Page1')
       edit_page('this is')
       driver.execute_script("window.open()")
       driver.switch_to.window(driver.window_handles.last)
@@ -98,10 +110,18 @@ describe "Wiki Pages" do
     end
 
     it "blocks linked page from redirecting parent page", priority: "2", test_id: 927147 do
-      @course.wiki.wiki_pages.create!(title: 'Garfield and Odie Food Preparation',
+      @course.wiki_pages.create!(title: 'Garfield and Odie Food Preparation',
         body: '<a href="http://example.com/poc/" target="_blank" id="click_here_now">click_here</a>')
       get "/courses/#{@course.id}/pages/garfield-and-odie-food-preparation"
-      expect(f('#click_here_now').attribute("rel")).to eq "noreferrer"
+      expect(f('#click_here_now').attribute("rel")).to eq "noreferrer noopener"
+    end
+
+    it "does not mark valid links as invalid", priority: "2", test_id: 927788 do
+      @course.wiki_pages.create!(title: 'Page1', body: 'http://www.instructure.com/')
+      get "/courses/#{@course.id}/link_validator"
+      fj('button:contains("Start Link Validation")').click
+      run_jobs
+      expect(f('#link_validator')).to contain_jqcss('div:contains("No broken links found")')
     end
   end
 
@@ -112,7 +132,7 @@ describe "Wiki Pages" do
     end
 
     it "should edit page title from pages index", priority: "1", test_id: 126849 do
-      @course.wiki.wiki_pages.create!(title: 'B-Team')
+      @course.wiki_pages.create!(title: 'B-Team')
       get "/courses/#{@course.id}/pages"
       f('.al-trigger').click
       f('.edit-menu-item').click
@@ -124,7 +144,7 @@ describe "Wiki Pages" do
     end
 
     it "should display a warning alert when accessing a deleted page", priority: "1", test_id: 126840 do
-      @course.wiki.wiki_pages.create!(title: 'deleted')
+      @course.wiki_pages.create!(title: 'deleted')
       get "/courses/#{@course.id}/pages"
       f('.al-trigger').click
       f('.delete-menu-item').click
@@ -141,7 +161,7 @@ describe "Wiki Pages" do
     end
 
     it "should display a warning alert to a student when accessing a deleted page", priority: "1", test_id: 126839 do
-      page = @course.wiki.wiki_pages.create!(title: 'delete_deux')
+      page = @course.wiki_pages.create!(title: 'delete_deux')
       # sets the workflow_state = deleted to act as a deleted page
       page.workflow_state = 'deleted'
       page.save!
@@ -166,9 +186,9 @@ describe "Wiki Pages" do
     before :once do
       account_model
       course_with_teacher :account => @account
-      @course.wiki.wiki_pages.create!(:title => "Foo")
-      @course.wiki.wiki_pages.create!(:title => "Bar")
-      @course.wiki.wiki_pages.create!(:title => "Baz")
+      @course.wiki_pages.create!(:title => "Foo")
+      @course.wiki_pages.create!(:title => "Bar")
+      @course.wiki_pages.create!(:title => "Baz")
     end
 
     before :each do
@@ -183,7 +203,7 @@ describe "Wiki Pages" do
       check_header_focus('updated_at')
     end
 
-    describe "Add Course Button" do
+    describe "Add Page Button" do
       before :each do
         get "/courses/#{@course.id}/pages"
 
@@ -191,13 +211,15 @@ describe "Wiki Pages" do
         @active_element = driver.execute_script('return document.activeElement')
       end
 
-      it "navigates to the add course view when enter is pressed" do
+      it "navigates to the add page view when enter is pressed" do
+        skip('see CNVS-39931')
         @active_element.send_keys(:enter)
         wait_for_ajaximations
         check_element_has_focus(f('.edit-header #title'))
       end
 
-      it "navigates to the add course view when spacebar is pressed" do
+      it "navigates to the add page view when spacebar is pressed" do
+        skip('see CNVS-39931')
         @active_element.send_keys(:space)
         wait_for_ajaximations
         check_element_has_focus(f('.edit-header #title'))
@@ -252,13 +274,14 @@ describe "Wiki Pages" do
         check_element_has_focus(f('.al-trigger'))
       end
 
-      it "returns focus to the previous item cog if it was deleted" do
+      it "returns focus to the previous item title if it was deleted" do
         triggers = ff('.al-trigger')
+        titles = ff('.wiki-page-link')
         triggers.last.click
         ff('.delete-menu-item').last.click
         f('.ui-dialog-buttonset .btn-danger').click
         wait_for_ajaximations
-        check_element_has_focus(triggers[-2])
+        check_element_has_focus(titles[-2])
       end
 
       it "returns focus to the + Page button if there are no previous item cogs" do
@@ -333,7 +356,7 @@ describe "Wiki Pages" do
         @timestamps = %w(2015-01-01 2015-01-02 2015-01-03).map { |d| Time.zone.parse(d) }
 
         Timecop.freeze(@timestamps[0]) do      # rev 1
-          @vpage = @course.wiki.wiki_pages.build :title => 'bar'
+          @vpage = @course.wiki_pages.build :title => 'bar'
           @vpage.workflow_state = 'unpublished'
           @vpage.body = 'draft'
           @vpage.save!
@@ -371,7 +394,7 @@ describe "Wiki Pages" do
 
       it "should validate that revision restored is displayed", priority: "1", test_id: 126832 do
         get "/courses/#{@course.id}/pages/#{@vpage.url}"
-        f('.icon-settings').click
+        f('.al-trigger').click
         expect(f('.icon-clock')).to be_present
         f('.view_page_history').click
         wait_for_ajaximations
@@ -383,9 +406,8 @@ describe "Wiki Pages" do
         f('.close-button').click
         wait_for_ajaximations
         f('.icon-edit').click
-        f('.btn-primary').click
-        wait_for_ajaximations
-        expect(f('div.user_content.clearfix.enhanced > p').text).to include 'published by teacher'
+        expect_new_page_load { f('.btn-primary').click }
+        expect(f('.show-content.user_content.clearfix.enhanced')).to include_text 'published by teacher'
       end
 
       it "keeps focus on clicked revision button" do
@@ -405,34 +427,37 @@ describe "Wiki Pages" do
       it "should alert user if navigating away from page with unsaved RCE changes", priority: "1", test_id: 267612 do
         add_text_to_tiny("derp")
         fln('Home').click
-        expect(driver.switch_to.alert.text).to be_present
+        expect(driver.switch_to.alert).to be_present
         driver.switch_to.alert.accept
       end
 
       it "should alert user if navigating away from page with unsaved html changes", priority: "1", test_id: 126838 do
+        skip_if_safari(:alert)
         switch_editor_views(wiki_page_body)
         wiki_page_body.send_keys("derp")
         fln('Home').click
-        expect(driver.switch_to.alert.text).to be_present
+        expect(driver.switch_to.alert).to be_present
         driver.switch_to.alert.accept
       end
 
       it "should not save changes when navigating away and not saving", priority: "1", test_id: 267613 do
+        skip_if_safari(:alert)
         switch_editor_views(wiki_page_body)
         wiki_page_body.send_keys('derp')
         fln('Home').click
-        expect(driver.switch_to.alert.text).to be_present
+        expect(driver.switch_to.alert).to be_present
         driver.switch_to.alert.accept
         get "/courses/#{@course.id}/pages/bar/edit"
         expect(f('textarea')).not_to include_text('derp')
       end
 
       it "should alert user if navigating away from page after title change", priority: "1", test_id: 267832 do
+        skip_if_safari(:alert)
         switch_editor_views(wiki_page_body)
         f('.title').clear()
         f('.title').send_keys("derpy-title")
         fln('Home').click
-        expect(driver.switch_to.alert.text).to be_present
+        expect(driver.switch_to.alert).to be_present
         driver.switch_to.alert.accept
       end
 
@@ -453,7 +478,7 @@ describe "Wiki Pages" do
     end
 
     it "should lock page based on module date", priority: "1", test_id: 126845 do
-      locked = @course.wiki.wiki_pages.create! title: 'locked'
+      locked = @course.wiki_pages.create! title: 'locked'
       mod2 = @course.context_modules.create! name: 'mod2', unlock_at: 1.day.from_now
       mod2.add_item id: locked.id, type: 'wiki_page'
       mod2.save!
@@ -467,8 +492,8 @@ describe "Wiki Pages" do
     end
 
     it "should lock page based on module progression", priority: "1", test_id: 126846 do
-      foo = @course.wiki.wiki_pages.create! title: 'foo'
-      bar = @course.wiki.wiki_pages.create! title: 'bar'
+      foo = @course.wiki_pages.create! title: 'foo'
+      bar = @course.wiki_pages.create! title: 'bar'
       mod = @course.context_modules.create! name: 'the_mod', require_sequential_progress: true
       foo_item = mod.add_item id: foo.id, type: 'wiki_page'
       bar_item = mod.add_item id: bar.id, type: 'wiki_page'
@@ -487,7 +512,7 @@ describe "Wiki Pages" do
       @course.tab_configuration = [ { :id => Course::TAB_PAGES, :hidden => true } ]
       @course.save!
 
-      foo = @course.wiki.wiki_pages.create! title: 'foo'
+      foo = @course.wiki_pages.create! title: 'foo'
       get "/courses/#{@course.id}/pages/foo"
 
       expect(f("#content")).not_to contain_css('.view_all_pages')
@@ -508,7 +533,7 @@ describe "Wiki Pages" do
       @course.save!
 
       title = "foo"
-      wikiPage = @course.wiki.wiki_pages.create!(:title => title, :body => "bar")
+      wikiPage = @course.wiki_pages.create!(:title => title, :body => "bar")
 
       get "/courses/#{@course.id}/pages/#{title}"
       expect(f('#wiki_page_show')).not_to be_nil
@@ -559,7 +584,7 @@ describe "Wiki Pages" do
 
     it "should display wiki content", priority: "1", test_id: 270035 do
       title = "foo"
-      public_course.wiki.wiki_pages.create!(:title => title, :body => "bar")
+      public_course.wiki_pages.create!(:title => title, :body => "bar")
 
       get "/courses/#{public_course.id}/wiki/#{title}"
       expect(f('.user_content')).not_to be_nil
@@ -569,7 +594,7 @@ describe "Wiki Pages" do
   context "embed video in a Page" do
     before :each do
       course_with_teacher_logged_in :account => @account, :active_all => true
-      @course.wiki.wiki_pages.create!(title: 'Page1')
+      @course.wiki_pages.create!(title: 'Page1')
     end
 
     it "should embed vimeo video in the page", priority: "1", test_id: 126835 do
@@ -593,6 +618,30 @@ describe "Wiki Pages" do
       f(".btn-primary").click
       wait_for_ajaximations
       expect(f("iframe")).to be_present
+    end
+  end
+
+  context "MathML" do
+    include_context "public course as a logged out user"
+
+    it "should load mathjax in a page with <math>" do
+      title = "mathML"
+      public_course.wiki_pages.create!(
+        :title => title,
+        :body => "<math><mi>&#x3C0;</mi> <msup> <mi>r</mi> <mn>2</mn> </msup></math>"
+      )
+      get "/courses/#{public_course.id}/wiki/#{title}"
+      is_mathjax_loaded = driver.execute_script("return (typeof MathJax == 'object')")
+      expect(is_mathjax_loaded).to match(true)
+    end
+
+    it "should not load mathjax without <math>" do
+      title = "not_mathML"
+      public_course.wiki_pages.create!(:title => title, :body => "not mathML")
+      get "/courses/#{public_course.id}/wiki/#{title}"
+      is_mathjax_loaded = driver.execute_script("return (typeof MathJax == 'object')")
+      expect(is_mathjax_loaded).not_to match(true)
+
     end
   end
 end

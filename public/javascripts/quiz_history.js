@@ -1,10 +1,28 @@
-define([
-  'jquery' /* $ */,
-  'jquery.instructure_misc_plugins' /* fragmentChange */,
-  'jquery.templateData' /* getTemplateData */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'compiled/behaviors/quiz_selectmenu'
-], function($) {
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import $ from 'jquery'
+import I18n from 'i18n!quizzes'
+import numberHelper from 'jsx/shared/helpers/numberHelper'
+import './jquery.instructure_misc_plugins' /* fragmentChange */
+import './jquery.templateData'
+import './vendor/jquery.scrollTo'
+import 'compiled/behaviors/quiz_selectmenu'
 
   var parentWindow = {
     exists: function(){
@@ -47,7 +65,7 @@ define([
     $quizBody: null,
 
     jumpPosition: function(question_id) {
-      $question = $("#question_" + question_id);
+      var $question = $("#question_" + question_id);
       if($question.length > 0) {
         return $question.offset().top - 110;
       } else {
@@ -90,7 +108,9 @@ define([
           if (!ENV.GRADE_BY_QUESTION) {
             $question.addClass('modified_but_not_saved');
           }
-          $question.find(".user_points :text").val(question.points).end()
+          $question
+            .find("#question_input_hidden").val(question.points).end()
+            .find(".user_points :text").val(I18n.n(question.points)).end()
             .find(".question_neutral_comment .question_comment_text textarea").val(question.comments);
         }
         if(parentWindow.hasProperty('lastQuestionTouched') && !ENV.GRADE_BY_QUESTION) {
@@ -140,7 +160,7 @@ define([
         if (!ENV.GRADE_BY_QUESTION) {
           $question.addClass('modified_but_not_saved');
         }
-        data.points = parseFloat($question.find(".user_points :text").val(), 10);
+        data.points = numberHelper.parse($question.find(".user_points :text").val());
         data.comments = $question.find(".question_neutral_comment .question_comment_text textarea").val() || "";
         scoringSnapshot.update(question_id, data);
       }
@@ -168,14 +188,14 @@ define([
       var $total = $("#after_fudge_points_total");
       var total = 0;
       $(".display_question .user_points:visible").each(function() {
-        var points = parseFloat($(this).find("input[type=number]").val(), 10) || 0;
+        var points = numberHelper.parse($(this).find("input.question_input").val()) || 0;
         points = Math.round(points * 100.0) / 100.0;
         total = total + points;
       });
-      var fudge = (parseFloat($("#fudge_points_entry").val(), 10) || 0);
+      var fudge = (numberHelper.parse($("#fudge_points_entry").val()) || 0);
       fudge = Math.round(fudge * 100.0) / 100.0;
       total = total + fudge;
-      $total.text(total || "0");
+      $total.text(I18n.n(total) || "0");
     },
 
     questions: function(){
@@ -278,9 +298,9 @@ define([
 
     updateStatusFor: function($scoreInput){
       try{
-        var questionId = $scoreInput.attr('name').split('_')[2];
-        var scoreValue = $scoreInput.val();
-        $('#quiz_nav_' + questionId).toggleClass('complete', (!isNaN(parseFloat(scoreValue))));
+        var questionId = $scoreInput.attr('data-question-id');
+        var scoreValue = numberHelper.parse($scoreInput.val());
+        $('#quiz_nav_' + questionId).toggleClass('complete', (!isNaN(scoreValue)));
       } catch(err) {
         // do nothing; if there's no status to update, continue with other execution
       }
@@ -295,9 +315,9 @@ define([
       var qNum = 1;
       var qArray = gradingForm.questions();
       var docScroll = $(document).scrollTop();
-      $questions = $('.question')
+      var $questions = $('.question')
       for(var t = 0; t <= qArray.length; t++) {
-        $question = $($questions[t])
+        var $question = $($questions[t])
         var currentQuestionNum = t + 1;
         if ( (docScroll > qArray[t] && docScroll < qArray[t+1])  || ( t == (qArray.length - 1) && docScroll > qArray[t])) {
           qNum = currentQuestionNum;
@@ -347,7 +367,7 @@ define([
           quizNavBar.index = maxStartingIndex + quizNavBar.windowScrollLength();
         }
 
-        endingIndex = startingIndex + quizNavBar.windowSize - 1;
+        var endingIndex = startingIndex + quizNavBar.windowSize - 1;
         quizNavBar.showQuestionsInWindow(startingIndex, endingIndex);
       }
     },
@@ -392,17 +412,23 @@ define([
       gradingForm.setInitialSnapshot(data);
     }
 
-    $(".question_holder .user_points input[type=number],.question_holder .question_neutral_comment .question_comment_text textarea").change(function() {
+    $(".question_holder .user_points .question_input,.question_holder .question_neutral_comment .question_comment_text textarea").change(function() {
       var $question = $(this).parents(".display_question");
       var questionId = $question.attr('id');
       gradingForm.updateSnapshotFor($question);
       if($(this).hasClass('question_input')){
+        const parsed = numberHelper.parse($(this).val())
+        const hiddenVal = Number.isNaN(parsed) ? '' : parsed
+        $question.find('.question_input_hidden').val(hiddenVal)
         quizNavBar.updateStatusFor($(this));
       }
     });
 
     $("#fudge_points_entry").change(function() {
-      var points = parseFloat($(this).val(), 10);
+      var points = numberHelper.parse($(this).val());
+      const parsed = numberHelper.parse($(this).val())
+      const hiddenVal = Number.isNaN(parsed) ? '' : parsed
+      $("#fudge_points_input").val(hiddenVal);
       gradingForm.addFudgePoints(points);
     });
 
@@ -441,6 +467,3 @@ define([
       }
     });
   }
-
-});
-

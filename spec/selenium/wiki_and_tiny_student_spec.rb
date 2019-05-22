@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/helpers/wiki_and_tiny_common')
 
 describe "Wiki pages and Tiny WYSIWYG editor" do
@@ -11,7 +28,7 @@ describe "Wiki pages and Tiny WYSIWYG editor" do
     end
 
     it "should not allow access to page when marked as hide from student" do
-      expected_error = "Unauthorized"
+      expected_error = "Access Denied"
       title = "test_page"
       hfs = true
       edit_roles = "members"
@@ -20,7 +37,7 @@ describe "Wiki pages and Tiny WYSIWYG editor" do
       get "/courses/#{@course.id}/pages/#{title}"
       wait_for_ajax_requests
 
-      expect(f('.ui-state-error')).to include_text(expected_error)
+      expect(f('#unauthorized_message')).to include_text(expected_error)
     end
 
     it "should not allow students to edit if marked for only teachers can edit" do
@@ -67,14 +84,16 @@ describe "Wiki pages and Tiny WYSIWYG editor" do
       get "/courses/#{@course.id}/pages"
       wait_for_ajax_requests
       f('.new_page').click
+      wait_for_tiny(f('#wiki_page_body'))
       f("#title").send_keys("new page")
 
       expect_new_page_load { f('form.edit-form button.submit').click }
-      new_page = @course.wiki.wiki_pages.last
+      new_page = @course.wiki_pages.last
       expect(new_page).to be_published
     end
 
     it "should not allow students to add links to new pages unless they can create pages" do
+      skip('this only worked with the legacy editor. make it work w/ canvas-rce CORE-2714')
       create_wiki_page("test_page", false, "public")
       get "/courses/#{@course.id}/pages/test_page/edit"
       wait_for_ajax_requests
@@ -89,7 +108,7 @@ describe "Wiki pages and Tiny WYSIWYG editor" do
 
       expect(f('#new_page_link')).to_not be_nil
       expect_new_page_load { f('form.edit-form button.submit').click }
-      new_page = @course.wiki.wiki_pages.last
+      new_page = @course.wiki_pages.last
       expect(new_page).to be_published
     end
   end

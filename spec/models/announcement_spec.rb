@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,6 +32,9 @@ describe Announcement do
 
       @course.lock_all_announcements = true
       @course.save!
+
+      # should not trigger an update callback by re-saving inside a before_save
+      expect_any_instance_of(Announcement).to receive(:clear_streams_if_not_published).never
       announcement = @course.announcements.create!(valid_announcement_attributes)
 
       expect(announcement).to be_locked
@@ -66,6 +69,51 @@ describe Announcement do
         course.announcements.create!(valid_announcement_attributes.merge(delayed_post_at: 1.week.from_now))
       }.to change(Delayed::Job, :count).by(1)
     end
+
+    it "should unlock the attachment when the job runs" do
+      course_factory(:active_all => true)
+      att = attachment_model(context: @course)
+      announcement = @course.announcements.create!(valid_announcement_attributes.
+        merge(:delayed_post_at => Time.now + 1.week, :workflow_state => 'post_delayed', :attachment => att))
+      att.reload
+      expect(att).to be_locked
+
+      Timecop.freeze(2.weeks.from_now) do
+        run_jobs
+        expect(announcement.reload).to be_active
+        expect(att.reload).to_not be_locked
+      end
+    end
+  end
+
+  context "section specific announcements" do
+    before(:once) do
+      course_with_teacher(active_course: true)
+      @section = @course.course_sections.create!(name: 'test section')
+
+      @announcement = @course.announcements.create!(:user => @teacher, message: 'hello my favorite section!')
+      @announcement.is_section_specific = true
+      @announcement.course_sections = [@section]
+      @announcement.save!
+
+      @student1, @student2 = create_users(2, return_type: :record)
+      @course.enroll_student(@student1, :enrollment_state => 'active')
+      @course.enroll_student(@student2, :enrollment_state => 'active')
+      student_in_section(@section, user: @student1)
+    end
+
+    it "should be visible to students in specific section" do
+      expect(@announcement.visible_for?(@student1)).to be_truthy
+    end
+
+    it "should be visible to section-limited students in specific section" do
+      @student1.enrollments.where(course_section_id: @section).update_all(limit_privileges_to_course_section: true)
+      expect(@announcement.visible_for?(@student1)).to be_truthy
+    end
+
+    it "should not be visible to students not in specific section" do
+      expect(@announcement.visible_for?(@student2)).to be_falsey
+    end
   end
 
   context "permissions" do
@@ -74,9 +122,16 @@ describe Announcement do
       expect(Announcement.context_allows_user_to_create?(@course, @user, {})).to be_falsey
     end
 
-    it "should allow announcements on a group" do
-      group_with_user(:active_user => 1)
-      expect(Announcement.context_allows_user_to_create?(@group, @user, {})).to be_truthy
+    it "should not allow announcements creation by students on a group" do
+      course_with_student
+      group_with_user(is_public: true, :active_user => 1, :context => @course)
+      expect(Announcement.context_allows_user_to_create?(@group, @student, {})).to be_falsey
+    end
+
+    it "should allow announcements creation by teacher on a group" do
+      course_with_teacher(:active_all => true)
+      group_with_user(is_public: true, :active_user => 1, :context => @course)
+      expect(Announcement.context_allows_user_to_create?(@group, @teacher, {})).to be_truthy
     end
 
     it 'allows announcements to be viewed without :read_forum' do
@@ -99,6 +154,20 @@ describe Announcement do
       a = @course.announcements.create!(valid_announcement_attributes)
       expect(a.grants_right?(@user, :read)).to be(false)
     end
+
+    it 'does allows announcements to be viewed only if visible_for? is true' do
+      course_with_student(active_all: true)
+      a = @course.announcements.create!(valid_announcement_attributes)
+      allow(a).to receive(:visible_for?).and_return true
+      expect(a.grants_right?(@user, :read)).to be(true)
+    end
+
+    it 'does not allow announcements to be viewed if visible_for? is false' do
+      course_with_student(active_all: true)
+      a = @course.announcements.create!(valid_announcement_attributes)
+      allow(a).to receive(:visible_for?).and_return false
+      expect(a.grants_right?(@user, :read)).to be(false)
+    end
   end
 
   context "broadcast policy" do
@@ -111,14 +180,6 @@ describe Announcement do
         @a.message = "<a href='#' onclick='alert(12);'>only this should stay</a>"
         @a.save!
         expect(@a.message).to eql("<a href=\"#\">only this should stay</a>")
-      end
-
-      it "should sanitize objects in a message" do
-        @a.message = "<object data=\"http://www.youtube.com/test\"></object>"
-        @a.save!
-        dom = Nokogiri(@a.message)
-        expect(dom.css('object').length).to eql(1)
-        expect(dom.css('object')[0]['data']).to eql("http://www.youtube.com/test")
       end
 
       it "should sanitize objects in a message" do
@@ -166,6 +227,24 @@ describe Announcement do
       announcement_model(:user => @teacher)
 
       expect(@a.messages_sent[notification_name]).to be_blank
+    end
+
+    it "should not broadcast if student's section is soft-concluded" do
+      course_with_student(:active_all => true)
+      section2 = @course.course_sections.create!
+      other_student = user_factory(:active_all => true)
+      @course.enroll_student(other_student, :section => section2, :enrollment_state => 'active')
+      section2.update_attributes(:start_at => 2.months.ago, :end_at => 1.month.ago, :restrict_enrollments_to_section_dates => true)
+
+      notification_name = "New Announcement"
+      n = Notification.create(:name => notification_name, :category => "TestImmediately")
+      NotificationPolicy.create(:notification => n, :communication_channel => @student.communication_channel, :frequency => "immediately")
+
+      @context = @course
+      announcement_model(:user => @teacher)
+      to_users = @a.messages_sent[notification_name].map(&:user)
+      expect(to_users).to include(@student)
+      expect(to_users).to_not include(other_student)
     end
   end
 end

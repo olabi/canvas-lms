@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Api::V1
   module GradebookHistory
     include Api
@@ -30,7 +47,8 @@ module Api::V1
 
       model = version.model
       json = model.without_versioned_attachments do
-        submission_attempt_json(model, assignment, api_context.user, api_context.session, course).with_indifferent_access
+        submission_attempt_json(model, assignment, api_context.user, api_context.session, course, params).
+          with_indifferent_access
       end
       grader = (json[:grader_id] && json[:grader_id] > 0 && user_cache[json[:grader_id]]) || default_grader
 
@@ -50,6 +68,7 @@ module Api::V1
       unless opts[:submission]
         ActiveRecord::Associations::Preloader.new.preload(versions, :versionable)
         submissions = versions.map(&:versionable)
+        ActiveRecord::Associations::Preloader.new.preload(versions.map(&:model), :originality_reports)
         ActiveRecord::Associations::Preloader.new.preload(submissions, :assignment) unless opts[:assignment]
         ActiveRecord::Associations::Preloader.new.preload(submissions, :user) unless opts[:student]
         ActiveRecord::Associations::Preloader.new.preload(submissions, :grader)

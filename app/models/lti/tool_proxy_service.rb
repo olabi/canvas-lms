@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,35 +22,47 @@ module Lti
 
     attr_reader :tc_half_secret
 
-    class InvalidToolProxyError < RuntimeError
-
-      def initialize(message = nil, json = {})
-        super(message)
-        @message = message
-        @json = json
+    class << self
+      def delete_subscriptions(tool_proxy)
+        self.new.delete_subscriptions_for(tool_proxy)
       end
 
-      def to_json
-        @json[:error] = @message if @message
-        @json.to_json
+      def recreate_missing_subscriptions(tool_proxy)
+        tool_proxy&.message_handlers&.each(&:recreate_missing_subscriptions)
       end
-
     end
 
-    def process_tool_proxy_json(json:, context:, guid:, tool_proxy_to_update: nil, tc_half_shared_secret: nil, developer_key: nil)
+    def process_tool_proxy_json(json:, context:, guid:, tool_proxy_to_update: nil, tc_half_shared_secret: nil, developer_key: nil, registration_url: nil)
       @tc_half_secret = tc_half_shared_secret
-
       tp = IMS::LTI::Models::ToolProxy.new.from_json(json)
       tp.tool_proxy_guid = guid
-
-      validate_proxy!(tp, context, developer_key)
+      tcp_uuid = tp.tool_consumer_profile&.match(/tool_consumer_profile\/([a-fA-f0-9\-]+)/)&.captures&.first
+      tcp_uuid ||= developer_key&.tool_consumer_profile&.uuid
+      tcp_uuid ||= Lti::ToolConsumerProfile::DEFAULT_TCP_UUID
+      begin
+        tcp = Lti::ToolConsumerProfileCreator.new(
+          context,
+          tp.tool_consumer_profile,
+          developer_key: developer_key,
+          tcp_uuid: tcp_uuid
+        ).create
+        ToolProxyValidator.new(tool_proxy: tp, tool_consumer_profile: tcp).validate!
+      rescue Lti::Errors::InvalidToolProxyError
+        raise unless deprecated_split_secret?(tp)
+      end
       tool_proxy = nil
       ToolProxy.transaction do
         product_family = create_product_family(tp, context.root_account, developer_key)
-        tool_proxy = create_tool_proxy(tp, context, product_family, tool_proxy_to_update)
+        tool_proxy = create_tool_proxy(tp: tp,
+                                       context: context,
+                                       product_family: product_family,
+                                       tool_proxy:
+                                       tool_proxy_to_update,
+                                       registration_url: registration_url,
+                                       developer_key: developer_key)
         process_resources(tp, tool_proxy)
         create_proxy_binding(tool_proxy, context)
-        create_tool_settings(tp, tool_proxy)
+        create_or_update_tool_settings(tp, tool_proxy)
       end
 
       tool_proxy.reload
@@ -59,7 +71,8 @@ module Lti
 
     def create_secret(tp)
       security_contract = tp.security_contract
-      if (tp_half_secret = tp.enabled_capabilities.include?('OAuth.splitSecret') && security_contract.tp_half_shared_secret)
+      tp_half_secret = security_contract.tp_half_shared_secret
+      if (tp.enabled_capabilities & ['OAuth.splitSecret', 'Security.splitSecret']).present? && tp_half_secret.present?
         @tc_half_secret ||= SecureRandom.hex(64)
         tc_half_secret + tp_half_secret
       else
@@ -67,12 +80,43 @@ module Lti
       end
     end
 
+    def delete_subscriptions_for(tool_proxy)
+      product_family = tool_proxy.product_family
+      subscription_helper = AssignmentSubscriptionsHelper.new(tool_proxy)
+      lookups = AssignmentConfigurationToolLookup.where(tool_product_code: product_family.product_code,
+                                                        tool_vendor_code: product_family.vendor_code)
+      lookups.each do |l|
+        subscription_helper.send_later_enqueue_args(
+          :destroy_subscription,
+          { n_strand: AssignmentConfigurationToolLookup::SUBSCRIPTION_MANAGEMENT_STRAND },
+          l.subscription_id
+        )
+      end
+    end
+
     private
-    def create_tool_proxy(tp, context, product_family, tool_proxy=nil)
+
+    def developer_key_mismatch?(tool_proxy, developer_key)
+      installing_vendor = tool_proxy&.tool_profile&.product_instance&.product_info&.product_family&.vendor&.code
+      return true if installing_vendor.blank?
+      vendor_dev_keys = DeveloperKey.by_cached_vendor_code(installing_vendor)
+      return false if developer_key.blank? && vendor_dev_keys.blank?
+      !vendor_dev_keys.include?(developer_key)
+    end
+
+    def deprecated_split_secret?(tp)
+      tp.enabled_capability.present? &&
+      tp.enabled_capability.include?("OAuth.splitSecret") &&
+      tp.security_contract.tp_half_shared_secret.present?
+    end
+
+    def create_tool_proxy(tp:, context:, product_family:, tool_proxy: nil, registration_url:, developer_key: nil)
       # make sure the guid never changes
-      raise InvalidToolProxyError if tool_proxy && tp.tool_proxy_guid != tool_proxy.guid
+      raise Lti::Errors::InvalidToolProxyError if tool_proxy && tp.tool_proxy_guid != tool_proxy.guid
+      raise Errors::InvalidToolProxyError, 'Developer key mismatch' if developer_key_mismatch?(tp, developer_key)
 
       tool_proxy ||= ToolProxy.new
+      tool_proxy.registration_url = registration_url
       tool_proxy.product_family = product_family
       tool_proxy.guid = tp.tool_proxy_guid
       tool_proxy.shared_secret = create_secret(tp)
@@ -114,6 +158,7 @@ module Lti
         m.launch_path = "#{base_path}#{mh.path}"
         m.capabilities = create_json(mh.enabled_capability)
         m.parameters = create_json(mh.parameter.as_json)
+        m.tool_proxy = resource.tool_proxy
       end
       create_placements(mh, message_handler)
     end
@@ -188,62 +233,17 @@ module Lti
       end
     end
 
-    def create_tool_settings(tp, tool_proxy)
-      ToolSetting.create!(tool_proxy:tool_proxy, custom: tp.custom) if tp.custom.present?
+    def create_or_update_tool_settings(tp, tool_proxy)
+      if tp.custom.present?
+        tool_setting = ToolSetting.where(tool_proxy:tool_proxy).first_or_create!
+        custom = tool_setting.custom || {}
+        tool_setting.update(custom: custom.merge(tp.custom) )
+      end
+
     end
 
     def create_json(obj)
-      obj.kind_of?(Array) ? obj.map(&:as_json) : obj.as_json
-    end
-
-    def validate_proxy!(tp, context, developer_key = nil)
-
-      profile = Lti::ToolConsumerProfileCreator.new(context, tp.tool_consumer_profile).create(developer_key.present?)
-      tp_validator = IMS::LTI::Services::ToolProxyValidator.new(tp)
-      tp_validator.tool_consumer_profile = profile
-
-      unless tp_validator.valid?
-        json = {}
-        messages = []
-
-        if tp_validator.errors[:invalid_services]
-          messages << 'Invalid Services'
-          json.merge!({ :invalid_services => invalid_services_formatter(tp_validator) })
-        end
-
-        if tp_validator.errors[:invalid_message_handlers]
-          messages << 'Invalid Capabilities'
-          json.merge!({ :invalid_capabilities => invalid_message_handler_formatter(tp_validator) })
-        end
-
-        if tp_validator.errors[:invalid_security_contract]
-          messages << 'Invalid SecurityContract'
-          json.merge!({ :invalid_security_contract => tp_validator.errors[:invalid_security_contract].values })
-        end
-
-        last_message = messages.pop if messages.size > 1
-        message = messages.join(', ')
-        message + " and #{last_message}" if last_message
-
-        raise InvalidToolProxyError.new message, json
-      end
-    end
-
-    def invalid_message_handler_formatter(tp_validator)
-      tp_validator.errors[:invalid_message_handlers][:resource_handlers].map do |rh|
-        rh[:messages].map do |message|
-          message[:invalid_capabilities] || message[:invalid_parameters].map {|param| param[:variable] }
-        end
-      end.flatten
-    end
-
-    def invalid_services_formatter(tp_validator)
-      tp_validator.errors[:invalid_services].map do |key, value|
-        {
-          id: key,
-          actions: value
-        }
-      end
+      obj.is_a?(Array) ? obj.map(&:as_json) : obj.as_json
     end
   end
 end

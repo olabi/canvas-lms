@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class AddBackDefaultStringLimitsP1 < ActiveRecord::Migration[4.2]
   tag :postdeploy
 
@@ -12,21 +29,23 @@ class AddBackDefaultStringLimitsP1 < ActiveRecord::Migration[4.2]
     add_string_limit_if_missing :access_tokens, :token_hint
     add_string_limit_if_missing :access_tokens, :crypted_refresh_token
 
-    add_string_limit_if_missing :account_authorization_configs, :auth_host
-    add_string_limit_if_missing :account_authorization_configs, :auth_base
-    add_string_limit_if_missing :account_authorization_configs, :auth_username
-    add_string_limit_if_missing :account_authorization_configs, :auth_crypted_password
-    add_string_limit_if_missing :account_authorization_configs, :auth_password_salt
-    add_string_limit_if_missing :account_authorization_configs, :auth_type
-    add_string_limit_if_missing :account_authorization_configs, :auth_over_tls
-    add_string_limit_if_missing :account_authorization_configs, :log_in_url
-    add_string_limit_if_missing :account_authorization_configs, :log_out_url
-    add_string_limit_if_missing :account_authorization_configs, :identifier_format
-    add_string_limit_if_missing :account_authorization_configs, :entity_id
-    add_string_limit_if_missing :account_authorization_configs, :requested_authn_context
-    add_string_limit_if_missing :account_authorization_configs, :idp_entity_id
-    add_string_limit_if_missing :account_authorization_configs, :workflow_state
-    add_string_limit_if_missing :account_authorization_configs, :metadata_uri
+    AuthenticationProvider.maybe_recreate_view do
+      add_string_limit_if_missing :account_authorization_configs, :auth_host
+      add_string_limit_if_missing :account_authorization_configs, :auth_base
+      add_string_limit_if_missing :account_authorization_configs, :auth_username
+      add_string_limit_if_missing :account_authorization_configs, :auth_crypted_password
+      add_string_limit_if_missing :account_authorization_configs, :auth_password_salt
+      add_string_limit_if_missing :account_authorization_configs, :auth_type
+      add_string_limit_if_missing :account_authorization_configs, :auth_over_tls
+      add_string_limit_if_missing :account_authorization_configs, :log_in_url
+      add_string_limit_if_missing :account_authorization_configs, :log_out_url
+      add_string_limit_if_missing :account_authorization_configs, :identifier_format
+      add_string_limit_if_missing :account_authorization_configs, :entity_id
+      add_string_limit_if_missing :account_authorization_configs, :requested_authn_context
+      add_string_limit_if_missing :account_authorization_configs, :idp_entity_id
+      add_string_limit_if_missing :account_authorization_configs, :workflow_state
+      add_string_limit_if_missing :account_authorization_configs, :metadata_uri
+    end
 
     add_string_limit_if_missing :account_notifications, :subject
     add_string_limit_if_missing :account_notifications, :icon
@@ -157,7 +176,6 @@ class AddBackDefaultStringLimitsP1 < ActiveRecord::Migration[4.2]
     add_string_limit_if_missing :submissions, :url
     add_string_limit_if_missing :submissions, :grade
     add_string_limit_if_missing :submissions, :submission_type
-    add_string_limit_if_missing :submissions, :workflow_state
     add_string_limit_if_missing :submissions, :published_grade
     add_string_limit_if_missing :submissions, :media_comment_id
     add_string_limit_if_missing :submissions, :media_comment_type

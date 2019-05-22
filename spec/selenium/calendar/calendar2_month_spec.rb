@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 
@@ -15,6 +32,13 @@ describe "calendar2" do
   context "as a teacher" do
     before(:each) do
       course_with_teacher_logged_in
+    end
+
+    it "should navigate to month view when month button is clicked", :xbrowser do
+      load_week_view
+      f('#month').click
+      wait_for_ajaximations
+      expect(fj('.fc-month-view:visible')).to be_present
     end
 
     describe "main month calendar" do
@@ -239,7 +263,7 @@ describe "calendar2" do
         create_middle_day_assignment(name)
         f('.fc-event.assignment').click
         hover_and_click '.edit_event_link'
-        expect_new_page_load { hover_and_click '.more_options_link' }
+        expect_new_page_load { f('.more_options_link').click }
         expect(find('#assignment_name').attribute(:value)).to include(name)
       end
 
@@ -247,7 +271,7 @@ describe "calendar2" do
         create_published_middle_day_assignment
         f('.fc-event.assignment').click
         hover_and_click '.edit_event_link'
-        expect_new_page_load { hover_and_click '.more_options_link' }
+        expect_new_page_load { f('.more_options_link').click }
         expect(find('#assignment-draft-state')).not_to include_text("Not Published")
       end
 
@@ -277,7 +301,7 @@ describe "calendar2" do
       end
 
       it "should not have a delete link for a frozen assignment" do
-        PluginSetting.stubs(:settings_for_plugin).returns({"assignment_group_id" => "true"})
+        allow(PluginSetting).to receive(:settings_for_plugin).and_return({"assignment_group_id" => "true"})
         frozen_assignment = @course.assignments.build(
             name: "frozen assignment",
             due_at: Time.zone.now,
@@ -385,7 +409,7 @@ describe "calendar2" do
 
         # Switch the month and verify that there is no highlighted day
         2.times { change_calendar }
-        expect(find_all(".fc-state-highlight").size).to eq 0
+        expect(f('body')).not_to contain_css(".fc-state-highlight")
 
         # Go back to the present month. Verify that there is a highlighted day
         change_calendar(:today)
@@ -433,7 +457,7 @@ describe "calendar2" do
         quick_jump_to_date(date_due.strftime '%Y-%m-%d')
 
         # verify assignment has line-through
-        expect(find('.fc-title').css_value('text-decoration')).to eql('line-through')
+        expect(find('.fc-title').css_value('text-decoration')).to include('line-through')
       end
 
       it "should strikethrough past due graded discussion", priority: "1", test_id: 518371 do
@@ -447,7 +471,7 @@ describe "calendar2" do
         quick_jump_to_date(date_due.strftime '%Y-%m-%d')
 
         # verify discussion has line-through
-        expect(find('.fc-title').css_value('text-decoration')).to eql('line-through')
+        expect(find('.fc-title').css_value('text-decoration')).to include('line-through')
       end
     end
   end
@@ -456,6 +480,13 @@ describe "calendar2" do
 
     before(:each) do
       course_with_student_logged_in
+    end
+
+    it "should navigate to month view when month button is clicked" do
+      load_week_view
+      f('#month').click
+      wait_for_ajaximations
+      expect(fj('.fc-month-view:visible')).to be_present
     end
 
     describe "main month calendar" do
@@ -479,7 +510,7 @@ describe "calendar2" do
         quick_jump_to_date(date_due.strftime '%Y-%m-%d')
 
         # verify assignment has line-through
-        expect(find('.fc-title').css_value('text-decoration')).to eql('line-through')
+        expect(find('.fc-title').css_value('text-decoration')).to include('line-through')
       end
 
       it "should strikethrough completed graded discussion", priority: "1", test_id: 518373 do
@@ -492,8 +523,7 @@ describe "calendar2" do
 
         get "/courses/#{@course.id}/discussion_topics/#{@pub_graded_discussion_due.id}"
         find('.discussion-reply-action').click
-        wait_for_ajaximations
-        driver.execute_script "tinyMCE.activeEditor.setContent('#{reply}')"
+        type_in_tiny(".reply-textarea", reply)
         find('.btn.btn-primary').click
         wait_for_ajaximations
         get '/calendar2'
@@ -502,7 +532,7 @@ describe "calendar2" do
         quick_jump_to_date(date_due.strftime '%Y-%m-%d')
 
         # verify discussion has line-through
-        expect(find('.fc-title').css_value('text-decoration')).to eql('line-through')
+        expect(find('.fc-title').css_value('text-decoration')).to include('line-through')
       end
 
       it "should load events from adjacent months correctly" do

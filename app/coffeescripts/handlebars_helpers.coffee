@@ -1,21 +1,46 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+# NOTE: depending on 'i18nObj' gets the extended I18n object with all the extra functions (interpolate, strftime, ...),
+# while 'i18n!handlebars_helpers' sets the scope for the I18n.t calls.
+# 'i18nObj!handlebars_helpers' does not compile
+# and leaving out 'i18n!handlebars_helpers' trips errors in the translation extract process
+# This is why the former is bound to a name, and the latter is not.
+
 define [
   'timezone'
-  'compiled/util/enrollmentName'
-  'handlebars'
+  './util/enrollmentName'
+  'handlebars/runtime'
   'i18nObj'
   'jquery'
   'underscore'
   'str/htmlEscape'
-  'compiled/util/semanticDateRange'
-  'compiled/util/dateSelect'
-  'compiled/util/mimeClass'
-  'compiled/str/apiUserContent'
-  'compiled/str/TextHelper'
+  './util/semanticDateRange'
+  './util/dateSelect'
+  './util/mimeClass'
+  './str/apiUserContent'
+  './str/TextHelper'
+  'jsx/shared/helpers/numberFormat'
   'jquery.instructure_date_and_time'
   'jquery.instructure_misc_helpers'
   'jquery.instructure_misc_plugins'
   'translations/_core_en'
-], (tz, enrollmentName, Handlebars, I18n, $, _, htmlEscape, semanticDateRange, dateSelect, mimeClass, apiUserContent, textHelper) ->
+  'i18n!handlebars_helpers'
+], (tz, enrollmentName, {default: Handlebars}, I18n, $, _, htmlEscape, semanticDateRange, dateSelect, mimeClass, apiUserContent, textHelper, numberFormat) ->
 
   Handlebars.registerHelper name, fn for name, fn of {
     t : (args..., options) ->
@@ -25,7 +50,7 @@ define [
         wrappers[new Array(parseInt(key.replace('w', '')) + 2).join('*')] = value
         delete options[key]
       options.wrapper = wrappers if wrappers['*']
-      unless this instanceof Window
+      unless (typeof this == 'undefined') || (this instanceof Window)
         options[key] = this[key] for key in this
       new Handlebars.SafeString htmlEscape(I18n.t(args..., options))
 
@@ -116,7 +141,7 @@ define [
     # timezone preference. expects: anything tz() can handle
     dateString : (datetime) ->
       return '' unless datetime
-      tz.format(datetime, '%m/%d/%Y')
+      I18n.l "date.formats.medium", datetime
 
     # Convert the total amount of minutes into a Hours:Minutes format.
     minutesToHM : (minutes) ->
@@ -125,9 +150,33 @@ define [
       real_min_str = (if real_minutes < 10 then "0" + real_minutes else real_minutes)
       "#{hours}:#{real_min_str}"
 
+    ###*
+     * Convert the total amount of minutes into a readable duration.
+     * @param {number}  Duration in minutes elapsed
+     * @return {string} String containing a formatted duration including hours and minutes
+     * Example:
+     *     ...
+     *     duration = 97
+     *     durationToString(duration)
+     *     ...
+     *     Returns
+     *       "Duration: 1 hour and 37 minutes"
+    ###
+    durationToString : (duration) ->
+      # stores the hours in the duration
+      hours = Math.floor(duration / 60)
+      # stores the remaining minutes after substracting the hours
+      minutes = duration % 60
+      if hours > 0
+        return I18n.t("Duration: %{hours} hours and %{minutes} minutes", {hours: hours, minutes: minutes})
+      else if minutes > 1
+        return I18n.t("Duration: %{minutes} minutes", {minutes: minutes})
+      else
+        return I18n.t("Duration: 1 minute")
+
     # helper for easily creating icon font markup
     addIcon : (icontype) ->
-      new Handlebars.SafeString "<i class='icon-#{htmlEscape icontype}'></i>"
+      new Handlebars.SafeString "<i role='presentation' class='icon-#{htmlEscape icontype}'></i>"
 
     # helper for using date.js's custom toString method on Date objects
     dateToString : (date = '', format) ->
@@ -136,12 +185,16 @@ define [
     # convert a date to a string, using the given i18n format in the date.formats namespace
     tDateToString : (date = '', i18n_format) ->
       return '' unless date
-      I18n.l "date.formats.#{i18n_format}", date
+      date = tz.parse(date) unless _.isDate date
+      fudged = $.fudgeDateForProfileTimezone(tz.parse(date))
+      I18n.l "date.formats.#{i18n_format}", fudged
 
     # convert a date to a time string, using the given i18n format in the time.formats namespace
     tTimeToString : (date = '', i18n_format) ->
       return '' unless date
-      I18n.l "time.formats.#{i18n_format}", date
+      date = tz.parse(date) unless _.isDate date
+      fudged = $.fudgeDateForProfileTimezone(tz.parse(date))
+      I18n.l "time.formats.#{i18n_format}", fudged
 
     tTimeHours : (date = '') ->
       if date.getMinutes() == 0 and date.getSeconds() == 0
@@ -266,17 +319,20 @@ define [
         return inverse(this)
       fn(this)
 
-    # {{#eachWithIndex records}}
+    # {{#eachWithIndex records startingIndex=0}}
     #   <li class="legend_item{{_index}}"><span></span>{{Name}}</li>
     # {{/each_with_index}}
+    #
+    # (startingIndex will default to 0 if not specified)
     eachWithIndex: (context, options) ->
       fn = options.fn
       inverse = options.inverse
+      startingValue = parseInt(options.hash.startingValue || 0, 10)
       ret = ''
 
       if context and context.length > 0
-        for index, ctx of context
-          ctx._index = index
+        for own index, ctx of context
+          ctx._index = parseInt(index, 10) + startingValue
           ret += fn ctx
       else
         ret = inverse this
@@ -438,6 +494,9 @@ define [
     disabledIf: ( thing, hash ) ->
       if thing then 'disabled' else ''
 
+    readonlyIf: ( thing, hash ) ->
+      if thing then 'readonly' else ''
+
     checkedUnless: ( thing ) ->
       if thing then '' else 'checked'
 
@@ -558,8 +617,16 @@ define [
       else
        options.inverse @
 
-    n:(number, {hash: {precision, percentage}}) ->
-      I18n.n(number, {precision, percentage})
+    n:(number, {hash: {precision, percentage, strip_insignificant_zeros}}) ->
+      I18n.n(number, {precision, percentage, strip_insignificant_zeros})
+
+    nf:(number, {hash: {format}}) ->
+      numberFormat[format](number)
+
+    # Public: look up an element of a hash or array
+    #
+    lookup: (obj, key) ->
+      obj && obj[key]
   }
 
   return Handlebars

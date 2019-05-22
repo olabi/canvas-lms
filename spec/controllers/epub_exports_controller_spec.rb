@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -55,7 +55,7 @@ describe EpubExportsController do
         get :index
 
         expect(response).to render_template(:index)
-        expect(response).to have_http_status(:success)
+        expect(response).to be_successful
         expect(assigns(:courses).size).to eq(@n + @n_more)
       end
     end
@@ -107,10 +107,6 @@ describe EpubExportsController do
   end
 
   describe "POST :create.json", type: :request do
-    before :each do
-      EpubExport.any_instance.stubs(:export).returns(true)
-    end
-
     let_once(:url) do
       "/api/v1/courses/#{@course.id}/epub_exports"
     end

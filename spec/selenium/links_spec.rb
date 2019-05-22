@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "links", priority: "2" do
@@ -99,7 +116,7 @@ describe "links", priority: "2" do
       it "should navigate user to user settings page after settings link is clicked" do
         expect_new_page_load {
           f('#global_nav_profile_link').click
-          fj('a.ic-NavMenu-list-item__link:contains("Settings")').click
+          fj('[aria-label="Profile tray"] a:contains("Settings")').click
         }
         expect(f("a.edit_settings_link")).to be_displayed
       end

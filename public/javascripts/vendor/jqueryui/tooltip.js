@@ -10,12 +10,32 @@
  *	jquery.ui.widget.js
  *	jquery.ui.position.js
  */
-define([
-  'jquery',
-  'jqueryui/core',
-  'jqueryui/widget',
-  'jqueryui/position'
-], function( $ ) {
+import $ from 'jquery'
+import 'jqueryui/core'
+import 'jqueryui/widget'
+import 'jqueryui/position'
+import {isRTL} from 'jsx/shared/helpers/rtlHelper'
+
+const flipPositionIfRTL = (() => {
+  const leftRightOpposites = {
+    'left+': 'right-',
+    'left-': 'right+',
+    'left': 'right',
+    'right+': 'left-',
+    'right-': 'left+',
+    'right': 'left'
+  }
+  const escapePlusAndMinus = str => str.replace(/[\-\+]/g, '\\$&')
+  const regexLeftRight = new RegExp(Object.keys(leftRightOpposites).map(escapePlusAndMinus).join('|'))
+  const flip = string => string.replace(regexLeftRight, match => leftRightOpposites[match] || match)
+
+  return (element, position) => {
+    if (isRTL(element)) {
+      position.my = flip(position.my)
+      position.at = flip(position.at)
+    }
+  }
+})()
 
 var increments = 0;
 
@@ -67,6 +87,7 @@ $.widget( "ui.tooltip", {
 	},
 
 	_create: function() {
+    flipPositionIfRTL(this.element[0], this.options.position)
 		this._on({
 			mouseover: "open",
 			focusin: "open"
@@ -304,4 +325,4 @@ $.widget( "ui.tooltip", {
 	}
 });
 
-});
+

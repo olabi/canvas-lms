@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -47,16 +47,60 @@ module Lti
       'student' => 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Student',
       'admin' => 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator',
       AccountUser => 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator',
-
-      StudentEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/person#Learner',
-      TeacherEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/person#Instructor',
-      TaEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/membership#TeachingAssistant',
+      TaEnrollment => ['http://purl.imsglobal.org/vocab/lis/v2/membership/instructor#TeachingAssistant', 'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor'],
+      StudentEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner',
+      TeacherEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor',
       DesignerEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper',
-      ObserverEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/person#Observer',
-      StudentViewEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/person#Learner'
+      ObserverEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/membership#Mentor',
+      StudentViewEnrollment => 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner',
+      Course => 'http://purl.imsglobal.org/vocab/lis/v2/course#CourseOffering'
     }
 
     LIS_V2_ROLE_NONE = 'http://purl.imsglobal.org/vocab/lis/v2/person#None'
+
+    # Nearly identical to LIS_V2_ROLE_MAP except:
+    #   1. Corrects typo in first TaEnrollment URI ('instructor'->'Instructor')
+    #   2. Values uniformly (frozen) Arrays
+    #   3. Has Group roles
+    #   4. Has no Course role
+    LIS_V2_LTI_ADVANTAGE_ROLE_MAP = {
+      'user' => [ 'http://purl.imsglobal.org/vocab/lis/v2/system/person#User' ].freeze,
+      'siteadmin' => [ 'http://purl.imsglobal.org/vocab/lis/v2/system/person#SysAdmin' ].freeze,
+
+      'teacher' => [ 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor' ].freeze,
+      'student' => [ 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Student' ].freeze,
+      'admin' => [ 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator' ].freeze,
+      AccountUser => [ 'http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator' ].freeze,
+      TaEnrollment => [
+        'http://purl.imsglobal.org/vocab/lis/v2/membership/Instructor#TeachingAssistant',
+        'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor'
+      ].freeze,
+      StudentEnrollment => [ 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner' ].freeze,
+      TeacherEnrollment => [ 'http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor' ].freeze,
+      DesignerEnrollment => [ 'http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper' ].freeze,
+      ObserverEnrollment => [ 'http://purl.imsglobal.org/vocab/lis/v2/membership#Mentor' ].freeze,
+      StudentViewEnrollment => [ 'http://purl.imsglobal.org/vocab/lis/v2/membership#Learner' ].freeze,
+      :group_member => [ 'http://purl.imsglobal.org/vocab/lis/v2/membership#Member' ].freeze,
+      :group_leader => [
+        'http://purl.imsglobal.org/vocab/lis/v2/membership#Member',
+        'http://purl.imsglobal.org/vocab/lis/v2/membership#Manager'
+      ].freeze
+    }.freeze
+
+    # Inversion of LIS_V2_LTI_ADVANTAGE_ROLE_MAP, i.e.:
+    #
+    #   {
+    #     '<lis-url>' => [<enrollment-class>, <logical-sys-or-insitution-role-name-string>, <enrollment-class>],
+    #     '<lis-url>' => [<group-membership-type-symbol>, <group-membership-type-symbol>],
+    #     ...
+    #   }
+    #
+    # (Extra copy at the end is to undo the default value ([]))
+    INVERTED_LIS_V2_LTI_ADVANTAGE_ROLE_MAP = LIS_V2_LTI_ADVANTAGE_ROLE_MAP.each_with_object(Hash.new([])) do |(key,values), memo|
+      values.each { |value| memo[value] += [key] }
+    end.reverse_merge({}).freeze
+
+    LIS_V2_LTI_ADVANTAGE_ROLE_NONE = 'http://purl.imsglobal.org/vocab/lis/v2/system/person#None'.freeze
 
     def initialize(context, root_account, user, tool = nil)
       @context = context
@@ -83,23 +127,27 @@ module Lti
 
     def all_roles(version = 'lis1')
       case version
-        when 'lis2'
-          role_map = LIS_V2_ROLE_MAP
-          role_none = LIS_V2_ROLE_NONE
-        else
-          role_map = LIS_ROLE_MAP
-          role_none = LtiOutbound::LTIRoles::System::NONE
+      when 'lis2'
+        role_map = LIS_V2_ROLE_MAP
+        role_none = LIS_V2_ROLE_NONE
+      when 'lti1_3'
+        role_map = LIS_V2_LTI_ADVANTAGE_ROLE_MAP
+        role_none = LIS_V2_LTI_ADVANTAGE_ROLE_NONE
+      else
+        role_map = LIS_ROLE_MAP
+        role_none = LtiOutbound::LTIRoles::System::NONE
       end
 
       if @user
-        context_roles = course_enrollments.map { |enrollment| role_map[enrollment.class] }
-        institution_roles = @user.roles(@root_account).map { |role| role_map[role] }
+        context_roles = course_enrollments.each_with_object(Set.new) { |role, set| set.add([*role_map[role.class]].join(",")) }
+
+        institution_roles = @user.roles(@root_account, true).flat_map { |role| role_map[role] }
         if Account.site_admin.account_users_for(@user).present?
-          institution_roles << role_map['siteadmin']
+          institution_roles.push(*role_map['siteadmin'])
         end
-        (context_roles + institution_roles).compact.uniq.sort.join(',')
+        (context_roles + institution_roles).to_a.compact.uniq.sort.join(',')
       else
-        [role_none]
+        role_none
       end
     end
 
@@ -117,7 +165,7 @@ module Lti
       unless @current_account_enrollments
         @current_account_enrollments = []
         if @user && @context.respond_to?(:account_chain) && !@context.account_chain.empty?
-          @current_account_enrollments = AccountUser.where(user_id: @user, account_id: @context.account_chain).shard(@context.shard)
+          @current_account_enrollments = AccountUser.active.where(user_id: @user, account_id: @context.account_chain).shard(@context.shard)
         end
       end
       @current_account_enrollments
@@ -143,6 +191,12 @@ module Lti
       roles.join(',')
     end
 
+    def current_canvas_roles_lis_v2(version = 'lis2')
+      roles = (course_enrollments + account_enrollments).map(&:class).uniq
+      role_map = version == 'lti1_3' ? LIS_V2_LTI_ADVANTAGE_ROLE_MAP : LIS_V2_ROLE_MAP
+      roles.map { |r| role_map[r] }.join(',')
+    end
+
     def enrollment_state
       enrollments = @user ? @context.enrollments.where(user_id: @user.id).preload(:enrollment_state) : []
       return '' if enrollments.size == 0
@@ -151,6 +205,10 @@ module Lti
 
     def previous_lti_context_ids
       previous_course_ids_and_context_ids.map(&:lti_context_id).compact.join(',')
+    end
+
+    def recursively_fetch_previous_lti_context_ids
+      recursively_fetch_previous_course_ids_and_context_ids.map(&:lti_context_id).compact.join(',')
     end
 
     def previous_course_ids
@@ -166,16 +224,14 @@ module Lti
     end
 
     def sis_email
-      if @user&.pseudonym&.sis_user_id
-        tablename = Pseudonym.quoted_table_name
-        query = "INNER JOIN #{tablename} ON communication_channels.id=pseudonyms.sis_communication_channel_id"
-        @user.communication_channels.joins(query).limit(1).pluck(:path).first
-      end
+      sis_ps = SisPseudonym.for(@user, @context, type: :trusted, require_sis: true)
+      sis_ps.sis_communication_channel&.path || sis_ps.communication_channels.order(:position).active.first&.path if sis_ps
     end
 
     def email
       # we are using sis_email for lti2 tools, or if the 'prefer_sis_email' extension is set for LTI 1
-      e = if !lti1? || @tool&.extension_setting(nil, :prefer_sis_email)&.downcase == "true"
+      e = if !lti1? || (@tool&.extension_setting(nil, :prefer_sis_email)&.downcase ||
+            @tool&.extension_setting(:tool_configuration, :prefer_sis_email)&.downcase) == "true"
             sis_email
           end
       e || @user.email
@@ -194,5 +250,20 @@ module Lti
       ).select("id, lti_context_id")
     end
 
+    def recursively_fetch_previous_course_ids_and_context_ids
+      return [] unless @context.is_a?(Course)
+
+      # now find all parents for locked folders
+      Course.where(
+        "EXISTS (?)", ContentMigration.where(workflow_state: :imported).where("context_id = ? OR context_id IN (
+            WITH RECURSIVE t AS (
+              SELECT context_id, source_course_id FROM #{ContentMigration.quoted_table_name} WHERE context_id = ?
+              UNION
+              SELECT content_migrations.context_id, content_migrations.source_course_id FROM #{ContentMigration.quoted_table_name} INNER JOIN t ON content_migrations.context_id=t.source_course_id
+            )
+            SELECT DISTINCT context_id FROM t
+          )", @context.id, @context.id).where("content_migrations.source_course_id = courses.id")
+      ).select("id, lti_context_id")
+    end
   end
 end

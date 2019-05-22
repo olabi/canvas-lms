@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -54,15 +54,8 @@ module StreamItemsHelper
         # the workflow_state on the stream_item_instance, that workflow_state
         # may be out of sync with the underlying conversation.
         item.unread = participant.unread?
-      elsif category == "Assignment"
-        # TODO: this handles an edge case for old stream items where their
-        # context code was getting set to "assignment_x" instead of "course_y".
-        # Can be removed when either:
-        # - we switch to direct send_to_stream for assignments
-        # - no more stream items have this bad data in production
-        next if item.context_type == "Assignment"
       elsif category == "AssessmentRequest"
-        next unless item.data.asset.assignment.published?
+        next unless item.data.asset.grants_right?(user, :read)
       end
 
       if topic_types.include? category
@@ -79,13 +72,22 @@ module StreamItemsHelper
     # need to store stream item id relative to the user's shard, since we'll
     # use it later to look up the user's StreamItemInstances for deletion
     presenter.stream_item_id = user.shard.activate{ item.id }
-    presenter.updated_at = item.data.respond_to?(:updated_at) ? item.data.updated_at : nil
+    presenter.updated_at = extract_updated_at(category, item, user)
     presenter.updated_at ||= item.updated_at
     presenter.unread = item.unread
     presenter.path = extract_path(category, item)
     presenter.context = extract_context(category, item)
     presenter.summary = extract_summary(category, item, user)
     presenter
+  end
+
+  def extract_updated_at(category, item, user)
+    case category
+    when "Conversation"
+      item.data.conversation_participants.find_by(user: user)&.last_message_at
+    else
+      item.data.respond_to?(:updated_at) ? item.data.updated_at : nil
+    end
   end
 
   def extract_path(category, item)
@@ -95,7 +97,7 @@ module StreamItemsHelper
     when "Conversation"
       conversation_path(Shard.short_id_for(item.asset_id))
     when "Assignment"
-      polymorphic_path([item.context_type.underscore, category.underscore], :"#{item.context_type.underscore}_id" => Shard.short_id_for(item.context_id), :id => Shard.short_id_for(item.data.asset_context_id))
+      polymorphic_path([item.context_type.underscore, category.underscore], :"#{item.context_type.underscore}_id" => Shard.short_id_for(item.context_id), :id => Shard.short_id_for(item.data.context_id))
     when "AssessmentRequest"
       submission = item.data.assessor_asset
       course_assignment_submission_path(item.context_id, submission.assignment_id, Shard.short_id_for(item.data.user_id))

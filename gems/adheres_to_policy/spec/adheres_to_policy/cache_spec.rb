@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,7 +12,7 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You have received a copy of the GNU Affero General Public License along
+# You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
@@ -28,20 +28,35 @@ describe AdheresToPolicy::Cache do
       AdheresToPolicy::Cache.write(:key, 'value')
       expect(AdheresToPolicy::Cache).to_not receive(:write)
       value = AdheresToPolicy::Cache.fetch(:key){ 'new_value' }
-      expect(value).to eq 'value'
+      expect(value).to eq ['value', :in_proc]
     end
 
     it "writes the key and value if it was not read" do
-      expect(AdheresToPolicy::Cache).to receive(:write).with(:key, 'value')
+      expect(AdheresToPolicy::Cache).to receive(:write).with(:key, 'value', an_instance_of(Hash))
       value = AdheresToPolicy::Cache.fetch(:key){ 'value' }
-      expect(value).to eq 'value'
+      expect(value).to eq ['value', :generated]
     end
 
     it "does not write the key if the value is 'false'" do
       AdheresToPolicy::Cache.write(:key, false)
       expect(AdheresToPolicy::Cache).to_not receive(:write)
       value = AdheresToPolicy::Cache.fetch(:key){ 'new_value' }
-      expect(value).to eq false
+      expect(value).to eq [false, :in_proc]
+    end
+
+    it 'times generating the value and sets Thread.current[:last_cache_generate]' do
+      Thread.current[:last_cache_generate] = nil
+      AdheresToPolicy::Cache.fetch(:key){ 'new_value' }
+      expect(Thread.current[:last_cache_generate]).to_not be_nil
+    end
+
+    it 'must forward the value pased for use_rails_cache to .read and .write' do
+      expect(AdheresToPolicy::Cache).to receive(:read)
+        .with(an_instance_of(String), a_hash_including(use_rails_cache: false))
+      expect(AdheresToPolicy::Cache).to receive(:write)
+        .with(an_instance_of(String), an_instance_of(String), a_hash_including(use_rails_cache: false))
+
+      AdheresToPolicy::Cache.fetch('foobar', use_rails_cache: false){ 'new_value' }
     end
   end
 
@@ -51,6 +66,11 @@ describe AdheresToPolicy::Cache do
       AdheresToPolicy::Cache.write(:key, 'value')
       expect(cached).to eq({ :key => 'value' })
     end
+
+    it 'must not write to the Rails cache when use_rails_cache is passed as false' do
+      expect(Rails.cache).to_not receive(:write)
+      AdheresToPolicy::Cache.write('foo', 'bar', use_rails_cache: false)
+    end
   end
 
   context "#read" do
@@ -59,12 +79,17 @@ describe AdheresToPolicy::Cache do
     end
 
     it "reads the provided key" do
-      expect(AdheresToPolicy::Cache.read(:key)).to eq 'value'
+      expect(AdheresToPolicy::Cache.read(:key)).to eq ['value', :in_proc]
     end
 
     it "returns nil if the key does not exist" do
       expect(Rails.cache).to receive(:read).with(:key2)
-      expect(AdheresToPolicy::Cache.read(:key2)).to eq nil
+      expect(AdheresToPolicy::Cache.read(:key2)).to eq [nil, :out_of_proc]
+    end
+
+    it 'must not attempt to read from the rails cache when use_rails_cache is passed as false' do
+      expect(Rails.cache).to_not receive(:read)
+      expect(AdheresToPolicy::Cache.read(:key2, use_rails_cache: false)).to eq [nil, :out_of_proc]
     end
   end
 

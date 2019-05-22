@@ -38,6 +38,7 @@ describe 'CommunicationChannels API', type: :request do
         cc = @someone.communication_channel
         expect(json).to eql [{
           'id'       => cc.id,
+          'created_at' => cc.created_at.iso8601,
           'address'  => cc.path,
           'type'     => cc.path_type,
           'position' => cc.position,
@@ -51,6 +52,7 @@ describe 'CommunicationChannels API', type: :request do
         cc = @someone.communication_channel
         expect(json).to eql [{
           'id'       => cc.id,
+          'created_at' => cc.created_at.iso8601,
           'address'  => cc.path,
           'type'     => cc.path_type,
           'position' => cc.position,
@@ -107,6 +109,7 @@ describe 'CommunicationChannels API', type: :request do
 
       expect(json).to eq({
         'id' => @channel.id,
+        'created_at' => @channel.created_at.iso8601,
         'address' => 'new+api@example.com',
         'type' => 'email',
         'workflow_state' => 'active',
@@ -147,6 +150,7 @@ describe 'CommunicationChannels API', type: :request do
 
         expect(json).to eq({
           'id' => @channel.id,
+          'created_at' => @channel.created_at.iso8601,
           'address' => 'new+api@example.com',
           'type' => 'email',
           'workflow_state' => 'unconfirmed',
@@ -162,6 +166,7 @@ describe 'CommunicationChannels API', type: :request do
 
         expect(json).to eq({
           'id' => @channel.id,
+          'created_at' => @channel.created_at.iso8601,
           'address' => 'new+api@example.com',
           'type' => 'email',
           'workflow_state' => 'active',
@@ -198,18 +203,33 @@ describe 'CommunicationChannels API', type: :request do
         end
 
         it "should work" do
-          client = mock()
-          DeveloperKey.stubs(:sns).returns(client)
+          client = double()
+          allow(DeveloperKey).to receive(:sns).and_return(client)
           dk = DeveloperKey.default
           dk.sns_arn = 'apparn'
           dk.save!
           $spec_api_tokens[@user] = @user.access_tokens.create!(developer_key: dk).full_token
-          client.expects(:create_platform_endpoint).once.returns(endpoint_arn: 'endpointarn')
+          expect(client).to receive(:create_platform_endpoint).once.and_return(endpoint_arn: 'endpointarn')
 
           json = api_call(:post, @path, @path_options, @post_params)
           expect(json['type']).to eq 'push'
           expect(json['workflow_state']).to eq 'active'
           expect(@user.notification_endpoints.first.arn).to eq 'endpointarn'
+        end
+
+        it "shouldn't create two push channels regardless of case" do
+          client = double()
+          allow(DeveloperKey).to receive(:sns).and_return(client)
+          dk = DeveloperKey.default
+          dk.sns_arn = 'apparn'
+          dk.save!
+          $spec_api_tokens[@user] = @user.access_tokens.create!(developer_key: dk).full_token
+          expect(client).to receive(:create_platform_endpoint).once.and_return(endpoint_arn: 'endpointarn')
+          @post_params[:communication_channel][:token].upcase!
+          api_call(:post, @path, @path_options, @post_params)
+          @post_params[:communication_channel][:token].downcase!
+          api_call(:post, @path, @path_options, @post_params)
+          expect(@user.notification_endpoints.count).to eq 1
         end
       end
     end
@@ -242,7 +262,8 @@ describe 'CommunicationChannels API', type: :request do
           'id' => channel.id,
           'workflow_state' => 'retired',
           'user_id' => someone.id,
-          'type' => 'email'
+          'type' => 'email',
+          'created_at' => channel.created_at.iso8601
         })
       end
     end
@@ -259,7 +280,8 @@ describe 'CommunicationChannels API', type: :request do
           'id' => channel.id,
           'workflow_state' => 'retired',
           'user_id' => someone.id,
-          'type' => 'email'
+          'type' => 'email',
+          'created_at' => channel.created_at.iso8601
         })
       end
 

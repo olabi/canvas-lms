@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -75,6 +75,14 @@
 #           "description": "If self-signup is enabled, group_limit can be set to cap the number of users in each group. If null, there is no limit.",
 #           "type": "integer"
 #         },
+#         "sis_group_category_id": {
+#           "description": "The SIS identifier for the group category. This field is only included if the user has permission to manage or view SIS information.",
+#           "type": "String"
+#         },
+#         "sis_import_id": {
+#           "description": "The unique identifier for the SIS import. This field is only included if the user has permission to manage SIS information.",
+#           "type": "integer"
+#         },
 #         "progress": {
 #           "description": "If the group category has not yet finished a randomly student assignment request, a progress object will be attached, which will contain information related to the progress of the assignment request. Refer to the Progress API for more information",
 #           "$ref": "Progress"
@@ -83,9 +91,9 @@
 #     }
 #
 class GroupCategoriesController < ApplicationController
-  before_filter :get_context
-  before_filter :require_context, :only => [:create, :index]
-  before_filter :get_category_context, :only => [:show, :update, :destroy, :groups, :users, :assign_unassigned_members]
+  before_action :get_context
+  before_action :require_context, :only => [:create, :index]
+  before_action :get_category_context, :only => [:show, :update, :destroy, :groups, :users, :assign_unassigned_members]
 
   include Api::V1::Attachment
   include Api::V1::GroupCategory
@@ -98,7 +106,7 @@ class GroupCategoriesController < ApplicationController
 
   # @API List group categories for a context
   #
-  # Returns a list of group categories in a context
+  # Returns a paginated list of group categories in a context
   #
   # @example_request
   #     curl https://<canvas>/api/v1/accounts/<account_id>/group_categories \
@@ -106,7 +114,7 @@ class GroupCategoriesController < ApplicationController
   #
   # @returns [GroupCategory]
   def index
-    @categories = @context.group_categories
+    @categories = @context.group_categories.preload(:root_account)
     respond_to do |format|
       format.json do
         if authorized_action(@context, @current_user, :manage_groups)
@@ -166,6 +174,9 @@ class GroupCategoriesController < ApplicationController
   #   Limit the maximum number of users in each group (Course Only). Requires
   #   self signup.
   #
+  # @argument sis_group_category_id [String]
+  #   The unique SIS identifier.
+  #
   # @argument create_group_count [Integer]
   #   Create this number of groups (Course Only).
   #
@@ -189,6 +200,14 @@ class GroupCategoriesController < ApplicationController
         if api_request?
           includes = ["unassigned_users_count", "groups_count"]
           includes.concat(params[:includes]) if params[:includes]
+          if (sis_id = params[:sis_group_category_id])
+            if @group_category.root_account.grants_right?(@current_user, :manage_sis)
+              @group_category.sis_source_id = sis_id
+              @group_category.save!
+            else
+              return render json: { message: "You must have manage_sis permission to set sis attributes" }, status: :unauthorized
+            end
+          end
           render :json => group_category_json(@group_category, @current_user, session, include: includes)
         else
           flash[:notice] = t('notices.create_category_success', 'Category was successfully created.')
@@ -221,6 +240,9 @@ class GroupCategoriesController < ApplicationController
   #   Limit the maximum number of users in each group (Course Only). Requires
   #   self signup.
   #
+  # @argument sis_group_category_id [String]
+  #   The unique SIS identifier.
+  #
   # @argument create_group_count [Integer]
   #   Create this number of groups (Course Only).
   #
@@ -246,6 +268,17 @@ class GroupCategoriesController < ApplicationController
           includes = ['progress_url']
           includes.concat(params[:includes]) if params[:includes]
           render :json => group_category_json(@group_category, @current_user, session, :include => includes)
+        end
+        if (sis_id = params[:sis_group_category_id])
+          if @group_category.root_account.grants_right?(@current_user, :manage_sis)
+            @group_category.sis_source_id = sis_id
+
+            DueDateCacher.with_executing_user(@current_user) do
+              @group_category.save!
+            end
+          else
+            return render json: { message: "You must have manage_sis permission to set sis attributes" }, status: :unauthorized
+          end
         end
       else
         return render(:json => {'status' => 'not found'}, :status => :not_found) unless @group_category
@@ -291,7 +324,7 @@ class GroupCategoriesController < ApplicationController
 
   # @API List groups in group category
   #
-  # Returns a list of groups in a group category
+  # Returns a paginated list of groups in a group category
   #
   # @example_request
   #     curl https://<canvas>/api/v1/group_categories/<group_cateogry_id>/groups \
@@ -300,7 +333,7 @@ class GroupCategoriesController < ApplicationController
   # @returns [Group]
   def groups
     if authorized_action(@context, @current_user, :manage_groups)
-      @groups = @group_category.groups.active.by_name
+      @groups = @group_category.groups.active.by_name.preload(:root_account)
       @groups = Api.paginate(@groups, self, api_v1_group_category_groups_url)
       render :json => @groups.map { |g| group_json(g, @current_user, session) }
     end
@@ -309,7 +342,7 @@ class GroupCategoriesController < ApplicationController
   include Api::V1::User
   # @API List users in group category
   #
-  # Returns a list of users in the group category.
+  # Returns a paginated list of users in the group category.
   #
   # @argument search_term [String]
   #   The partial name or full ID of the users to match and return in the results
@@ -335,7 +368,7 @@ class GroupCategoriesController < ApplicationController
     search_params = params.slice(:search_term)
     search_params[:enrollment_type] = "student" if @context.is_a? Course
 
-    @group_category ||= @context.group_categories.where(id: params[:category_id]).first
+    @group_category ||= @context.group_categories.where(id: params[:group_category_id]).first
     exclude_groups = value_to_boolean(params[:unassigned]) ? @group_category.groups.active.pluck(:id) : []
     search_params[:exclude_groups] = exclude_groups
 
@@ -345,8 +378,19 @@ class GroupCategoriesController < ApplicationController
       users = UserSearch.scope_for(@context, @current_user, search_params)
     end
 
+    includes = Array(params[:include])
     users = Api.paginate(users, self, api_v1_group_category_users_url)
-    render :json => users_json(users, @current_user, session, Array(params[:include]), @context, nil, Array(params[:exclude]))
+    UserPastLtiId.manual_preload_past_lti_ids(users, @group_category.groups) if ['uuid', 'lti_id'].any? { |id| includes.include? id }
+    json_users = users_json(users, @current_user, session, includes, @context, nil, Array(params[:exclude]))
+
+    if includes.include?('group_submissions') && @group_category.context_type == "Course"
+      submissions_by_user = @group_category.submission_ids_by_user_id(users.map(&:id))
+      json_users.each do |user|
+        user[:group_submissions] = submissions_by_user[user[:id]]
+      end
+    end
+
+    render :json => json_users
   end
 
   # @API Assign unassigned members
@@ -451,7 +495,7 @@ class GroupCategoriesController < ApplicationController
 
     if value_to_boolean(params[:sync])
       # do the distribution and note the changes
-      memberships = @group_category.assign_unassigned_members(by_section)
+      memberships = @group_category.assign_unassigned_members(by_section, updating_user: @current_user)
 
       # render the changes
       json = memberships.group_by{ |m| m.group_id }.map do |group_id, new_members|
@@ -459,17 +503,20 @@ class GroupCategoriesController < ApplicationController
       end
       render :json => json
     else
-      @group_category.assign_unassigned_members_in_background(by_section)
+      @group_category.assign_unassigned_members_in_background(by_section, updating_user: @current_user)
       render :json => progress_json(@group_category.current_progress, @current_user, session)
     end
   end
 
   def populate_group_category_from_params
-    args = api_request? ? params : params[:category]
+    args = api_request? ? params : (params[:category] || {})
     @group_category = GroupCategories::ParamsPolicy.new(@group_category, @context).populate_with(args)
-    unless @group_category.save
-      render :json => @group_category.errors, :status => :bad_request
-      return false
+
+    DueDateCacher.with_executing_user(@current_user) do
+      unless @group_category.save
+        render :json => @group_category.errors, :status => :bad_request
+        return false
+      end
     end
     true
   end
@@ -479,10 +526,13 @@ class GroupCategoriesController < ApplicationController
       GroupCategory.transaction do
         group_category = GroupCategory.active.find(params[:id])
         new_group_category = group_category.dup
+        new_group_category.sis_source_id = nil
         new_group_category.name = params[:name]
         begin
-          new_group_category.save!
-          group_category.clone_groups_and_memberships(new_group_category)
+          DueDateCacher.with_executing_user(@current_user) do
+            new_group_category.save!
+            group_category.clone_groups_and_memberships(new_group_category)
+          end
           render :json => new_group_category
         rescue ActiveRecord::RecordInvalid
           render :json => new_group_category.errors, :status => :bad_request
@@ -494,7 +544,8 @@ class GroupCategoriesController < ApplicationController
   protected
   def get_category_context
     begin
-      @group_category = api_request? ? GroupCategory.active.find(params[:group_category_id]) : GroupCategory.active.find(params[:id])
+      id = api_request? ? params[:group_category_id] : params[:id]
+      @group_category = api_find(GroupCategory.active, id)
     rescue ActiveRecord::RecordNotFound
       return render(:json => {'status' => 'not found'}, :status => :not_found) unless @group_category
     end

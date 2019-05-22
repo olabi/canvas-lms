@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -109,10 +109,6 @@ class ContentZipper
     end
   end
 
-  def self.zip_eportfolio(*args)
-    ContentZipper.new.zip_eportfolio(*args)
-  end
-
   class StaticAttachment
     attr_accessor :display_name, :filename, :unencoded_filename,
                   :content_type, :uuid, :id, :attachment
@@ -143,7 +139,7 @@ class ContentZipper
     portfolio_entries.each do |entry|
       entry.readonly!
 
-      index = rewrite_eportfolio_richtext_entry(index, rich_text_attachments, entry)
+      index = rewrite_eportfolio_richtext_entry(index, rich_text_attachments, entry, zip_attachment.user)
 
       static_attachments += entry.attachments
       submissions += entry.submissions
@@ -338,20 +334,19 @@ class ContentZipper
 
   def complete_attachment!(zip_attachment, zip_name)
     if zipped_successfully?
-      @logger.debug("data zipped! uploading to s3...")
+      @logger.debug("data zipped! uploading to external store...")
       uploaded_data = Rack::Test::UploadedFile.new(zip_name, 'application/zip')
-      zip_attachment.uploaded_data = uploaded_data
+      Attachments::Storage.store_for_attachment(zip_attachment, uploaded_data)
       zip_attachment.workflow_state = 'zipped'
       zip_attachment.file_state = 'available'
-      zip_attachment.save!
     else
       zip_attachment.workflow_state = 'errored'
-      zip_attachment.save!
     end
+    zip_attachment.save!
   end
 
   private
-  def rewrite_eportfolio_richtext_entry(index, attachments, entry)
+  def rewrite_eportfolio_richtext_entry(index, attachments, entry, user)
     # In each rich_text section, find any referenced images, replace
     # the text with the image name, and add the image to the
     # attachments to be downloaded. If the rich_text attachment
@@ -364,7 +359,7 @@ class ContentZipper
       entry.content.select { |c| c.is_a?(Hash) && c[:section_type] == "rich_text" }.each do |rt|
         rt[:content].gsub!(StaticAttachment::FILES_REGEX) do |match|
           att = Attachment.find_by_id(Regexp.last_match(:obj_id))
-          if att.nil?
+          if att.nil? || !att.grants_right?(user, :read)
             match
           else
             sa = StaticAttachment.new(att, index)
@@ -378,7 +373,6 @@ class ContentZipper
 
     index
   end
-
 
   def add_file(attachment, zipfile, fn)
     if attachment.deleted?
@@ -404,7 +398,7 @@ class ContentZipper
     @submission = submission
     @logger.debug(" checking submission for #{(submission.user.id)}")
 
-    users_name = get_user_name(students, submission) unless @context.feature_enabled?(:anonymous_grading)
+    users_name = get_user_name(students, submission) unless @assignment.anonymize_students?
     filename = get_filename(users_name, submission)
 
     case submission.submission_type
@@ -435,7 +429,7 @@ class ContentZipper
 
     uploaded_files.each do |file|
       @logger.debug("  found attachment: #{file.display_name}")
-      full_filename = "#{filename}_#{file.id}_#{file.display_name}"
+      full_filename = "#{filename}_#{file.id}_#{sanitize_attachment_filename(file.display_name)}"
 
       add_file(file, zipfile, full_filename)
     end
@@ -462,7 +456,11 @@ class ContentZipper
   end
 
   def sanitize_file_name(filename)
-    filename.gsub(/[^\w]/, '').downcase
+    filename.gsub(/[^[[:word:]]]/, '').downcase
+  end
+
+  def sanitize_attachment_filename(filename)
+    filename.gsub(/[\x00\/\\:\*\?\"<>\|]+/, '_')
   end
 
   def sanitize_user_name(user_name)

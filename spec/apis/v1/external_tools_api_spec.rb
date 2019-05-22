@@ -32,6 +32,16 @@ describe ExternalToolsController, type: :request do
       show_call(@course)
     end
 
+    it "should include allow_membership_service_access if feature flag enabled" do
+      allow_any_instance_of(Account).to receive(:feature_enabled?).and_return(false)
+      allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
+      et = tool_with_everything(@course, allow_membership_service_access: true)
+      json = api_call(:get, "/api/v1/courses/#{@course.id}/external_tools/#{et.id}.json",
+                    {:controller => 'external_tools', :action => 'show', :format => 'json',
+                     :course_id => @course.id.to_s, :external_tool_id => et.id.to_s})
+      expect(json['allow_membership_service_access']).to eq true
+    end
+
     it "should return 404 for not found tool" do
       not_found_call(@course)
     end
@@ -109,7 +119,7 @@ describe ExternalToolsController, type: :request do
         end
 
         it "returns a service unavailable if redis isn't available" do
-          Canvas.stubs(:redis_enabled?).returns(false)
+          allow(Canvas).to receive(:redis_enabled?).and_return(false)
           params = {id: tool.id.to_s}
           code = get_raw_sessionless_launch_url(@course, 'course', params)
           expect(code).to eq 503
@@ -118,6 +128,11 @@ describe ExternalToolsController, type: :request do
         end
 
         context 'assessment launch' do
+          before do
+            allow(BasicLTI::Sourcedid).to receive(:encryption_secret) {'encryption-secret-5T14NjaTbcYjc4'}
+            allow(BasicLTI::Sourcedid).to receive(:signing_secret) {'signing-secret-vp04BNqApwdwUYPUI'}
+          end
+
           it 'returns a bad request response if there is no assignment_id' do
             params = {id: tool.id.to_s, launch_type: 'assessment'}
             code = get_raw_sessionless_launch_url(@course, 'course', params)
@@ -126,12 +141,12 @@ describe ExternalToolsController, type: :request do
             expect(json["errors"]["assignment_id"].first["message"]).to eq 'An assignment id must be provided for assessment LTI launch'
           end
 
-          it 'returns a bad request response if the assignment is not found in the class' do
+          it 'returns a not found response if the assignment is not found in the class' do
             params = {id: tool.id.to_s, launch_type: 'assessment', assignment_id: -1}
             code = get_raw_sessionless_launch_url(@course, 'course', params)
-            expect(code).to eq 400
+            expect(code).to eq 404
             json = JSON.parse(response.body)
-            expect(json["errors"]["assignment_id"].first["message"]).to eq 'The assignment was not found in this course'
+            expect(json['errors'].first['message']).to eq 'The specified resource does not exist.'
           end
 
           it "returns an unauthorized response if the user can't read the assignment" do
@@ -172,7 +187,50 @@ describe ExternalToolsController, type: :request do
             # request/verify the lti launch page
             get json['url']
             expect(response.code).to eq '200'
+          end
 
+          it "returns sessionless launch URL when default URL is not set and placement URL is" do
+            tool.update_attributes!(url: nil)
+            params = { id: tool.id.to_s, launch_type: 'course_navigation' }
+            json = get_sessionless_launch_url(@course, 'course', params)
+            expect(json).to include('url')
+
+            # remove the user session (it's supposed to be sessionless, after all), and make the request
+            remove_user_session
+
+            # request/verify the lti launch page
+            get json['url']
+            expect(response.code).to eq '200'
+          end
+
+          it "returns sessionless launch URL for an assignment launch no URL is set on the tool" do
+            tool = @course.context_external_tools.create!(
+              name: "Example Tool",
+              consumer_key: "fakefake",
+              shared_secret: "sofakefake",
+              domain: "example.com"
+            )
+            assignment = assignment_model(
+              course: @course,
+              name: 'tool assignment',
+              submission_types: 'external_tool',
+              points_possible: 20,
+              grading_type: 'points'
+            )
+            assignment.create_external_tool_tag!(
+              url: 'http://www.example.com/ims/lti',
+              content_type: 'ContextExternalTool',
+              content_id: tool.id
+            )
+            params = {id: tool.id.to_s, launch_type: 'assessment', assignment_id: @assignment.id}
+            json = get_sessionless_launch_url(@course, 'course', params)
+            expect(json['url']).to include(course_external_tools_sessionless_launch_url(@course))
+          end
+
+          it "returns a json error if there is no matching tool" do
+            params = {url: 'http://my_non_esisting_tool_domain.com', id: -1}
+            json = get_sessionless_launch_url(@course, 'course', params)
+            expect(json["errors"]["external_tool"]).to eq "Unable to find a matching external tool"
           end
 
         end
@@ -185,26 +243,16 @@ describe ExternalToolsController, type: :request do
           expect(json["errors"]["id"].first["message"]).to eq 'A tool id, tool url, or module item id must be provided'
           expect(json["errors"]["url"].first["message"]).to eq 'A tool id, tool url, or module item id must be provided'
         end
-
-        it 'redirects if there is no matching tool for the launch_url, and tool id' do
-          params = {url: 'http://my_non_esisting_tool_domain.com', id: -1}
-          code = get_raw_sessionless_launch_url(@course, 'course', params)
-          expect(code).to eq 302
-        end
-
-        it 'redirects if there is no matching tool for the and tool id' do
-          params = { id: -1}
-          code = get_raw_sessionless_launch_url(@course, 'course', params)
-          expect(code).to eq 302
-        end
-
-
       end
     end
 
     describe "in a group" do
       it "should return course level external tools" do
         group_index_call(@group)
+      end
+
+      it "should paginate" do
+        group_index_paginate_call(@group)
       end
     end
   end
@@ -313,6 +361,33 @@ describe ExternalToolsController, type: :request do
 
     expect(json.size).to eq 1
     expect(HashDiff.diff(json.first, example_json(et))).to eq []
+  end
+
+  def group_index_paginate_call(group)
+    7.times { tool_with_everything(group.context) }
+
+    json = api_call(:get, "/api/v1/groups/#{group.id}/external_tools",
+                    {:controller => 'external_tools', :action => 'index', :format => 'json',
+                     :group_id => group.id.to_s, :include_parents => true, :per_page => '3'})
+
+    expect(json.length).to eq 3
+    links = response.headers['Link'].split(",")
+    expect(links.all?{ |l| l =~ /api\/v1\/groups\/#{group.id}\/external_tools/ }).to be_truthy
+    expect(links.find{ |l| l.match(/rel="next"/)}).to match(/page=2/)
+    expect(links.find{ |l| l.match(/rel="first"/)}).to match(/page=1/)
+    expect(links.find{ |l| l.match(/rel="last"/)}).to match(/page=3/)
+
+    # get the last page
+    json = api_call(:get, "/api/v1/groups/#{group.id}/external_tools",
+                    {:controller => 'external_tools', :action => 'index', :format => 'json',
+                     :group_id => group.id.to_s, :include_parents => true, :per_page => '3', :page => '3'})
+
+    expect(json.length).to eq 1
+    links = response.headers['Link'].split(",")
+    expect(links.all?{ |l| l =~ /api\/v1\/groups\/#{group.id}\/external_tools/ }).to be_truthy
+    expect(links.find{ |l| l.match(/rel="prev"/)}).to match(/page=2/)
+    expect(links.find{ |l| l.match(/rel="first"/)}).to match(/page=1/)
+    expect(links.find{ |l| l.match(/rel="last"/)}).to match(/page=3/)
   end
 
   def index_call(context, type="course")
@@ -476,6 +551,7 @@ describe ExternalToolsController, type: :request do
       et.course_assignments_menu = { url: 'http://www.example.com/ims/lti/resource', text: 'course assignments menu' }
     end
     et.context_external_tool_placements.new(:placement_type => opts[:placement]) if opts[:placement]
+    et.allow_membership_service_access = opts[:allow_membership_service_access] if opts[:allow_membership_service_access]
     et.save!
     et
   end
@@ -664,6 +740,8 @@ describe ExternalToolsController, type: :request do
      "post_grades"=>nil,
      "collaboration"=>nil,
      "similarity_detection"=>nil,
+     "assignment_edit"=>nil,
+     "assignment_view"=>nil,
      "course_assignments_menu" => begin
        if et && et.course_assignments_menu
          {

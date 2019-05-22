@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,7 @@ class EnrollmentDatesOverride < ActiveRecord::Base
   after_save :update_courses_and_states_if_necessary
 
   def update_courses_and_states_if_necessary
-    if self.changed?
+    if self.saved_changes?
       self.enrollment_term.update_courses_and_states_later(self.enrollment_type)
     end
   end

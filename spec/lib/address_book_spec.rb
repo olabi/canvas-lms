@@ -1,22 +1,39 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe AddressBook do
   describe "for" do
     it "returns an instance of AddressBook::MessageableUser for 'messageable_user' strategy" do
-      plugin = stub(settings: {strategy: 'messageable_user'})
-      Canvas::Plugin.stubs(:find).returns(plugin)
+      plugin = double(settings: {strategy: 'messageable_user'})
+      allow(Canvas::Plugin).to receive(:find).and_return(plugin)
       expect(AddressBook.for(user_model)).to be_a(AddressBook::MessageableUser)
     end
 
     it "returns an instance of AddressBook::Empty for 'empty' strategy" do
-      plugin = stub(settings: {strategy: 'empty'})
-      Canvas::Plugin.stubs(:find).returns(plugin)
+      plugin = double(settings: {strategy: 'empty'})
+      allow(Canvas::Plugin).to receive(:find).and_return(plugin)
       expect(AddressBook.for(user_model)).to be_a(AddressBook::Empty)
     end
 
     it "defaults to an instance of AddressBook::MessageableUser for invalid strategy" do
-      plugin = stub(settings: {strategy: 'invalid'})
-      Canvas::Plugin.stubs(:find).returns(plugin)
+      plugin = double(settings: {strategy: 'invalid'})
+      allow(Canvas::Plugin).to receive(:find).and_return(plugin)
       expect(AddressBook.for(user_model)).to be_a(AddressBook::MessageableUser)
     end
 

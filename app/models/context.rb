@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -54,6 +54,12 @@ module Context
       Eportfolio: :Eportfolio
   }.freeze
 
+  def clear_cached_short_name
+    self.class.connection.after_transaction_commit do
+      Rails.cache.delete(['short_name_lookup', self.asset_string].cache_key)
+    end
+  end
+
   def add_aggregate_entries(entries, feed)
     entries.each do |entry|
       user = entry.user || feed.user
@@ -76,50 +82,85 @@ module Context
     end
   end
 
-  def sorted_rubrics(user, context)
-    associations = RubricAssociation.bookmarked.for_context_codes(context.asset_string).include_rubric
+  def self.sorted_rubrics(user, context)
+    associations = RubricAssociation.bookmarked.for_context_codes(context.asset_string).preload(:rubric => :context)
     Canvas::ICU.collate_by(associations.to_a.uniq(&:rubric_id).select{|r| r.rubric }) { |r| r.rubric.title || CanvasSort::Last }
   end
 
   def rubric_contexts(user)
-    context_codes = [self.asset_string]
-    context_codes << ([user] + user.management_contexts).uniq.map(&:asset_string) if user
-    context = self
-    while context && context.respond_to?(:account) || context.respond_to?(:parent_account)
-      context = context.respond_to?(:account) ? context.account : context.parent_account
-      context_codes << context.asset_string if context
+    associations = []
+    course_ids = [self.id]
+    course_ids = (course_ids + user.participating_instructor_course_with_concluded_ids.map{|id| Shard.relative_id_for(id, user.shard, Shard.current)}).uniq if user
+    Shard.partition_by_shard(course_ids) do |sharded_course_ids|
+      context_codes = sharded_course_ids.map{|id| "course_#{id}"}
+      if Shard.current == self.shard
+        context = self
+        while context && context.respond_to?(:account) || context.respond_to?(:parent_account)
+          context = context.respond_to?(:account) ? context.account : context.parent_account
+          context_codes << context.asset_string if context
+        end
+      end
+      associations += RubricAssociation.bookmarked.for_context_codes(context_codes).include_rubric.preload(:context).to_a
     end
-    codes_order = {}
-    context_codes.each_with_index{|c, idx| codes_order[c] = idx }
-    associations = RubricAssociation.bookmarked.for_context_codes(context_codes).include_rubric
-    associations = associations.to_a.select{|a| a.rubric }.uniq{|a| [a.rubric_id, a.context_code] }
-    contexts = associations.group_by{|a| a.context_code }.map do |code, associations|
-      context_name = associations.first.context_name
-      res = {
-        :rubrics => associations.length,
+
+    associations = associations.select(&:rubric).uniq{|a| [a.rubric_id, a.context.asset_string] }
+    contexts = associations.group_by{|a| a.context.asset_string}.map do |code, code_associations|
+      {
+        :rubrics => code_associations.length,
         :context_code => code,
-        :name => context_name
+        :name => code_associations.first.context_name
       }
     end
-    contexts.sort_by{|c| codes_order[c[:context_code]] || CanvasSort::Last }
+    Canvas::ICU.collate_by(contexts) { |r| r[:name] }
   end
 
-  def active_record_types
-    @active_record_types ||= Rails.cache.fetch(['active_record_types', self].cache_key) do
-      res = {}
-      ActiveRecord::Base.uncached do
-        res[:files] = self.respond_to?(:attachments) && self.attachments.active.exists?
-        res[:modules] = self.respond_to?(:context_modules) && self.context_modules.active.exists?
-        res[:quizzes] = self.respond_to?(:quizzes) && self.quizzes.active.exists?
-        res[:assignments] = self.respond_to?(:assignments) && self.assignments.active.exists?
-        res[:pages] = self.respond_to?(:wiki) && self.wiki_id && self.wiki.wiki_pages.active.exists?
-        res[:conferences] = self.respond_to?(:web_conferences) && self.web_conferences.active.exists?
-        res[:announcements] = self.respond_to?(:announcements) && self.announcements.active.exists?
-        res[:outcomes] = self.respond_to?(:has_outcomes?) && self.has_outcomes?
-        res[:discussions] = self.respond_to?(:discussion_topics) && self.discussion_topics.only_discussion_topics.except(:preload).exists?
-      end
-      res
+  def active_record_types(only_check: nil)
+    only_check = only_check.sort if only_check.present? # so that we always have consistent cache keys
+    @active_record_types ||= {}
+    return @active_record_types[only_check] if @active_record_types[only_check]
+
+    possible_types = {
+      files: -> { self.respond_to?(:attachments) && self.attachments.active.exists? },
+      modules: -> { self.respond_to?(:context_modules) && self.context_modules.active.exists? },
+      quizzes: -> { self.respond_to?(:quizzes) && self.quizzes.active.exists? },
+      assignments: -> { self.respond_to?(:assignments) && self.assignments.active.exists? },
+      pages: -> { self.respond_to?(:wiki_pages) && self.wiki_pages.active.exists? },
+      conferences: -> { self.respond_to?(:web_conferences) && self.web_conferences.active.exists? },
+      announcements: -> { self.respond_to?(:announcements) && self.announcements.active.exists? },
+      outcomes: -> { self.respond_to?(:has_outcomes?) && self.has_outcomes? },
+      discussions: -> { self.respond_to?(:discussion_topics) && self.discussion_topics.only_discussion_topics.except(:preload).exists? }
+    }
+
+    types_to_check = if only_check
+      possible_types.select { |k| only_check.include?(k) }
+    else
+      possible_types
     end
+
+    raise ArgumentError, "only_check is either an empty array or you are aking for invalid types" if types_to_check.empty?
+
+    base_cache_key = 'active_record_types3'
+    cache_key = [base_cache_key, (only_check.present? ? only_check : 'everything'), self].cache_key
+
+    # if it exists in redis, return that
+    if (cached = Rails.cache.read(cache_key))
+      return @active_record_types[only_check] = cached
+    end
+
+    # if we're only asking for a subset but the full set is cached return that, but filtered with just what we want
+    if only_check.present? && (cache_with_everything = Rails.cache.read([base_cache_key, 'everything', self].cache_key))
+      return @active_record_types[only_check] = cache_with_everything.select { |k,_v| only_check.include?(k) }
+    end
+
+    # otherwise compute it and store it in the cache
+    value_to_cache = nil
+    ActiveRecord::Base.uncached do
+      value_to_cache = types_to_check.each_with_object({}) do |(key, type_to_check), memo|
+        memo[key] = type_to_check.call
+      end
+    end
+    Rails.cache.write(cache_key, value_to_cache)
+    @active_record_types[only_check] = value_to_cache
   end
 
   def allow_wiki_comments
@@ -149,18 +190,27 @@ module Context
     result
   end
 
+  def self.context_code_for(record)
+    raise ArgumentError unless record.respond_to?(:context_type) && record.respond_to?(:context_id)
+    "#{record.context_type.underscore}_#{record.context_id}"
+  end
+
   def self.find_by_asset_string(string)
-    opts = string.split("_", -1)
-    id = opts.pop
-    klass_name = opts.join('_').classify.to_sym
-    if CONTEXT_TYPES.include?(klass_name)
-      type = Object.const_get(klass_name, false)
-      type.find(id)
-    else
-      nil
+    from_context_codes([string]).first
+  end
+
+  def self.from_context_codes(context_codes)
+    contexts = {}
+    context_codes.each do |cc|
+      type, _, id = cc.rpartition('_')
+      if CONTEXT_TYPES.include?(type.camelize.to_sym)
+        contexts[type.camelize] = [] unless contexts[type.camelize]
+        contexts[type.camelize] << id
+      end
     end
-  rescue => e
-    nil
+    contexts.reduce([]) do |memo, (context, ids)|
+      memo + context.constantize.where(id: ids)
+    end
   end
 
   def self.asset_type_for_string(string)
@@ -186,6 +236,51 @@ module Context
     res
   rescue => e
     nil
+  end
+
+  def self.find_asset_by_url(url)
+    object = nil
+    params = Rails.application.routes.recognize_path(url)
+    course = Course.find(params[:course_id]) if params[:course_id]
+    group = Group.find(params[:group_id]) if params[:group_id]
+    user = User.find(params[:user_id]) if params[:user_id]
+    context = course || group || user
+    return nil unless context
+    case params[:controller]
+    when 'files'
+      rel_path = params[:file_path]
+      object = rel_path && Folder.find_attachment_in_context_with_path(course, CGI.unescape(rel_path))
+      file_id = params[:file_id] || params[:id]
+      query = URI.parse(url)&.query
+      file_id ||= query && CGI.parse(URI.parse(url)&.query)&.send(:[], "preview")&.first
+      object ||= context.attachments.find_by_id(file_id) # attachments.find_by_id uses the replacement hackery
+    when 'wiki_pages'
+      object = context.wiki.find_page(CGI.unescape(params[:id]), include_deleted: true)
+    when 'external_tools'
+      if params[:action] == "retrieve"
+        tool_url = CGI.parse(URI.parse(url).query)["url"].first rescue nil
+        object = ContextExternalTool.find_external_tool(tool_url, context) if tool_url
+      elsif params[:id]
+        object = ContextExternalTool.find_external_tool_by_id(params[:id], context)
+      end
+    else
+      object = context.try(params[:controller].sub(/^.+\//, ''))&.find_by(id: params[:id])
+    end
+    object
+  rescue => e
+    nil
+  end
+
+  def self.asset_name(asset)
+    name = asset.display_name.presence if asset.respond_to?(:display_name)
+    name ||= asset.title.presence if asset.respond_to?(:title)
+    name ||= asset.short_description.presence if asset.respond_to?(:short_description)
+    name ||= asset.name if asset.respond_to?(:name)
+    name || ''
+  end
+
+  def self.asset_body(asset)
+    asset.try(:body) || asset.try(:message) || asset.try(:description)
   end
 
   def self.get_account(context)
@@ -220,5 +315,14 @@ module Context
 
   def nickname_for(_user, fallback = :name)
     self.send fallback if fallback
+  end
+
+  def self.last_updated_at(klass, ids)
+    raise ArgumentError unless CONTEXT_TYPES.include?(klass.class_name.to_sym)
+    klass.where(id: ids)
+         .where.not(updated_at: nil)
+         .order("updated_at DESC")
+         .limit(1)
+         .pluck(:updated_at)&.first
   end
 end

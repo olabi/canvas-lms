@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2016 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "./context_modules2.scss";
 
 .cmp-wrapper {
@@ -43,7 +61,7 @@
 
   .ig-details__item {
     strong {
-      margin-right: 5px;
+      margin-#{direction(right)}: 5px;
     }
 
     span:last-child {
@@ -62,7 +80,7 @@
   }
 
   .type_icon {
-    margin-left: 5px;
+    margin-#{direction(left)}: 5px;
 
     i {
       color: $ic-color-light;
@@ -71,7 +89,7 @@
 }
 
 .cmp-button {
-  float: right;
+  float: direction(right);
   margin-top: -10px;
 
   &.cmp-button__selected,

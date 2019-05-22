@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/files_common'
 require_relative 'helpers/announcements_common'
@@ -5,6 +22,7 @@ require_relative 'helpers/color_common'
 
 describe 'dashcards' do
   include_context 'in-process server selenium tests'
+  include Factories
   include AnnouncementsCommon
   include ColorCommon
   include FilesCommon
@@ -16,24 +34,25 @@ describe 'dashcards' do
       course_with_student_logged_in(active_all: true)
     end
 
-    it 'should show the toggle button for dashcard in new UI', priority: "1", test_id: 222506 do
+    it 'should show the trigger button for dashboard options menu in new UI', priority: "1", test_id: 222506 do
       get '/'
       # verify features of new UI
       expect(f('#application.ic-app')).to be_present
       expect(f('.ic-app-header__main-navigation')).to be_present
-      # verify the toggle switch is present
-      expect(f('#dashboardToggleButton')).to be_present
+      # verify the trigger button for the menu is present
+      expect(f('#DashboardOptionsMenu_Container button')).to be_present
     end
 
-    it 'should toggle dashboard based on the toggle switch', priority: "1", test_id: 222507 do
+    it 'should toggle dashboard based on the selected menu view', priority: "1", test_id: 222507 do
       get '/'
-      expect(f('#dashboardToggleButton')).to be_present
-      f('#dashboardToggleButton').click
-      if fj('#dashboardToggleButtonGridIcon').attribute(:class).include?('--active')
-        expect(f('.ic-DashboardCard__link')).to be_displayed
-      else
-        expect(f('#dashboard-activity').text).to include('Recent Activity')
-      end
+      # verify dashboard card view and trigger button for menu
+      expect(f('.ic-DashboardCard__link')).to be_displayed
+      expect(f('#DashboardOptionsMenu_Container button')).to be_present
+      # open dashboard options menu and select recent activity view
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
+      # verify recent activity view
+      expect(f('#dashboard-activity')).to include_text('Recent Activity')
     end
 
     it 'should redirect to announcements index', priority: "1", test_id: 222509 do
@@ -98,7 +117,7 @@ describe 'dashcards' do
       expect(f('a.announcements .unread_count').text).to include('1')
       # The notifications should go away after visiting the show page of announcements
       expect_new_page_load{f('a.announcements').click}
-      expect_new_page_load{fln('New Announcement').click}
+      expect_new_page_load{f('.ic-announcement-row h3').click}
       get '/'
       expect(f("#content")).not_to contain_css('a.announcements .unread_count')
     end
@@ -109,14 +128,15 @@ describe 'dashcards' do
       expect(f('a.discussions .unread_count').text).to include('1')
       # The notifications should go away after visiting the show page of discussions
       expect_new_page_load{f('a.discussions').click}
-      expect_new_page_load{fln('discussion 1').click}
+      expect_new_page_load{f('.discussion-title').click}
       get '/'
       expect(f("#content")).not_to contain_css('a.discussions .unread_count')
     end
 
-    it 'should show assignments created notifications in dashcard', priority: "1", test_id: 238413
-
-    it 'should show files created notifications in dashcard', priority: "1", test_id: 238414
+    # These tests are currently marked as 'ignore'
+    # it 'should show assignments created notifications in dashcard', priority: "1", test_id: 238413
+    #
+    # it 'should show files created notifications in dashcard', priority: "1", test_id: 238414
 
     context "course name and code display" do
       before :each do
@@ -141,17 +161,17 @@ describe 'dashcards' do
         @course1.save!
         get '/'
         # as course codes are always displayed in upper case
-        expect(f('.ic-DashboardCard__header-subtitle').text).to eq(@course1.course_code.upcase)
+        expect(f('.ic-DashboardCard__header-subtitle').text).to eq(@course1.course_code)
       end
     end
 
     context "dashcard custom color calendar" do
       before :each do
         # create another course to ensure the color matches to the right course
-        @course1 = course_model
-        @course1.name = 'Test Course'
-        @course1.offer!
-        @course1.save!
+        @course1 = course_factory(
+          course_name: 'Second Course',
+          active_course: true
+        )
         enrollment = student_in_course(course: @course1, user: @student)
         enrollment.accept!
       end
@@ -164,38 +184,30 @@ describe 'dashcards' do
         expect(hero).to eq(calendar_color)
       end
 
-      it 'should customize color by selecting from color palet in the calendar page', priority: "1", test_id: 239994 do
-        select_color_pallet_from_calendar_page
+      it 'should customize color by selecting from color palette in the calendar page', priority: "1", test_id: 239994 do
+        select_color_palette_from_calendar_page
 
-        old_color = f('.ColorPicker__CustomInputContainer .ColorPicker__ColorPreview').attribute(:title)
-
-        expect(f('.ColorPicker__Container')).to be_displayed
-        f('.ColorPicker__Container .ColorPicker__ColorBlock:nth-of-type(7)').click
+        # pick a random color from the default 15 colors
+        new_color = ff('.ColorPicker__ColorContainer button.ColorPicker__ColorBlock')[rand(0...15)]
+        # anything to make chrome happy
+        driver.mouse.move_to(new_color)
+        driver.action.click.perform
+        new_color_code = f("#ColorPickerCustomInput-course_#{@course1.id}").attribute(:value)
+        f('#ColorPicker__Apply').click
         wait_for_ajaximations
-        new_color =  f('.ColorPicker__CustomInputContainer .ColorPicker__ColorPreview').attribute(:title)
 
-        # make sure that we choose a new color for background
-        if old_color == new_color
-          f('.ColorPicker__Container .ColorPicker__ColorBlock:nth-of-type(8)').click
-          wait_for_ajaximations
-        end
+        new_displayed_color = f("[role='checkbox'].group_course_#{@course1.id}").style('color')
 
-        f('.ColorPicker__Container .Button--primary').click
-        rgb = convert_hex_to_rgb_color(new_color)
-        get '/'
-        hero = f('.ic-DashboardCard__header_hero')
-        expect(hero).to have_attribute("style", rgb)
-        refresh_page
-        expect(f('.ic-DashboardCard__header_hero')).to have_attribute("style", rgb)
-        expect(f('.ic-DashboardCard__header-title')).to include_text(@course1.name)
+        expect('#'+rgba_to_hex(new_displayed_color)).to eq(new_color_code)
+        expect(f("#group_course_#{@course1.id}_checkbox_label")).to include_text(@course1.name)
       end
 
       it 'should customize color by using hex code in calendar page', priority: "1", test_id: 239993 do
-        select_color_pallet_from_calendar_page
+        select_color_palette_from_calendar_page
 
         hex = random_hex_color
         replace_content(f("#ColorPickerCustomInput-#{@course1.asset_string}"), hex)
-        f('.ColorPicker__Container .Button--primary').click
+        f('.ColorPicker__Container #ColorPicker__Apply').click
         wait_for_ajaximations
         get '/'
         expect(f('.ic-DashboardCard__header-title')).to include_text(@course1.name)
@@ -230,7 +242,7 @@ describe 'dashcards' do
           wait_for_ajaximations
         end
 
-        f('.ColorPicker__Container .Button--primary').click
+        f('.ColorPicker__Container #ColorPicker__Apply').click
         rgb = convert_hex_to_rgb_color(new_color)
         hero = f('.ic-DashboardCard__header_hero')
         expect(hero).to have_attribute("style", rgb)
@@ -238,15 +250,11 @@ describe 'dashcards' do
         expect(f('.ic-DashboardCard__header_hero')).to have_attribute("style", rgb)
       end
 
-      it 'should initially focus the nickname input' do
-        check_element_has_focus(f('#NicknameInput'))
-      end
-
       it 'should customize dashcard color', priority: "1", test_id: 239991 do
         hex = random_hex_color
         expect(f('.ColorPicker__Container')).to be_displayed
         replace_content(f("#ColorPickerCustomInput-#{@course.asset_string}"), hex)
-        f('.ColorPicker__Container .Button--primary').click
+        f('.ColorPicker__Container #ColorPicker__Apply').click
         hero = f('.ic-DashboardCard__header_hero')
         if hero.attribute(:style).include?('rgb')
           rgb = convert_hex_to_rgb_color(hex)
@@ -258,7 +266,7 @@ describe 'dashcards' do
 
       it 'sets course nickname' do
         replace_content(fj('#NicknameInput'), 'course nickname!')
-        f('.ColorPicker__Container .Button--primary').click
+        f('.ColorPicker__Container #ColorPicker__Apply').click
         wait_for_ajaximations
         expect(f('.ic-DashboardCard__header-title').text).to include 'course nickname!'
         expect(@student.reload.course_nickname(@course)).to eq 'course nickname!'
@@ -275,7 +283,7 @@ describe 'dashcards' do
       it 'sets both dashcard color and course nickname at once' do
         replace_content(fj('#NicknameInput'), 'course nickname frd!')
         replace_content(fj("#ColorPickerCustomInput-#{@course.asset_string}"), '#000000')
-        f('.ColorPicker__Container .Button--primary').click
+        f('.ColorPicker__Container #ColorPicker__Apply').click
         wait_for_ajaximations
         expect(@student.reload.course_nickname(@course)).to eq 'course nickname frd!'
         expect(@student.custom_colors[@course.asset_string]).to eq '#000000'
@@ -301,10 +309,10 @@ describe 'dashcards' do
       get "/courses/#{@course.id}/settings"
       f('#navigation_tab').click
       wait_for_ajaximations
-      items_to_hide = ['announcements', 'assignments', 'discussions', 'files']
-      4.times do |i|
-        drag_and_drop_element(f("#nav_enabled_list .#{items_to_hide[i]}"), f('#nav_disabled_list'))
-        expect(f("#nav_disabled_list .#{items_to_hide[i]}")).to be_present
+      tabs_to_hide = [Course::TAB_ANNOUNCEMENTS, Course::TAB_ASSIGNMENTS, Course::TAB_DISCUSSIONS, Course::TAB_FILES]
+      tabs_to_hide.each do |tab|
+        drag_and_drop_element(f("#nav_enabled_list #nav_edit_tab_id_#{tab}"), f('#nav_disabled_list'))
+        expect(f("#nav_disabled_list #nav_edit_tab_id_#{tab}")).to be_present
       end
       submit_form('#nav_form')
       wait_for_ajaximations
@@ -315,7 +323,7 @@ describe 'dashcards' do
     end
   end
 
-  def select_color_pallet_from_calendar_page
+  def select_color_palette_from_calendar_page
     get '/calendar'
     fail 'Not the right course' unless f('#context-list li:nth-of-type(2)').text.include? @course1.name
     f('#context-list li:nth-of-type(2) .ContextList__MoreBtn').click

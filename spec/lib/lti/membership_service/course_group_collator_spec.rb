@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,7 +37,7 @@ module Lti::MembershipService
 
           # expect(collator.role).to eq(IMS::LIS::ContextType::URNs::Group)
           expect(collator.per_page).to eq(Api.per_page)
-          expect(collator.page).to eq(0)
+          expect(collator.page).to eq(1)
         end
 
         it 'handles negative values for :page option' do
@@ -46,7 +46,7 @@ module Lti::MembershipService
           }
           collator = CourseGroupCollator.new(@course, opts)
 
-          expect(collator.page).to eq(0)
+          expect(collator.page).to eq(1)
         end
 
         it 'handles negative values for :per_page option' do
@@ -92,7 +92,7 @@ module Lti::MembershipService
       context 'pagination' do
         describe '#memberships' do
           it 'returns the number of memberships specified by the per_page params' do
-            Api.stubs(:per_page).returns(1)
+            allow(Api).to receive(:per_page).and_return(1)
 
             collator = CourseGroupCollator.new(@course,  per_page: 1, page: 1)
             expect(collator.memberships.size).to eq(1)
@@ -110,6 +110,7 @@ module Lti::MembershipService
 
           it 'returns false when there are no more pages' do
             collator = CourseGroupCollator.new(@course, page: 11)
+            collator.memberships
             expect(collator.next_page?).to eq(false)
           end
         end

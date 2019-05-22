@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module CsvDiff
   # We need to know which key(s) comprise the id, to properly detect deletes
   # vs updates. Other than that, we don't need to care what the data is, just
@@ -7,6 +24,7 @@ module CsvDiff
       @key_fields = Array(key_fields).map(&:to_s)
       @db_file = Tempfile.new(['csv_diff', '.sqlite3'])
       @db = SQLite3::Database.new(@db_file.path)
+      @row_count = 0
       setup_database
     end
 
@@ -19,8 +37,8 @@ module CsvDiff
       setup_output(current_csv.headers)
 
       @db.transaction do
-        insert("previous", row_previous, previous_csv, current_csv.headers)
-        insert("current", row_current, current_csv, nil)
+        insert("previous", row_previous, previous_csv, current_csv.headers) if row_previous
+        insert("current", row_current, current_csv, nil) if row_current
       end
 
       find_updates
@@ -29,7 +47,12 @@ module CsvDiff
       end
 
       @output.close
-      @output_file.tap(&:rewind)
+      io = @output_file.tap(&:rewind)
+      if options[:return_count]
+        {:file_io => io, :row_count => @row_count}
+      else
+        io
+      end
     end
 
     protected
@@ -60,6 +83,7 @@ module CsvDiff
             where current.data <> previous.data or previous.key is null
             SQL
         row = Marshal.load(data)
+        @row_count += 1
         @output << row
       end
     end
@@ -73,6 +97,7 @@ module CsvDiff
         row = CSV::Row.new(headers, Marshal.load(data))
         # Allow the caller to munge the row to indicate deletion.
         cb.(row)
+        @row_count += 1
         @output << row
       end
     end

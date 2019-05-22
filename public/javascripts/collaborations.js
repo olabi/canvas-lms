@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011-2012 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,20 +12,18 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!collaborations',
-  'jquery' /* $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_forms' /* fillFormData, getFormData, errorBox */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_plugins' /* .dim, confirmDelete, fragmentChange, showIf */,
-  'jquery.templateData' /* getTemplateData */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'compiled/jquery.rails_flash_notifications' /* screen reader notifications*/
-], function(I18n, $) {
+import I18n from 'i18n!collaborations'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
+import './jquery.instructure_forms' /* fillFormData, getFormData, errorBox */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_plugins' /* .dim, confirmDelete, fragmentChange, showIf */
+import './jquery.templateData' /* getTemplateData */
+import './vendor/jquery.scrollTo'
+import 'compiled/jquery.rails_flash_notifications'
 
   var CollaborationsPage = {};
 
@@ -71,6 +69,13 @@ define([
       $(document).fragmentChange(this.onFragmentChange);
       $('#collaboration_collaboration_type').on('change', this.onTypeChange).change();
       $(window).on('externalContentReady', this.onExternalContentReady.bind(this));
+      $('.before_external_content_info_alert, .after_external_content_info_alert').on('focus', function (e) {
+        $(this).removeClass('screenreader-only');
+        $('#lti_new_collaboration_iframe').addClass('info_alert_outline');
+      }).on('blur', function (e) {
+        $(this).addClass('screenreader-only');
+        $('#lti_new_collaboration_iframe').removeClass('info_alert_outline');
+      });
     },
 
     onClose: function(e) {
@@ -110,12 +115,14 @@ define([
         $('.collaborate_data, #google_docs_description').hide();
         $('#collaborate_authorize_google_docs').hide();
         $('#lti_new_collaboration_iframe').attr('src', launch_url).show();
+        $('.before_external_content_info_alert, .after_external_content_info_alert').show();
       } else {
         $('#lti_new_collaboration_iframe').hide();
+        $('.before_external_content_info_alert, .after_external_content_info_alert').hide();
         $('.collaborate_data, #google_docs_description').show();
-        if (INST.collaboration_types) {
-          for (var i in INST.collaboration_types) {
-            var collaboration = INST.collaboration_types[i];
+        if (ENV.collaboration_types) {
+          for (var i in ENV.collaboration_types) {
+            var collaboration = ENV.collaboration_types[i];
 
             if (collaboration.name === name) {
               type = collaboration.type;
@@ -167,6 +174,4 @@ define([
 
   $(document).ready(CollaborationsPage.Events.init.bind(CollaborationsPage.Events));
 
-  return CollaborationsPage;
-});
-
+export default CollaborationsPage;

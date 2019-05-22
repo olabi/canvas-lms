@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -236,10 +236,9 @@
 class Quizzes::QuizStatisticsController < ApplicationController
   include ::Filters::Quizzes
 
-  before_filter :require_user, :require_context, :require_quiz, :prepare_service
+  before_action :require_user, :require_context, :require_quiz, :prepare_service
 
   # @API Fetching the latest quiz statistics
-  # @beta
   #
   # This endpoint provides statistics for all quiz versions, or for a specific
   # quiz version, in which case the output is guaranteed to represent the
@@ -259,7 +258,7 @@ class Quizzes::QuizStatisticsController < ApplicationController
       scope = @quiz.quiz_submissions.not_settings_only.completed
       updated = scope.order('updated_at DESC').limit(1).pluck(:updated_at).first
       cache_key = [
-        'quiz_statistics',
+        'quiz_statistics_1',
         @quiz.id,
         @quiz.updated_at,
         updated,
@@ -272,7 +271,7 @@ class Quizzes::QuizStatisticsController < ApplicationController
       else
         json = Rails.cache.fetch(cache_key) do
           all_versions = value_to_boolean(params[:all_versions])
-          statistics = @service.generate_aggregate_statistics(all_versions, {section_ids: params[:section_ids]})
+          statistics = @service.generate_aggregate_statistics(all_versions, include_sis_ids?, {section_ids: params[:section_ids]})
           serialize(statistics)
         end
 
@@ -283,6 +282,10 @@ class Quizzes::QuizStatisticsController < ApplicationController
 
   private
 
+  def include_sis_ids?
+    @context.grants_any_right?(@current_user, session, :read_sis, :manage_sis)
+  end
+
   def prepare_service
     @service = Quizzes::QuizStatisticsService.new(@quiz)
   end
@@ -290,6 +293,7 @@ class Quizzes::QuizStatisticsController < ApplicationController
   def serialize(statistics)
     Canvas::APIArraySerializer.new([ statistics ], {
       controller: self,
+      scope: @current_user,
       each_serializer: Quizzes::QuizStatisticsSerializer,
       root: :quiz_statistics,
       include_root: false

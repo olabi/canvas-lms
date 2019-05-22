@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "mixins/blue";
 
 $layout-modal-bg:                   $ic-color-light;
@@ -8,7 +26,7 @@ body {
   background: $ic-color-light;
   font-weight: 300;
 
-  &:not(.is-inside-submission-frame):not(.embedded) {
+  &:not(.is-inside-submission-frame):not(.embedded):not(.dashboard-is-planner) {
     min-width: 768px;
   }
 
@@ -75,7 +93,7 @@ body {
     @include bg-image("footer-logo", "png", no-repeat, left, top, transparent, 114px, 10px);
     display: inline-block;
     height: 10px;
-    margin: 0 20px 0 0;
+    margin: direction-sides(0 20px 0 0);
     width: 114px;
   }
 }
@@ -87,7 +105,7 @@ div.content_notice {
     display: inline-block;
   }
   i {
-    padding-right: 8px;
+    padding-#{direction(right)}: 8px;
   }
 }
 
@@ -95,23 +113,45 @@ div.content_notice {
   height: 100% !important;
 }
 
+.before_external_content_info_alert,
+.after_external_content_info_alert {
+  &:focus {
+    margin: 20px 0px;
+    outline: none;
+  }
+}
+
+iframe.info_alert_outline {
+  border: 2px solid #008EE2 !important;
+}
+
 iframe.tool_launch {
-  min-height: 500px;
+  min-height: 450px;
   width: 100%;
   height: 100%;
   border: none;
+  max-width: 100%;
+}
+
+#assignment_external_tools {
+  iframe.tool_launch {
+    display: block;
+  }
+  iframe.tool_launch:not(:first-of-type) {
+    margin-top: 10px;
+  }
 }
 
 #skip_navigation_link {
   @include accessibility-prompt;
   position: absolute;
-  left: -10000px;
+  #{direction(left)}: -10000px;
   top: auto;
   width: 1px;
   height: 1px;
   overflow: hidden;
   &:focus {
-    left: 0;
+    #{direction(left)}: 0;
     top: 0;
     width: auto;
     height: auto;

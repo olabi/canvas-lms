@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 
 module Factories
   def announcement_model(opts={})
-    @context ||= course_model(:reusable => true)
+    @context = opts[:context] || @context || course_model(:reusable => true)
     @a = @context.announcements.create!(valid_announcement_attributes.merge(opts))
   end
 

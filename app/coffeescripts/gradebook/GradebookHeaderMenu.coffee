@@ -1,25 +1,40 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
 define [
   'i18n!gradebook'
   'jquery'
   'message_students'
-  'compiled/AssignmentDetailsDialog'
-  'compiled/AssignmentMuter'
-  'compiled/gradebook/SetDefaultGradeDialog'
-  'compiled/gradebook/CurveGradesDialog'
+  '../AssignmentDetailsDialog'
+  '../AssignmentMuter'
+  '../shared/SetDefaultGradeDialog'
+  '../shared/CurveGradesDialog'
   'jst/gradebook/GradebookHeaderMenu'
   'jst/re_upload_submissions_form'
   'underscore'
-  'compiled/behaviors/authenticity_token'
+  '../behaviors/authenticity_token'
   'jsx/gradebook/shared/helpers/messageStudentsWhoHelper'
   'jquery.instructure_forms'
   'jqueryui/dialog'
   'jquery.instructure_misc_helpers'
   'jquery.instructure_misc_plugins'
-  'compiled/jquery.kylemenu'
-], (I18n, $, messageStudents, AssignmentDetailsDialog, AssignmentMuter,
-  SetDefaultGradeDialog, CurveGradesDialog, gradebookHeaderMenuTemplate,
-  re_upload_submissions_form, _, authenticity_token,
-  MessageStudentsWhoHelper) ->
+  '../jquery.kylemenu'
+], (I18n, $, messageStudents, AssignmentDetailsDialog, AssignmentMuter, SetDefaultGradeDialog, CurveGradesDialog, gradebookHeaderMenuTemplate, re_upload_submissions_form, _, authenticity_token, MessageStudentsWhoHelper) ->
 
   isAdmin = () ->
     ENV.current_user_roles.includes('admin')
@@ -60,20 +75,23 @@ define [
         )
         .popup('open')
 
-      new AssignmentMuter(@$menu.find("[data-action=toggleMuting]"),
+      new AssignmentMuter(
+        @$menu.find("[data-action=toggleMuting]"),
         @assignment,
         "#{@gradebook.options.context_url}/assignments/#{@assignment.id}/mute",
-        (a, _z, status) =>
+        (a, _z, status) => (
           a.muted = status
           @gradebook.setAssignmentWarnings()
-      )
+        ),
+        canUnmute: @canUnmute()
+      ).show()
 
     menuPopupOpenHandler: (menu) ->
       # Hide any menu options that haven't had their dependencies met yet
       @hideMenuActionsWithUnmetDependencies(menu)
 
       # Disable menu options if needed
-      @disableUnavailableMenuActions(menu) unless isAdmin()
+      @disableUnavailableMenuActions(menu)
 
 
     hideMenuActionsWithUnmetDependencies: (menu) ->
@@ -88,25 +106,25 @@ define [
 
     disableUnavailableMenuActions: (menu) ->
       return unless menu?
-      return unless @assignment?.inClosedGradingPeriod
 
-      actionsToDisable = ['curveGrades', 'setDefaultGrade']
+      actionsToDisable = []
+
+      if @assignment?.inClosedGradingPeriod and not isAdmin()
+        actionsToDisable = ['curveGrades', 'setDefaultGrade']
+
+      unless @canUnmute()
+        actionsToDisable.push('toggleMuting')
 
       for actionToDisable in actionsToDisable
         menuItem = menu.find("[data-action=#{actionToDisable}]")
         menuItem.addClass('ui-state-disabled')
         menuItem.attr('aria-disabled', true)
 
-    showAssignmentDetails: (opts={
-      assignment:@assignment,
-      students:@gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment)
-    })=>
-      new AssignmentDetailsDialog(opts)
+    showAssignmentDetails: (opts={assignment:@assignment, students:@gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment)})=>
+      dialog = new AssignmentDetailsDialog(opts)
+      dialog.show()
 
-    messageStudentsWho: (opts={
-      assignment:@assignment,
-      students:@gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment)
-    }) =>
+    messageStudentsWho: (opts={ assignment:@assignment, students:@gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment)}) =>
       {students, assignment} = opts
 
       students = _.filter students, (student) => !student.is_inactive
@@ -120,27 +138,17 @@ define [
       settings = MessageStudentsWhoHelper.settings(assignment, students)
       messageStudents(settings)
 
-    setDefaultGrade: (opts = {
-      assignment: @assignment,
-      students: @gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment),
-      context_id: @gradebook.options.context_id
-      selected_section: @gradebook.sectionToShow
-      isAdmin: isAdmin()
-    }) =>
+    setDefaultGrade: (opts = { assignment: @assignment, students: @gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment), context_id: @gradebook.options.context_id, selected_section: @gradebook.sectionToShow }) =>
       if isAdmin() or not opts.assignment.inClosedGradingPeriod
-        new SetDefaultGradeDialog(opts)
+        new SetDefaultGradeDialog(opts).show()
       else
         $.flashError(I18n.t("Unable to set default grade because this " +
           "assignment is due in a closed grading period for at least one student"))
 
-    curveGrades: (opts = {
-      assignment: @assignment,
-      students: @gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment),
-      context_url: @gradebook.options.context_url
-      isAdmin: isAdmin()
-    }) =>
+    curveGrades: (opts = { assignment: @assignment, students: @gradebook.studentsThatCanSeeAssignment(@gradebook.students, @assignment), context_url: @gradebook.options.context_url}) =>
       if isAdmin() or not opts.assignment.inClosedGradingPeriod
-        new CurveGradesDialog(opts)
+        dialog = new CurveGradesDialog(opts)
+        dialog.show()
       else
         $.flashError(I18n.t("Unable to curve grades because this " +
           "assignment is due in a closed grading period for at least " +
@@ -171,3 +179,10 @@ define [
               false
       url = $.replaceTags @gradebook.options.re_upload_submissions_url, "assignment_id", @assignment.id
       @$re_upload_submissions_form.attr('action', url).dialog('open')
+
+    canUnmute: =>
+      not (
+        @assignment?.muted and
+        @assignment?.moderated_grading and
+        not @assignment?.grades_published
+      )

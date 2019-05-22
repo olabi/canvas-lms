@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,13 +17,12 @@
 #
 
 define [
-  'i18n!user'
   'jquery'
   'underscore'
   'Backbone'
-  'compiled/str/TextHelper'
+  '../str/TextHelper'
   'jquery.instructure_misc_helpers' # $.parseUserAgentString
-], (I18n, $, _, Backbone, {truncateText}) ->
+], ($, _, Backbone, {truncateText}) ->
 
   class PageView extends Backbone.Model
 

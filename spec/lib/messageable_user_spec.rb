@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ describe "MessageableUser" do
   describe ".build_select" do
     it "should ignore common_course_column without common_role_column" do
       expect(MessageableUser.build_select(:common_course_column => 'ignored_column')).
-        to match(/NULL AS common_courses/)
+        to match(/NULL::text AS common_courses/)
     end
 
     it "should require common_course_column with common_role_column" do

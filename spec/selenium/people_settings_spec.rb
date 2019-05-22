@@ -1,15 +1,30 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "course people" do
   include_context "in-process server selenium tests"
 
-  before(:once) do
+  before :each do
     # in the people table, the kyle menu can be off the screen
     # and uninteractable if the window is too small
-    driver.manage.window.maximize
-  end
+    make_full_screen
 
-  before (:each) do
     course_with_teacher_logged_in :limit_privileges_to_course_section => false
     @account = @course.account # for custom roles
     @custom_student_role = custom_student_role("custom stu")
@@ -152,7 +167,7 @@ describe "course people" do
       expect(f("#user_#{@student.id}")).to include_text(section_name)
       expect(ff("#user_#{@student.id} .section").length).to eq 2
       @student.reload
-      expect(@student.enrollments.detect{|e| e.course_section == @course_section}).to be_present
+      expect(@student.enrollments.where(course_section: @course_section)).to be_exists
     end
 
     it "should view the users enrollment details" do

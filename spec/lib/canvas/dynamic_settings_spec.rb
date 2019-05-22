@@ -1,265 +1,169 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "../../spec_helper"
-require 'diplomat'
 require_dependency "canvas/dynamic_settings"
+require 'imperium/testing' # Not loaded by default
 
 module Canvas
   describe DynamicSettings do
     before do
       @cached_config = DynamicSettings.config
+      @cached_fallback_data = DynamicSettings.fallback_data
     end
 
     after do
-      Diplomat::Kv.unstub(:put)
       begin
         DynamicSettings.config = @cached_config
-      rescue Faraday::ConnectionFailed
+      rescue Imperium::UnableToConnectError, Imperium::TimeoutError
         # don't fail the test if there is no consul running
       end
+      Canvas::DynamicSettings.fallback_data = @cached_fallback_data
       Canvas::DynamicSettings.reset_cache!
-      Canvas::DynamicSettings.fallback_data = nil
     end
 
-    let(:parent_key){ "rich-content-service" }
-    let(:diplomat_read_options){ { recurse: true, consistency: 'stale' } }
+    let(:parent_key){ 'rich-content-service' }
+    let(:imperium_read_options){ [:recurse, :stale] }
+    let(:kv_client) { DynamicSettings.kv_client }
+    let(:valid_config) do
+      {
+        'host'        =>'consul',
+        'port'        => 8500,
+        'ssl'         => true,
+        'acl_token'   => 'some-long-string',
+        'environment' => 'rspec',
+      }
+    end
 
     describe ".config=" do
-
-      let(:valid_config) do
-        {
-          "host"      =>"consul",
-          "port"      => 8500,
-          "ssl"       => true,
-          "acl_token" => "some-long-string"
-        }
-      end
-
-      it "configures diplomat when config is set" do
-        Diplomat::Kv.stubs(:put)
+      it "configures imperium when config is set" do
         DynamicSettings.config = valid_config
-        expect(Diplomat.configuration.url).to eq("https://consul:8500")
+        expect(Imperium.configuration.url.to_s).to eq("https://consul:8500")
       end
 
-      it "sends initial config data by de-nesting a hash into keys" do
-        init_data = {
-          "rich-content-service" => {
-            "app-host" => "rce.docker",
-            "cdn-host" => "rce.docker"
+      it 'must pass through timeout settings to the underlying library' do
+        DynamicSettings.config = valid_config.merge({
+          'connect_timeout' => 1,
+          'send_timeout' => 2,
+          'receive_timeout' => 3,
+        })
+
+        client_config = kv_client.config
+        expect(client_config.connect_timeout).to eq 1
+        expect(client_config.send_timeout).to eq 2
+        expect(client_config.receive_timeout).to eq 3
+      end
+
+      it 'must capture the environment name when supplied' do
+        DynamicSettings.config = valid_config.merge({
+          'environment' => 'foobar'
+        })
+
+        expect(DynamicSettings.environment).to eq 'foobar'
+      end
+    end
+
+    describe '.fallback_data =' do
+      it 'must provide indifferent access on resulting proxy' do
+        DynamicSettings.fallback_data = {foo: 'bar'}
+        proxy = DynamicSettings.root_fallback_proxy
+        expect(proxy['foo']).to eq 'bar'
+        expect(proxy[:foo]).to eq 'bar'
+      end
+
+      it 'must clear the fallback when passed nil' do
+        DynamicSettings.fallback_data = {foo: 'bar'}
+        DynamicSettings.fallback_data = nil
+        proxy = DynamicSettings.root_fallback_proxy
+        expect(proxy['foo']).to be_nil
+      end
+    end
+
+    describe '.find' do
+      context "when consul is configured" do
+        before do
+          DynamicSettings.config = valid_config
+        end
+
+        it 'must return a PrefixProxy when consul is configured' do
+          proxy = DynamicSettings.find('foo')
+          expect(proxy).to be_a(DynamicSettings::PrefixProxy)
+        end
+      end
+
+      context "when consul is not configured" do
+        let(:data) {
+          {
+            config: {
+              canvas: {foo: {bar: 'baz'}},
+              frobozz: {some: {thing: 'magic'}}
+            },
+            private: {
+              canvas: {zab: {rab: 'oof'}}
+            }
           }
         }
 
-        Diplomat::Kv.expects(:put)
-          .with("config/canvas/rich-content-service/app-host", "rce.docker")
-          .at_least_once
-        Diplomat::Kv.expects(:put)
-          .with("config/canvas/rich-content-service/cdn-host", "rce.docker")
-          .at_least_once
+        before do
+          DynamicSettings.config = nil
+          DynamicSettings.fallback_data = data
+        end
 
-        DynamicSettings.config = valid_config.merge({
-          "init_values" => init_data
-        })
-
-      end
-    end
-
-    describe ".find" do
-      describe "with consul config" do
-        # we don't need to interact with a real consul for unit tests
-        before(:each) do
-          DynamicSettings.config = {} # just to be not nil
+        after do
           DynamicSettings.fallback_data = nil
-          Diplomat::Kv.stubs(:put)
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/#{parent_key}", diplomat_read_options).
-            returns(
-              [
-                { key: "#{parent_key}/app-host", value: "rce.insops.com"},
-                { key: "#{parent_key}/cdn-host", value: "asdfasdf.cloudfront.com"}
-              ]
-            )
         end
 
-        it "loads the children of a k/v node as a hash" do
-          rce_settings = DynamicSettings.find(parent_key)
-          expect(rce_settings).to eq({
-            "app-host" => "rce.insops.com",
-            "cdn-host" => "asdfasdf.cloudfront.com"
-          })
-        end
-
-        it "handles config sets with only one value" do
-          # consul has some interesting behavior with single values, so we have to
-          # crawl by key
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/single-parent", diplomat_read_options.merge({keys: true})).
-            returns(["config/canvas/single-parent/single-key"])
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/single-parent", diplomat_read_options).
-            returns("single-value")
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/single-parent/single-key", diplomat_read_options).
-            returns("single-value")
-          rce_settings = DynamicSettings.find("single-parent")
-          expect(rce_settings).to eq({"single-key" => "single-value"})
-        end
-
-
-        it "uses the last found value on catastrophic outage" do
-          DynamicSettings.reset_cache!(hard: true)
-          DynamicSettings.find(parent_key)
-          # some values are now stored in case of connection failure
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/#{parent_key}", diplomat_read_options).
-            raises(Faraday::ConnectionFailed, "could not contact consul")
-
-          rce_settings = DynamicSettings.find(parent_key)
-          expect(rce_settings).to eq({
-            "app-host" => "rce.insops.com",
-            "cdn-host" => "asdfasdf.cloudfront.com"
-          })
-        end
-
-        it "cant recover with no value cached for connection failure" do
-          DynamicSettings.reset_cache!(hard: true)
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/#{parent_key}", diplomat_read_options).
-            raises(Faraday::ConnectionFailed, "could not contact consul")
-
-          expect{ DynamicSettings.find(parent_key) }.to(
-            raise_error(Faraday::ConnectionFailed)
-          )
-        end
-      end
-
-      describe "without consul config" do
-        before(:each){ DynamicSettings.config = nil }
-
-        it "will load settings from fallback hash" do
-          fallback_data = {
-            'canvas' => {
-              'encryption-secret' => 'asdf',
-              'signing-secret' => 'fdas'
-            }
-          }.with_indifferent_access
-          DynamicSettings.fallback_data = fallback_data
-          canvas_settings = DynamicSettings.find("canvas")
-          expect(canvas_settings).to eq({
-            'encryption-secret' => 'asdf',
-            'signing-secret' => 'fdas'
-          })
-        end
-
-        it "errors if no fallback data" do
+        it 'must return an empty FallbackProxy when fallback data is also unconfigured' do
           DynamicSettings.fallback_data = nil
-          expect{ DynamicSettings.find("canvas") }.to(
-            raise_error(DynamicSettings::ConsulError,
-                        "Unable to contact consul without config")
-          )
+          expect(DynamicSettings.find('foo')).to be_a(DynamicSettings::FallbackProxy)
+          expect(DynamicSettings.find('foo')['bar']).to eq nil
+        end
+
+        it 'must return a FallbackProxy with configured fallback data' do
+          proxy = DynamicSettings.find('foo', tree: 'config', service: 'canvas')
+          expect(proxy).to be_a(DynamicSettings::FallbackProxy)
+          expect(proxy[:bar]).to eq 'baz'
+        end
+
+        it 'must default the the config tree' do
+          proxy = DynamicSettings.find('foo', service: 'canvas')
+          expect(proxy['bar']).to eq 'baz'
+        end
+
+        it 'must handle an alternate tree' do
+          proxy = DynamicSettings.find('zab', tree: 'private', service: 'canvas')
+          expect(proxy['rab']).to eq 'oof'
+        end
+
+        it 'must default to the canvas service' do
+          proxy = DynamicSettings.find('foo', tree: 'config')
+          expect(proxy['bar']).to eq 'baz'
+        end
+
+        it 'must accept an alternate service' do
+          proxy = DynamicSettings.find('some', tree: 'config', service: 'frobozz')
+          expect(proxy['thing']).to eq 'magic'
+        end
+
+        it 'must ignore a nil prefix' do
+          proxy = DynamicSettings.find(tree: 'config', service: 'canvas')
+          expect(proxy.for_prefix('foo')['bar']).to eq 'baz'
         end
       end
     end
-
-    describe ".from_cache" do
-      before(:each){ DynamicSettings.config = {} } # just to be not nil
-      after(:each){ DynamicSettings.reset_cache! }
-
-      def stub_consul_with(value)
-        Diplomat::Kv.stubs(:get).with("config/canvas/#{parent_key}", diplomat_read_options).returns(
-          [{ key: "#{parent_key}/app-host", value: value}]
-        )
-      end
-
-      it "only queries consul the first time" do
-        Diplomat::Kv.expects(:get).
-          with("config/canvas/#{parent_key}", diplomat_read_options).
-          once. # and only once, going to hit it several times
-          returns([{ key: "#{parent_key}/app-host", value: "rce.insops.com"}])
-        5.times{ DynamicSettings.from_cache(parent_key) }
-        value = DynamicSettings.from_cache(parent_key)
-        expect(value["app-host"]).to eq("rce.insops.com")
-      end
-
-      it "definitely doesnt pickup new values once cached" do
-        stub_consul_with("rce.insops.com")
-        value = DynamicSettings.from_cache(parent_key)
-        expect(value["app-host"]).to eq("rce.insops.com")
-        stub_consul_with("CHANGED VALUE")
-        value = DynamicSettings.from_cache(parent_key)
-        expect(value["app-host"]).to eq("rce.insops.com")
-      end
-
-      it "returns new values after a cache clear" do
-        stub_consul_with("rce.insops.com")
-        DynamicSettings.from_cache(parent_key)
-        stub_consul_with("CHANGED VALUE")
-        DynamicSettings.reset_cache!
-        value = DynamicSettings.from_cache(parent_key)
-        expect(value["app-host"]).to eq("CHANGED VALUE")
-      end
-
-      it "caches values with timeouts" do
-        stub_consul_with("rce.insops.com")
-        value = DynamicSettings.from_cache(parent_key, expires_in: 5.minutes)
-        expect(value["app-host"]).to eq("rce.insops.com")
-        stub_consul_with("CHANGED VALUE")
-        value = DynamicSettings.from_cache(parent_key, expires_in: 5.minutes)
-        expect(value["app-host"]).to eq("rce.insops.com")
-      end
-
-      it "loads new values when timeout is past" do
-        stub_consul_with("rce.insops.com")
-        value = DynamicSettings.from_cache(parent_key, expires_in: 5.minutes)
-        Timecop.travel(Time.zone.now + 6.minutes) do
-          stub_consul_with("CHANGED VALUE")
-          value = DynamicSettings.from_cache(parent_key, expires_in: 5.minutes)
-          expect(value["app-host"]).to eq("CHANGED VALUE")
-        end
-      end
-
-      it "accepts a timeout on a previously inifinity key" do
-        stub_consul_with("rce.insops.com")
-        value = DynamicSettings.from_cache(parent_key)
-        Timecop.travel(Time.zone.now + 11.minutes) do
-          stub_consul_with("CHANGED VALUE")
-          value = DynamicSettings.from_cache(parent_key, expires_in: 10.minutes)
-          expect(value["app-host"]).to eq("CHANGED VALUE")
-        end
-      end
-
-      context "using catastrophic cache fallback" do
-        let!(:now) { Time.zone.now }
-
-        before(:each) do
-          stub_consul_with("rce.insops.com")
-          DynamicSettings.from_cache(parent_key) # prime cache
-        end
-
-        after(:each) do
-          Canvas.unstub(:timeout_protection)
-        end
-
-        around do |example|
-          Timecop.freeze(now + 11.minutes, &example)
-        end
-
-        it "still returns old values if connection fails after timeout" do
-          Diplomat::Kv.stubs(:get).
-            with("config/canvas/#{parent_key}", diplomat_read_options).
-            raises(Faraday::ConnectionFailed, "could not contact consul")
-          value = DynamicSettings.from_cache(parent_key, expires_in: 10.minutes)
-          expect(value["app-host"]).to eq("rce.insops.com")
-        end
-
-        it "returns old value during connection timeout" do
-
-          Timeout.stubs(:timeout).with(DynamicSettings::TIMEOUT_INTERVAL).
-            raises(Timeout::Error, 'consul took too long')
-          value = DynamicSettings.from_cache(parent_key, expires_in: 10.minutes)
-          expect(value["app-host"]).to eq("rce.insops.com")
-        end
-
-      end
-    end
-
-
   end
 end

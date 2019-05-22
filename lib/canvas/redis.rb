@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Redis
   # try to grab a lock in Redis, returning false if the lock can't be held. If
   # the lock is grabbed and `ttl` is given, it'll be set to expire after `ttl`
@@ -29,6 +46,12 @@ module Canvas::Redis
     Setting.get('ignore_redis_failures', 'true') == 'true'
   end
 
+  COMPACT_LINE = "Redis (%{request_time_ms}ms) %{command} %{key} [%{host}]".freeze
+  def self.log_style
+    # supported: 'off', 'compact', 'json'
+    @log_style ||= ConfigFile.load('redis')&.[]('log_style') || 'compact'
+  end
+
   def self.redis_failure?(redis_name)
     return false unless last_redis_failure[redis_name]
     # i feel this dangling rescue is justifiable, given the try-to-be-failsafe nature of this code
@@ -44,7 +67,9 @@ module Canvas::Redis
   end
 
   def self.handle_redis_failure(failure_retval, redis_name)
-    return failure_retval if redis_failure?(redis_name)
+    Setting.skip_cache do
+      return failure_retval if redis_failure?(redis_name)
+    end
     reply = yield
     raise reply if reply.is_a?(Exception)
     reply
@@ -58,21 +83,36 @@ module Canvas::Redis
       raise
     end
 
-    CanvasStatsd::Statsd.increment("redis.errors.all")
-    CanvasStatsd::Statsd.increment("redis.errors.#{CanvasStatsd::Statsd.escape(redis_name)}")
+    InstStatsd::Statsd.increment("redis.errors.all")
+    InstStatsd::Statsd.increment("redis.errors.#{InstStatsd::Statsd.escape(redis_name)}",
+                                 short_stat: 'redis.errors',
+                                 tags: {redis_name: InstStatsd::Statsd.escape(redis_name)})
     Rails.logger.error "Failure handling redis command on #{redis_name}: #{e.inspect}"
 
-    if self.ignore_redis_failures?
-      Canvas::Errors.capture(e, type: :redis)
-      last_redis_failure[redis_name] = Time.now
-      failure_retval
-    else
-      raise
+    Setting.skip_cache do
+      if self.ignore_redis_failures?
+        Canvas::Errors.capture(e, type: :redis)
+        last_redis_failure[redis_name] = Time.now
+        failure_retval
+      else
+        raise
+      end
     end
   end
 
   class UnsupportedRedisMethod < RuntimeError
   end
+
+  BoolifySet =
+    lambda { |value|
+      if value && "OK" == value
+        true
+      elsif value && :failure == value
+        nil
+      else
+        false
+      end
+    }
 
   module Client
     def process(commands, *a, &b)
@@ -90,12 +130,17 @@ module Canvas::Redis
       #
       # for instance, Rails.cache.delete_matched will error out if the 'keys' command returns nil instead of []
       last_command = commands.try(:last)
-      failure_val = case (last_command.respond_to?(:first) ? last_command.first : last_command).to_s
+      last_command_args = Array.wrap(last_command)
+      last_command = (last_command.respond_to?(:first) ? last_command.first : last_command).to_s
+      failure_val = case last_command
                     when 'keys', 'hmget'
                       []
                     when 'del'
                       0
                     end
+      if (last_command == 'set' && (last_command_args.include?('XX') || last_command_args.include?('NX')))
+        failure_val = :failure
+      end
 
       Canvas::Redis.handle_redis_failure(failure_val, self.location) do
         super
@@ -116,8 +161,11 @@ module Canvas::Redis
       response
     end
 
+    SET_COMMANDS = %i{set setex}.freeze
     def log_request_response(request, response, start_time)
       return if request.nil? # redis client does internal keepalives and connection commands
+      return if Canvas::Redis.log_style == 'off'
+      return unless Rails.logger
 
       command = request.shift
       message = {
@@ -125,7 +173,7 @@ module Canvas::Redis
         command: command,
         # request_size is the sum of all the string parameters send with the command.
         request_size: request.sum { |c| c.to_s.size },
-        request_time_ms: (Time.now - start_time) * 1000,
+        request_time_ms: ((Time.now - start_time) * 1000).round(3),
         host: location,
       }
       unless NON_KEY_COMMANDS.include?(command)
@@ -136,7 +184,7 @@ module Canvas::Redis
         message[:action] = Marginalia::Comment.action
         message[:job_tag] = Marginalia::Comment.job_tag
       end
-      if command == :set && Thread.current[:last_cache_generate]
+      if SET_COMMANDS.include?(command) && Thread.current[:last_cache_generate]
         # :last_cache_generate comes from the instrumentation added in
         # config/initializeers/cache_store_instrumentation.rb
         # This is necessary because the Rails caching layer doesn't pass this
@@ -154,8 +202,17 @@ module Canvas::Redis
         message[:response_size] = response.try(:size) || 0
       end
 
-      logline = JSON.generate(message.compact)
-      Rails.logger.debug(logline) if Rails.logger
+      logline = format_log_message(message)
+      Rails.logger.debug(logline)
+    end
+
+    def format_log_message(message)
+      if Canvas::Redis.log_style == 'json'
+        JSON.generate(message.compact)
+      else
+        message[:key] ||= "-"
+        Canvas::Redis::COMPACT_LINE % message
+      end
     end
 
     def write(command)
@@ -224,7 +281,21 @@ module Canvas::Redis
     ].freeze
   end
 
+  module DistributedStore
+    def initialize(addresses, options = { })
+      _extend_namespace options
+      @ring = options[:ring] || Canvas::HashRing.new([], options[:replicas], options[:digest])
+
+      addresses.each do |address|
+        @ring.add_node(::Redis::Store.new _merge_options(address, options))
+      end
+    end
+  end
+
   def self.patch
     Redis::Client.prepend(Client)
+    Redis::DistributedStore.prepend(DistributedStore)
+    Redis.send(:remove_const, :BoolifySet)
+    Redis.const_set(:BoolifySet, BoolifySet)
   end
 end

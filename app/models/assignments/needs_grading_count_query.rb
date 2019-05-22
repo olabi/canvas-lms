@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Assignments
   class NeedsGradingCountQuery
 
@@ -43,7 +60,7 @@ module Assignments
             case visibility_level
             when :full, :limited
               manual_count
-            when :sections
+            when :sections, :sections_limited
               section_filtered_submissions.distinct.count(:id)
             else
               0
@@ -55,7 +72,7 @@ module Assignments
 
     def needs_moderated_grading_count
       level = visibility_level
-      return 0 unless [:full, :limited, :sections].include?(level)
+      return 0 unless [:full, :limited, :sections, :sections_limited].include?(level)
 
       # ignore submissions this user has graded
       graded_sub_ids = assignment.submissions.joins(:provisional_grades).
@@ -122,10 +139,6 @@ module Assignments
           AND e.workflow_state = 'active'
           AND #{Submission.needs_grading_conditions}
         SQL
-
-      string += <<-SQL
-        AND EXISTS (SELECT * FROM #{AssignmentStudentVisibility.quoted_table_name} asv WHERE asv.user_id = submissions.user_id AND asv.assignment_id = submissions.assignment_id)
-      SQL
       joined_submissions.where(string, assignment, course)
     end
 

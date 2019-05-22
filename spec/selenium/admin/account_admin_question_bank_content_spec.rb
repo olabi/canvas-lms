@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 describe "account admin question bank" do
@@ -72,7 +89,7 @@ describe "account admin question bank" do
     f(".add_question_link").click
     wait_for_ajaximations
     question_form = f(".question_form")
-    question_form.find_element(:css, "[name='question_name']").send_keys(name)
+    replace_content(question_form.find_element(:css, "[name='question_name']"), name)
     replace_content(question_form.find_element(:css, "[name='question_points']"), points)
     wait_for_ajaximations
     click_option(".header .question_type", multiple_choice_value, :value)
@@ -153,11 +170,9 @@ describe "account admin question bank" do
   end
 
   it "should delete a question bank" do
-    f("#right-side .delete_bank_link").click
-    driver.switch_to.alert.accept
-    wait_for_ajaximations
+    expect_new_page_load(true) { f("#right-side .delete_bank_link").click }
     @question_bank.reload
-    keep_trying_until { expect(@question_bank.workflow_state).to eq "deleted" }
+    expect(@question_bank.workflow_state).to eq "deleted"
   end
 
   it "should delete a multiple choice question" do
@@ -226,7 +241,6 @@ describe "account admin question bank" do
       wait_for_ajaximations
       replace_content(f('#outcome_mastery_at'), mastery_percent)
       fj('.btn-primary:visible').click
-      driver.switch_to.alert.accept
       wait_for_ajax_requests
       expect(fj("[data-id=#{outcome.id}]:visible")).to include_text outcome.short_description
     end

@@ -1,7 +1,23 @@
-define([
-  'INST' /* INST */,
-  'jquery' /* $ */
-], function(INST, $) {
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import INST from 'INST'
+import $ from 'jquery'
 
   // requires INST global
   window._gaq = window._gaq || [];
@@ -36,6 +52,9 @@ define([
     window._gaq.push(['_setAccount', account_id]);
     if (options.domain) {
       window._gaq.push(['_setDomainName', options.domain]);
+    }
+    if (ENV.ga_page_title) {
+      window._gaq.push(['_set', 'title', ENV.ga_page_title]);
     }
     window._gaq.push(['_trackPageview']);
     window._gaq.push(['_trackPageLoadTime']);
@@ -87,11 +106,11 @@ define([
     });
   }
 
-  return {
+  export default {
     trackPage: $.trackPage,
     setTrackingVar: $.setTrackingVar,
     trackEvent: $.trackEvent,
     trackPageView: $.trackPageView
   };
 
-});
+

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,22 +25,20 @@ describe Quizzes::QuizQuestion::AnswerParsers::TrueFalse do
     let(:raw_answers) do
       [
         {
-          answer_text: "Answer 1",
+          answer_text: "True",
           answer_comments: "This is answer 1",
-          answer_weight: 0,
-          text_after_answers: "Text after Answer 1"
+          answer_comment_html: '<img src="x" onerror="alert(1)">',
+          answer_weight: 0
         },
         {
-          answer_text: "Answer 2",
+          answer_text: "False",
           answer_comments: "This is answer 2",
-          answer_weight: 100,
-          text_after_answers: "Text after Answer 2"
+          answer_weight: 100
         },
         {
-          answer_text: "Answer 3",
+          answer_text: "File not found",
           answer_comments: "This is answer 3",
-          answer_weight: 0,
-          text_after_answers: "Text after Answer 3"
+          answer_weight: 0
         }
       ]
     end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,13 +20,13 @@ class WikiPagesController < ApplicationController
   include KalturaHelper
   include SubmittableHelper
 
-  before_filter :require_context
-  before_filter :get_wiki_page, :except => [:front_page]
-  before_filter :set_front_page, :only => [:front_page]
-  before_filter :set_pandapub_read_token
-  before_filter :set_js_rights
-  before_filter :set_js_wiki_data
-  before_filter :rich_content_service_config, only: [:edit, :index]
+  before_action :require_context
+  before_action :get_wiki_page, :except => [:front_page]
+  before_action :set_front_page, :only => [:front_page]
+  before_action :set_pandapub_read_token
+  before_action :set_js_rights
+  before_action :set_js_wiki_data
+  before_action :rce_js_env, only: [:edit, :index]
 
   add_crumb(proc { t '#crumbs.wiki_pages', "Pages"}) do |c|
     context = c.instance_variable_get('@context')
@@ -35,7 +35,7 @@ class WikiPagesController < ApplicationController
       c.send :polymorphic_path, [context, :wiki_pages]
     end
   end
-  before_filter { |c| c.active_tab = "pages" }
+  before_action { |c| c.active_tab = "pages" }
 
   def js_rights
     [:wiki, :page]
@@ -62,7 +62,7 @@ class WikiPagesController < ApplicationController
     return unless authorized_action(@context.wiki, @current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
 
     if @page && !@page.new_record?
-      wiki_page_jsenv(@context)
+      wiki_pages_js_env(@context)
       @padless = true
       render template: 'wiki_pages/show'
     else
@@ -71,48 +71,54 @@ class WikiPagesController < ApplicationController
   end
 
   def index
-    if authorized_action(@context.wiki, @current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
-      log_asset_access([ "pages", @context ], "pages", "other")
-      js_env ConditionalRelease::Service.env_for @context
-      js_env :wiki_page_menu_tools => external_tools_display_hashes(:wiki_page_menu)
-      @padless = true
-    end
-  end
-
-  def show
-    if @page.new_record?
-      if @page.grants_any_right?(@current_user, session, :update, :update_content)
-        flash[:info] = t('notices.create_non_existent_page', 'The page "%{title}" does not exist, but you can create it below', :title => @page.title)
-        encoded_name = @page_name && CGI.escape(@page_name).gsub("+", " ")
-        redirect_to polymorphic_url([@context, :wiki_page], id: encoded_name || @page, titleize: params[:titleize], action: :edit)
-      else
-        wiki_page = @wiki.wiki_pages.deleted_last.where(url: @page.url).first
-        if wiki_page && wiki_page.deleted?
-          flash[:warning] = t('notices.page_deleted', 'The page "%{title}" has been deleted.', :title => @page.title)
-        else
-          flash[:warning] = t('notices.page_does_not_exist', 'The page "%{title}" does not exist.', :title => @page.title)
-        end
-        redirect_to polymorphic_url([@context, :wiki_pages])
-      end
-      return
-    end
-
-    if authorized_action(@page, @current_user, :read)
-      if !@context.feature_enabled?(:conditional_release) || enforce_assignment_visible(@page)
-        add_crumb(@page.title)
-        log_asset_access(@page, 'wiki', @wiki)
-        wiki_page_jsenv(@context)
-        @mark_done = MarkDonePresenter.new(self, @context, params["module_item_id"], @current_user, @page)
+    Shackles.activate(:slave) do
+      if authorized_action(@context.wiki, @current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
+        log_asset_access([ "pages", @context ], "pages", "other")
+        js_env((ConditionalRelease::Service.env_for(@context)))
+        wiki_pages_js_env(@context)
+        set_tutorial_js_env
         @padless = true
       end
     end
   end
 
-  def edit
-    if @page.grants_any_right?(@current_user, session, :update, :update_content)
-      return render_unauthorized_action if editing_restricted?(@page)
+  def show
+    Shackles.activate(:slave) do
+      if @page.new_record?
+        if @page.grants_any_right?(@current_user, session, :update, :update_content)
+          flash[:info] = t('notices.create_non_existent_page', 'The page "%{title}" does not exist, but you can create it below', :title => @page.title)
+          encoded_name = @page_name && CGI.escape(@page_name).gsub("+", " ")
+          redirect_to polymorphic_url([@context, :wiki_page], id: encoded_name || @page, titleize: params[:titleize], action: :edit)
+        else
+          wiki_page = @context.wiki_pages.deleted_last.where(url: @page.url).first
+          if wiki_page && wiki_page.deleted?
+            flash[:warning] = t('notices.page_deleted', 'The page "%{title}" has been deleted.', :title => @page.title)
+          else
+            flash[:warning] = t('notices.page_does_not_exist', 'The page "%{title}" does not exist.', :title => @page.title)
+          end
+          redirect_to polymorphic_url([@context, :wiki_pages])
+        end
+        return
+      end
 
-      js_env ConditionalRelease::Service.env_for @context
+      if authorized_action(@page, @current_user, :read)
+        if !@context.feature_enabled?(:conditional_release) || enforce_assignment_visible(@page)
+          add_crumb(@page.title)
+          log_asset_access(@page, 'wiki', @wiki)
+          wiki_pages_js_env(@context)
+          set_master_course_js_env_data(@page, @context)
+          @mark_done = MarkDonePresenter.new(self, @context, params["module_item_id"], @current_user, @page)
+          @padless = true
+        end
+      end
+    end
+  end
+
+  def edit
+    if @page.grants_any_right?(@current_user, session, :update, :update_content) && !@page.editing_restricted?(:content)
+      set_master_course_js_env_data(@page, @context)
+      js_env(ConditionalRelease::Service.env_for(@context))
+      wiki_pages_js_env(@context)
       if !ConditionalRelease::Service.enabled_in_context?(@context) ||
         enforce_assignment_visible(@page)
         add_crumb(@page.title)
@@ -152,12 +158,13 @@ class WikiPagesController < ApplicationController
   end
 
   private
-  def rich_content_service_config
-    rce_js_env(:sidebar)
-  end
-
-  def wiki_page_jsenv(context)
-    js_env :wiki_page_menu_tools => external_tools_display_hashes(:wiki_page_menu)
-    js_env :DISPLAY_SHOW_ALL_LINK => tab_enabled?(context.class::TAB_PAGES, {no_render: true})
+  def wiki_pages_js_env(context)
+    @wiki_pages_env ||= {
+      :wiki_page_menu_tools => external_tools_display_hashes(:wiki_page_menu),
+      :DISPLAY_SHOW_ALL_LINK => tab_enabled?(context.class::TAB_PAGES, {no_render: true}),
+      :STUDENT_PLANNER_ENABLED => context.root_account.feature_enabled?(:student_planner)
+    }
+    js_env(@wiki_pages_env)
+    @wiki_pages_env
   end
 end

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module FilesCommon
@@ -87,15 +104,16 @@ module FilesCommon
     elsif permission_type == :unpublish
       driver.find_elements(:name, 'permissions')[1].click
     else
-      driver.find_elements(:name, 'permissions')[2].click
       if restricted_access_option == :available_with_link
-        driver.find_elements(:name, 'restrict_options')[0].click
+        driver.find_elements(:name, 'permissions')[2].click
       else
-        driver.find_elements(:name, 'restrict_options')[1].click
+        driver.find_elements(:name, 'permissions')[3].click
         ff('.ui-datepicker-trigger.btn')[0].click
         fln("15").click
+        ff('.ui-datepicker-trigger.btn')[0].send_keys(:enter) # close the calendar
         ff('.ui-datepicker-trigger.btn')[1].click
         fln("25").click
+        ff('.ui-datepicker-trigger.btn')[1].send_keys(:enter) # close the calendar
       end
     end
     ff('.btn.btn-primary')[1].click
@@ -151,7 +169,7 @@ module FilesCommon
 
   def create_new_folder
     f('.btn-add-folder').click
-    f('.ef-edit-name-form').submit
+    f("input[aria-label='Folder Name']").send_keys(:return)
     wait_for_ajaximations
     all_files_folders.first
   end
@@ -162,16 +180,13 @@ module FilesCommon
   end
 
   def insert_file_from_rce(insert_into = nil)
-    if insert_into == :quiz
-      ff(".ui-tabs-anchor")[6].click
-    else
-      ff(".ui-tabs-anchor")[1].click
-    end
-    ff(".name.text")[0].click
     wait_for_ajaximations
-    ff(".name.text")[1].click
+    skip("CORE-2714 figure out why the files tab shows up as disabled on the rcs sidebar in jenkins")
+    fj('[role=tablist] [role=presentation]:not([aria-disabled]):contains("Files")').click
     wait_for_ajaximations
-    ff(".name.text")[2].click
+    fj('[role=tabpanel] button:contains("unfiled")').click
+    wait_for_ajaximations
+    fj('[role=tabpanel] button:contains("some test file")').click
     wait_for_ajaximations
     if insert_into == :quiz
       ff(".name.text")[3].click

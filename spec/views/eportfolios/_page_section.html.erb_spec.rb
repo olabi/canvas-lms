@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,10 +23,27 @@ describe "/eportfolios/_page_section" do
   it "should render" do
     eportfolio_with_user
     view_portfolio
-    assigns[:category] = @portfolio.eportfolio_categories.create!(:name => "some category")
-    assigns[:page] = @portfolio.eportfolio_entries.create!(:name => "some entry", :eportfolio_category => assigns[:category])
+    category = assign(:category, @portfolio.eportfolio_categories.create!(:name => "some category"))
+    assign(:page, @portfolio.eportfolio_entries.create!(:name => "some entry", :eportfolio_category => category))
     render :partial => "eportfolios/page_section", :object => {"section_type" => "rich_text", "content" => "some text"}, :locals => {:idx => 0}
     expect(response).to have_tag("div.section")
   end
-end
 
+  context 'sharding' do
+    specs_require_sharding
+
+    it 'should render cross-shard attachments' do
+      @shard2.activate do
+        eportfolio_with_user
+        category = assign(:category, @portfolio.eportfolio_categories.create!(:name => "some category"))
+        @page = @portfolio.eportfolio_entries.create!(:name => "some entry", :eportfolio_category => category)
+        attachment = @user.attachments.create! display_name: 'my cross-shard attachment', uploaded_data: default_uploaded_data
+        @page.update content: [{ section_type: 'attachment', attachment_id: attachment.id }]
+      end
+      view_portfolio
+      assign(:page, @page)
+      render :partial => "eportfolios/page_section", :object => @page.content_sections.first, :locals => {:idx => 0}
+      expect(response).to match(/my cross-shard attachment/)
+    end
+  end
+end

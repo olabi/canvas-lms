@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module SupportHelpers
   module Tii
     class TiiFixer < Fixer
@@ -91,11 +108,11 @@ module SupportHelpers
         # By selecting only the id, we delay the full load until we're
         # ready to actually work on the assignment.  Lots of little
         # loads than one giant one.
-        Assignment.joins(:submissions)
-          .where(updated_field.gt(@after_time))
-          .where(updated_field.lt(@buffer_time))
-          .where("submissions.#{like_error}")
-          .uniq.pluck(:id)
+        Assignment.joins(:submissions).
+          where(updated_field.gt(@after_time)).
+          where(updated_field.lt(@buffer_time)).
+          where("submissions.#{like_error}").
+          distinct.pluck(:id)
       end
 
       def object_type
@@ -158,9 +175,9 @@ module SupportHelpers
         # Non-broken sumissions CAN have turnitin_data that has the
         # word error in them that aren't a top level error that we're
         # looking for. There aren't a lot, but we'll select them out here.
-        @assignment.submissions.where(updated_field.gt(@after_time))
-                               .where(updated_field.lt(@buffer_time))
-                               .where(like_error).select { |s| is_bad_submission?(s) }
+        @assignment.submissions.where(updated_field.gt(@after_time)).
+          where(updated_field.lt(@buffer_time)).
+          where(like_error).select { |s| is_bad_submission?(s) }
       end
 
       def is_bad_submission?(s)
@@ -257,18 +274,18 @@ module SupportHelpers
       end
 
       def load_broken_objects
-        Submission.where(updated_field.gt(@after_time))
-                  .where(updated_field.lt(@buffer_time))
-                  .where(like_error)
-                  .pluck(:id)
+        Submission.where(updated_field.gt(@after_time)).
+          where(updated_field.lt(@buffer_time)).
+          where(like_error).
+          pluck(:id)
       end
 
       def stuck_with_object_ids
         # These should be able to just have "check status" called on them.
-        Submission.where(updated_field.gt(@after_time))
-                  .where(updated_field.lt(@buffer_time))
-                  .where("turnitin_data LIKE '--- \n:last_processed_attempt: _\nattachment_________: \n  :status: pending\n  :object_id: \"_________\"\n'")
-                  .pluck(:id)
+        Submission.where(updated_field.gt(@after_time)).
+          where(updated_field.lt(@buffer_time)).
+          where("turnitin_data LIKE '--- \n:last_processed_attempt: _\nattachment_________: \n  :status: pending\n  :object_id: \"_________\"\n'").
+          pluck(:id)
       end
     end
 

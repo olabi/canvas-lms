@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -109,63 +109,56 @@ describe BasicLTI::BasicOutcomes do
   end
 
   describe ".decode_source_id" do
-
     it 'successfully decodes a source_id' do
       expect(described_class.decode_source_id(tool, source_id)).to eq [@course, assignment, @user]
     end
 
     it 'throws Invalid sourcedid if sourcedid is nil' do
       expect{described_class.decode_source_id(tool, nil)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Invalid sourcedid')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Invalid sourcedid')
     end
 
     it 'throws Invalid sourcedid if sourcedid is empty' do
       expect{described_class.decode_source_id(tool, "")}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Invalid sourcedid')
-    end
-
-    it 'throws Invalid sourcedid if no signature' do
-      missing_signature = source_id.split('-')[0..3].join('-')
-      expect{described_class.decode_source_id(tool, missing_signature)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Invalid sourcedid')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Invalid sourcedid')
     end
 
     it 'throws Invalid signature if the signature is invalid' do
       bad_signature = source_id.split('-')[0..3].join('-') + '-asb9dksld9k3'
       expect{described_class.decode_source_id(tool, bad_signature)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Invalid signature')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Invalid signature')
     end
 
-    it "throws Tool is invalid if the tool doesn't match" do
+    it "throws 'Tool is invalid' if the tool doesn't match" do
       t = @course.context_external_tools.
-          create(:name => "b", :url => "http://google.com", :consumer_key => '12345', :shared_secret => 'secret')
+        create(:name => "b", :url => "http://google.com", :consumer_key => '12345', :shared_secret => 'secret')
       expect{described_class.decode_source_id(tool, gen_source_id(t: t))}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Tool is invalid')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Tool is invalid')
     end
 
     it "throws Course is invalid if the course doesn't match" do
       @course.workflow_state = 'deleted'
       @course.save!
       expect{described_class.decode_source_id(tool, source_id)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Course is invalid')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Course is invalid')
     end
 
     it "throws User is no longer in course isuser enrollment is missing" do
       @user.enrollments.destroy_all
       expect{described_class.decode_source_id(tool, source_id)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'User is no longer in course')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'User is no longer in course')
     end
 
     it "throws Assignment is invalid if the Addignment doesn't match" do
       assignment.destroy
       expect{described_class.decode_source_id(tool, source_id)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Assignment is invalid')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Assignment is invalid')
     end
 
     it "throws Assignment is no longer associated with this tool if tool is deleted" do
       tool.destroy
       expect{described_class.decode_source_id(tool, source_id)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Assignment is no longer associated with this tool')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Assignment is no longer associated with this tool')
     end
 
     it "throws Assignment is no longer associated with this tool if tool doesn't match the url" do
@@ -173,15 +166,39 @@ describe BasicLTI::BasicOutcomes do
       tag.url = 'example.com'
       tag.save!
       expect{described_class.decode_source_id(tool, source_id)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Assignment is no longer associated with this tool')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Assignment is no longer associated with this tool')
     end
 
     it "throws Assignment is no longer associated with this tool if tag is missing" do
       assignment.external_tool_tag.delete
       expect{described_class.decode_source_id(tool, source_id)}.
-          to raise_error(BasicLTI::BasicOutcomes::InvalidSourceId, 'Assignment is no longer associated with this tool')
+        to raise_error(BasicLTI::Errors::InvalidSourceId, 'Assignment is no longer associated with this tool')
     end
 
+    context "jwt sourcedid" do
+      before do
+        dynamic_settings = {
+          "lti-signing-secret" => 'signing-secret-vp04BNqApwdwUYPUI',
+          "lti-encryption-secret" => 'encryption-secret-5T14NjaTbcYjc4'
+        }
+        allow(Canvas::DynamicSettings).to receive(:find) { dynamic_settings }
+      end
+
+      let(:jwt_source_id) do
+        BasicLTI::Sourcedid.new(tool, @course, assignment, @user).to_s
+      end
+
+      it "decodes a jwt signed sourcedid" do
+        expect(described_class.decode_source_id(tool, jwt_source_id)).to eq [@course, assignment, @user]
+      end
+
+      it 'throws invalid JWT if token is unrecognized' do
+        missing_signature = source_id.split('-')[0..3].join('-')
+        expect{described_class.decode_source_id(tool, missing_signature)}.
+          to raise_error(BasicLTI::Errors::InvalidSourceId, 'Invalid sourcedid')
+      end
+
+    end
   end
 
   describe "#handle_request" do
@@ -218,7 +235,7 @@ describe BasicLTI::BasicOutcomes do
       expect(request.description).to eq 'Assignment has no points possible.'
     end
 
-    it "doesn't explode when an assignment with no points possible receives a grade for an existing submission " do
+    it "doesn't explode when an assignment with no points possible receives a grade for an existing submission" do
       xml.css('resultData').remove
       assignment.points_possible = nil
       assignment.save!
@@ -259,6 +276,103 @@ describe BasicLTI::BasicOutcomes do
       expect(request.body).to eq '<replaceResultResponse />'
     end
 
+    it "Does not increment the attempt number" do
+      xml.css('resultData').remove
+      BasicLTI::BasicOutcomes.process_request(tool, xml)
+      submission = assignment.submissions.where(user_id: @user.id).first
+      expect(submission.attempt).to eq 1
+    end
+
+    it "sets 'submitted_at' to the current time when result data is not sent" do
+      xml.css('resultData').remove
+      Timecop.freeze do
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
+        submission = assignment.submissions.where(user_id: @user.id).first
+        expect(submission.submitted_at).to eq Time.zone.now
+      end
+    end
+
+    context 'with submitted_at details' do
+      let(:timestamp) { 1.day.ago.iso8601(3) }
+
+      it "sets submitted_at to submitted_at details if resultData is not present" do
+        xml.css('resultData').remove
+        xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+          "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+        )
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
+        submission = assignment.submissions.where(user_id: @user.id).first
+        expect(submission.submitted_at.iso8601(3)).to eq timestamp
+      end
+
+      it "does not increment the submision count" do
+        xml.css('resultData').remove
+        xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+          "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+        )
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
+        submission = assignment.submissions.where(user_id: @user.id).first
+        expect(submission.attempt).to eq 1
+      end
+
+      it "sets submitted_at to submitted_at details if resultData is present" do
+        xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+          "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+        )
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
+        submission = assignment.submissions.where(user_id: @user.id).first
+        expect(submission.submitted_at.iso8601(3)).to eq timestamp
+      end
+
+      context 'with timestamp in future' do
+        let(:timestamp) { Time.zone.now }
+
+        it 'returns error message for timestamp more than one minute in future' do
+          xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+            "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+          )
+          Timecop.freeze(2.minutes.ago) do
+            request = BasicLTI::BasicOutcomes.process_request(tool, xml)
+            expect(request.code_major).to eq 'failure'
+            expect(request.body).to eq '<replaceResultResponse />'
+            expect(request.description).to eq 'Invalid timestamp - timestamp in future'
+          end
+        end
+
+        it 'does not create submission' do
+          xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+            "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+          )
+          Timecop.freeze(2.minutes.ago) do
+            request = BasicLTI::BasicOutcomes.process_request(tool, xml)
+            expect(assignment.submissions.where(user_id: @user.id).first.submitted_at).to be_blank
+          end
+        end
+      end
+
+      context 'with invalid timestamp' do
+        let(:timestamp) { 'a' }
+
+        it 'returns error message for invalid timestamp' do
+          xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+            "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+          )
+          request = BasicLTI::BasicOutcomes.process_request(tool, xml)
+          expect(request.code_major).to eq 'failure'
+          expect(request.body).to eq '<replaceResultResponse />'
+          expect(request.description).to eq 'Invalid timestamp - timestamp not parseable'
+        end
+
+        it 'does not create submission' do
+          xml.at_css('imsx_POXBody > replaceResultRequest').add_child(
+            "<submissionDetails><submittedAt>#{timestamp}</submittedAt></submissionDetails>"
+          )
+          request = BasicLTI::BasicOutcomes.process_request(tool, xml)
+          expect(assignment.submissions.where(user_id: @user.id).first.submitted_at).to be_blank
+        end
+      end
+    end
+
     it 'accepts LTI launch URLs as a data format with a specific submission type' do
       xml.css('resultScore').remove
       xml.at_css('text').replace('<ltiLaunchUrl>http://example.com/launch</ltiLaunchUrl>')
@@ -271,12 +385,49 @@ describe BasicLTI::BasicOutcomes do
       expect(submission.submission_type).to eq 'basic_lti_launch'
     end
 
-    context "submissions" do
+    context "quizzes.next submissions" do
+      let(:tool) do
+        @course.context_external_tools.create(
+          name: "a",
+          url: "http://google.com",
+          consumer_key: '12345',
+          shared_secret: 'secret',
+          tool_id: 'Quizzes 2'
+        )
+      end
 
+      let(:assignment) do
+        @course.assignments.create!(
+          {
+              title: "Quizzes.next Quiz",
+              description: "value for description",
+              due_at: Time.zone.now,
+              points_possible: "1.5",
+              submission_types: 'external_tool',
+              grading_type: "letter_grade",
+              external_tool_tag_attributes: {url: tool.url}
+          }
+        )
+      end
+
+      let(:submitted_at_timestamp) { 1.day.ago.iso8601(3) }
+
+      it "stores the score and grade for quizzes.next assignments" do
+        xml.css('resultData').remove
+        xml.at_css('imsx_POXBody > replaceResultRequest > resultRecord > result').add_child(
+          "<resultData><text>#{submitted_at_timestamp}</text>
+          <url>http://example.com/launch</url></resultData>"
+        )
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
+        expect(assignment.submissions.first.grade).to eq "A-"
+      end
+    end
+
+    context "submissions" do
       it "creates a new submissions if there isn't one" do
         xml.css('resultData').remove
         expect{BasicLTI::BasicOutcomes.process_request(tool, xml)}.
-          to change{assignment.submissions.where(user_id: @user.id).count}.from(0).to(1)
+          to change{assignment.submissions.not_placeholder.where(user_id: @user.id).count}.from(0).to(1)
       end
 
       it 'creates a new submission of type "external_tool" when a grade is passed back without a submission' do
@@ -348,7 +499,7 @@ describe BasicLTI::BasicOutcomes do
         xml.css('resultScore').remove
         xml.at_css('text').replace('<documentName>face.doc</documentName><downloadUrl>http://example.com/download</downloadUrl>')
         BasicLTI::BasicOutcomes.process_request(tool, xml)
-        expect(Delayed::Job.strand_size('file_download')).to be > 0
+        expect(Delayed::Job.strand_size('file_download/example.com')).to be > 0
         run_jobs
         expect(submission.reload.versions.count).to eq 2
         expect(submission.attachments.count).to eq 1
@@ -367,6 +518,46 @@ describe BasicLTI::BasicOutcomes do
         xml.css('resultData').remove
         BasicLTI::BasicOutcomes.process_request(tool, xml)
         expect(submission.reload.submission_type).to eq submission_type
+      end
+    end
+  end
+
+  describe "#process_request" do
+    context "when assignment is a Quizzes.Next quiz" do
+      let(:tool) do
+        @course.context_external_tools.create(
+          name: "a",
+          url: "http://google.com",
+          consumer_key: '12345',
+          shared_secret: 'secret',
+          tool_id: 'Quizzes 2'
+        )
+      end
+
+      it "uses BasicLTI::QuizzesNextLtiResponse object" do
+        expect(BasicLTI::QuizzesNextLtiResponse).to receive(:new).and_call_original
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
+      end
+
+      context "when quizzes_next_submission_history is off" do
+        before do
+          allow(tool.context.root_account).to receive(:feature_enabled?).
+            with(:quizzes_next_submission_history).and_return(false)
+        end
+
+        it "uses BasicLTI::BasicOutcomes::LtiResponse object" do
+          expect(BasicLTI::BasicOutcomes::LtiResponse).to receive(:new).and_call_original
+          expect(BasicLTI::QuizzesNextLtiResponse).not_to receive(:new)
+          BasicLTI::BasicOutcomes.process_request(tool, xml)
+        end
+      end
+    end
+
+    context "when assignment is not a Quizzes.Next quiz" do
+      it "uses BasicLTI::BasicOutcomes::LtiResponse object" do
+        expect(BasicLTI::BasicOutcomes::LtiResponse).to receive(:new).and_call_original
+        expect(BasicLTI::QuizzesNextLtiResponse).not_to receive(:new)
+        BasicLTI::BasicOutcomes.process_request(tool, xml)
       end
     end
   end

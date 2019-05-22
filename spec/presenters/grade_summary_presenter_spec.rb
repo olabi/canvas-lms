@@ -1,22 +1,70 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
 
 describe GradeSummaryPresenter do
-  describe '#selectable_courses' do
+  describe '#courses_with_grades' do
 
     describe 'all on one shard' do
       let(:course) { Course.create! }
       let(:presenter) { GradeSummaryPresenter.new(course, @user, nil) }
       let(:assignment) { assignment_model(:course => course) }
+      let(:enrollment) { course.enroll_student(@user, enrollment_state: 'active') }
 
-      before do
+      before :each do
         user_factory
-        enrollment = StudentEnrollment.create!(:course => course, :user => @user)
-        enrollment.update_attribute(:workflow_state, 'active')
-        course.update_attribute(:workflow_state, 'available')
+        enrollment
+        course.offer
+      end
+
+      it 'preloads the enrollment term for each course' do
+        enrollment_terms = presenter.courses_with_grades.map { |c| c.association(:enrollment_term) }
+
+        expect(enrollment_terms).to all be_loaded
+      end
+
+      it 'preloads the legacy grading period groups for each course' do
+        grading_period_groups = presenter.courses_with_grades.map { |c| c.association(:grading_period_groups) }
+
+        expect(grading_period_groups).to all be_loaded
       end
 
       it 'includes courses where the user is enrolled' do
-        expect(presenter.selectable_courses).to include(course)
+        expect(presenter.courses_with_grades).to include(course)
+      end
+
+      it "includes concluded courses" do
+        course.soft_conclude!
+        course.save
+        expect(presenter.courses_with_grades).to include(course)
+      end
+
+      it "includes courses for concluded enrollments" do
+        enrollment.conclude
+        expect(presenter.courses_with_grades).to include(course)
+      end
+
+      it "excludes soft-concluded courses where students are restricted after conclusion" do
+        course.soft_conclude!
+        course.settings = course.settings.merge(restrict_student_past_view: true)
+        course.save!
+
+        expect(presenter.courses_with_grades).not_to include(course)
       end
     end
 
@@ -35,7 +83,7 @@ describe GradeSummaryPresenter do
         end
 
         presenter = GradeSummaryPresenter.new(course, user, user.id)
-        expect(presenter.selectable_courses).to include(course)
+        expect(presenter.courses_with_grades).to include(course)
       end
 
       it 'can find courses when the user and course are on different shards' do
@@ -53,8 +101,72 @@ describe GradeSummaryPresenter do
         end
 
         presenter = GradeSummaryPresenter.new(course, user, user.id)
-        expect(presenter.selectable_courses).to include(course)
+        expect(presenter.courses_with_grades).to include(course)
       end
+
+      describe 'courses for an observer across shards' do
+        before :each do
+          course_with_student(:active_all => true)
+          @observer = user_factory(:active_all => true)
+          @course.observer_enrollments.create!(:user_id => @observer, :associated_user_id => @student)
+
+          @shard1.activate do
+            account = Account.create!
+            @course2 = account.courses.create!(:workflow_state => "available")
+            StudentEnrollment.create!(:course => @course2, :user => @student, :workflow_state => 'active')
+            @course2.observer_enrollments.create!(:user_id => @observer, :associated_user_id => @student)
+          end
+
+          @presenter = GradeSummaryPresenter.new(@course, @observer, @student.id)
+        end
+
+        it 'can find courses for an observer across shards' do
+          expect(@presenter.courses_with_grades).to match_array([@course, @course2])
+        end
+
+        it 'preloads the enrollment term for each course' do
+          enrollment_terms = @presenter.courses_with_grades.map { |c| c.association(:enrollment_term) }
+
+          expect(enrollment_terms).to all be_loaded
+        end
+
+        it 'preloads the legacy grading period groups for each course' do
+          grading_period_groups = @presenter.courses_with_grades.map { |c| c.association(:grading_period_groups) }
+
+          expect(grading_period_groups).to all be_loaded
+        end
+      end
+    end
+  end
+
+  describe '#students' do
+    before(:once) do
+      @course = Course.create!
+      @student = User.create!
+      @teacher = User.create!
+      @course.enroll_teacher(@teacher, active_all: true)
+      @course.enroll_student(@student, active_all: true)
+    end
+
+    it 'returns all of the observed students, if there are multiple' do
+      student_two = User.create!
+      @observer = User.create!
+      @course.enroll_student(student_two, active_all: true)
+      @course.observer_enrollments.create!(user_id: @observer, associated_user_id: @student)
+      @course.observer_enrollments.create!(user_id: @observer, associated_user_id: student_two)
+
+      presenter = GradeSummaryPresenter.new(@course, @observer, @student.id)
+      expect(presenter.students.map(&:id)).to match_array [@student.id, student_two.id]
+    end
+
+    it 'returns an array with a single student if there is only one student' do
+      presenter = GradeSummaryPresenter.new(@course, @teacher, @student.id)
+      expect(presenter.students.map(&:id)).to match_array [@student.id]
+    end
+
+    it 'returns an empty array if there are no students' do
+      presenter = GradeSummaryPresenter.new(@course, @teacher, nil)
+      expect(presenter.students).to be_empty
     end
   end
 
@@ -64,7 +176,7 @@ describe GradeSummaryPresenter do
     end
 
     it 'works' do
-      s1, s2, s3, s4 = n_students_in_course(4)
+      s1, s2, s3, s4 = all_students = n_students_in_course(4)
       a = @course.assignments.create! points_possible: 10
       a.grade_student s1, grade:  0, grader: @teacher
       a.grade_student s2, grade:  5, grader: @teacher
@@ -72,18 +184,20 @@ describe GradeSummaryPresenter do
 
       # this student should be ignored
       a.grade_student s4, grade: 99, grader: @teacher
-      s4.enrollments.each &:destroy
+      s4.enrollments.each(&:destroy)
+
+      AssignmentScoreStatisticsGenerator.update_score_statistics(@course.id)
 
       p = GradeSummaryPresenter.new(@course, @teacher, nil)
       stats = p.assignment_stats
       assignment_stats = stats[a.id]
-      expect(assignment_stats.max.to_f).to eq 10
-      expect(assignment_stats.min.to_f).to eq 0
-      expect(assignment_stats.avg.to_f).to eq 5
+      expect(assignment_stats.maximum.to_f).to eq 10
+      expect(assignment_stats.minimum.to_f).to eq 0
+      expect(assignment_stats.mean.to_f).to eq 5
     end
 
     it 'filters out test students and inactive enrollments' do
-      s1, s2, s3, removed_student = n_students_in_course(4, {:course => @course})
+      s1, s2, s3, removed_student = all_students = n_students_in_course(4, course: @course)
 
       fake_student = course_with_user('StudentViewEnrollment', {:course => @course}).user
       fake_student.preferences[:fake_student] = true
@@ -100,37 +214,38 @@ describe GradeSummaryPresenter do
         enrollment.save!
       end
 
+      AssignmentScoreStatisticsGenerator.update_score_statistics(@course.id)
+
       p = GradeSummaryPresenter.new(@course, @teacher, nil)
       stats = p.assignment_stats
       assignment_stats = stats[a.id]
-      expect(assignment_stats.max.to_f).to eq 10
-      expect(assignment_stats.min.to_f).to eq 0
-      expect(assignment_stats.avg.to_f).to eq 5
+      expect(assignment_stats.maximum.to_f).to eq 10
+      expect(assignment_stats.minimum.to_f).to eq 0
+      expect(assignment_stats.mean.to_f).to eq 5
     end
 
     it 'doesnt factor nil grades into the average or min' do
-      s1, s2, s3, s4 = n_students_in_course(4)
+      s1, s2, s3, s4 = all_students = n_students_in_course(4)
       a = @course.assignments.create! points_possible: 10
       a.grade_student s1, grade:  2, grader: @teacher
       a.grade_student s2, grade:  6, grader: @teacher
       a.grade_student s3, grade: 10, grader: @teacher
       a.grade_student s4, grade: nil, grader: @teacher
 
+      AssignmentScoreStatisticsGenerator.update_score_statistics(@course.id)
+
       p = GradeSummaryPresenter.new(@course, @teacher, nil)
       stats = p.assignment_stats
       assignment_stats = stats[a.id]
-      expect(assignment_stats.max.to_f).to eq 10
-      expect(assignment_stats.min.to_f).to eq 2
-      expect(assignment_stats.avg.to_f).to eq 6
+      expect(assignment_stats.maximum.to_f).to eq 10
+      expect(assignment_stats.minimum.to_f).to eq 2
+      expect(assignment_stats.mean.to_f).to eq 6
     end
-  end
 
-
-  describe '#submission count' do
-    it 'filters out test students and inactive enrollments' do
+    it 'returns a count of submissions ignoring test students and inactive enrollments' do
       @course = Course.create!
       teacher_in_course
-      s1, s2, s3, removed_student = n_students_in_course(4, {:course => @course})
+      s1, s2, s3, removed_student = all_students = n_students_in_course(4, course: @course)
 
       fake_student = course_with_user('StudentViewEnrollment', {:course => @course}).user
       fake_student.preferences[:fake_student] = true
@@ -147,8 +262,10 @@ describe GradeSummaryPresenter do
         enrollment.save!
       end
 
+      AssignmentScoreStatisticsGenerator.update_score_statistics(@course.id)
+
       p = GradeSummaryPresenter.new(@course, @teacher, nil)
-      expect(p.submission_counts.values[0]).to eq 3
+      expect(p.assignment_stats.values.first.count).to eq 3
     end
   end
 
@@ -247,6 +364,25 @@ describe GradeSummaryPresenter do
       @course.context_modules.create!(name: "I <3 Modules")
       expect(presenter.sort_options).to include module_option
     end
+
+    it 'localizes menu text' do
+      @course.assignments.create!(title: 'Math Assignment')
+      science_group = @course.assignment_groups.create!(name: 'Science Assignments')
+      @course.assignments.create!(title: 'Science Assignment', assignment_group: science_group)
+      @course.context_modules.create!(name: 'I <3 Modules')
+
+      expect(I18n).to receive(:t).with('Due Date')
+      expect(I18n).to receive(:t).with('Title')
+      expect(I18n).to receive(:t).with('Assignment Group')
+      expect(I18n).to receive(:t).with('Module')
+
+      presenter.sort_options
+    end
+
+    it 'sorts menu items in a locale-aware way' do
+      expect(Canvas::ICU).to receive(:collate_by).with([['Due Date', 'due_at'], ['Title', 'title']], &:first)
+      presenter.sort_options
+    end
   end
 
   describe '#sorted_assignments' do
@@ -255,9 +391,9 @@ describe GradeSummaryPresenter do
       student_in_course
     end
 
-    let!(:assignment1) { @course.assignments.create!(title: 'Apple', due_at: 2.days.ago, position: 1) }
-    let!(:assignment2) { @course.assignments.create!(title: 'Banana', due_at: 2.days.from_now, position: 2) }
-    let!(:assignment3) { @course.assignments.create!(title: 'Carrot', due_at: 5.days.ago, position: 3) }
+    let!(:assignment1) { @course.assignments.create!(title: 'Jalapeno', due_at: 2.days.ago, position: 1) }
+    let!(:assignment2) { @course.assignments.create!(title: 'Jalapeño', due_at: 2.days.from_now, position: 2) }
+    let!(:assignment3) { @course.assignments.create!(title: 'Jalapezo', due_at: 5.days.ago, position: 3) }
     let(:ordered_assignment_ids) { presenter.assignments.map(&:id) }
 
     it "assignment order defaults to due_at" do
@@ -321,7 +457,7 @@ describe GradeSummaryPresenter do
         it "sorts alphabetically for assignments not belonging to modules (ignoring case)" do
           assignment3.title = "apricot"
           assignment3.save!
-          expected_id_order = [assignment1.id, assignment3.id, assignment2.id]
+          expected_id_order = [assignment3.id, assignment1.id, assignment2.id]
           expect(ordered_assignment_ids).to eq(expected_id_order)
         end
       end

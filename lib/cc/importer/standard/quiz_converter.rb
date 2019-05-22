@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,7 @@ module CC::Importer::Standard
       quizzes = []
       questions = []
       
-      conversion_dir = File.join(@unzipped_file_path, "temp_qti_conversions")
+      conversion_dir = @package_root.item_path("temp_qti_conversions")
 
       resources_by_type("imsqti").each do |res|
         path = res[:href] || (res[:files] && res[:files].first && res[:files].first[:href])

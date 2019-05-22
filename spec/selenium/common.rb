@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,10 +16,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
+require "nokogiri"
 require "selenium-webdriver"
 require "socket"
 require "timeout"
-require 'coffee-script'
+require "sauce_whisk"
 require_relative 'test_setup/custom_selenium_rspec_matchers'
 require_relative 'test_setup/selenium_driver_setup'
 require_relative 'test_setup/selenium_extensions'
@@ -66,6 +67,7 @@ module SeleniumErrorRecovery
       puts "Error: got `#{exception}`, aborting"
       RSpec.world.wants_to_quit = true
     when EOFError, Errno::ECONNREFUSED, Net::ReadTimeout
+      return false if SeleniumDriverSetup.saucelabs_test_run?
       return false if RSpec.world.wants_to_quit
       return false unless exception.backtrace.grep(/selenium-webdriver/).present?
 
@@ -113,15 +115,22 @@ shared_context "in-process server selenium tests" do
   include Rails.application.routes.url_helpers
 
   prepend_before :each do
+    resize_screen_to_normal
     SeleniumDriverSetup.allow_requests!
     driver.ready_for_interaction = false # need to `get` before we do anything selenium-y in a spec
+  end
+
+  around :all do |group|
+    GreatExpectations.with_config(MISSING: :raise) do
+      group.run_examples
+    end
   end
 
   append_before :all do
     retry_count = 0
     begin
       default_url_options[:host] = app_host_and_port
-      close_modal_if_present { resize_screen_to_normal }
+      close_modal_if_present { resize_screen_to_normal } unless @driver.nil?
     rescue
       if maybe_recover_from_exception($ERROR_INFO) && (retry_count += 1) < 3
         retry
@@ -137,10 +146,25 @@ shared_context "in-process server selenium tests" do
   end
 
   before do
-    raise "all specs need to use transactional fixtures" unless self.use_transactional_fixtures
+    raise "all specs need to use transactional fixtures" unless use_transactional_tests
 
-    HostUrl.stubs(:default_host).returns(app_host_and_port)
-    HostUrl.stubs(:file_host).returns(app_host_and_port)
+    allow(HostUrl).to receive(:default_host).and_return(app_host_and_port)
+    allow(HostUrl).to receive(:file_host).and_return(app_host_and_port)
+  end
+
+  # synchronize db connection methods for a modicum of thread safety
+  module SynchronizeConnection
+    %w{execute exec_cache exec_no_cache query transaction}.each do |method|
+      class_eval <<-RUBY, __FILE__, __LINE__ + 1
+        def #{method}(*)
+          SeleniumDriverSetup.request_mutex.synchronize { super }
+        end
+      RUBY
+    end
+  end
+
+  before(:all) do
+    ActiveRecord::Base.connection.class.prepend(SynchronizeConnection)
   end
 
   # tricksy tricksy. grab the current connection, and then always return the same one
@@ -150,26 +174,10 @@ shared_context "in-process server selenium tests" do
     @db_connection = ActiveRecord::Base.connection
     @dj_connection = Delayed::Backend::ActiveRecord::Job.connection
 
-    # synchronize db connection methods for a modicum of thread safety
-    methods_to_sync = %w{execute exec_cache exec_no_cache query transaction}
-    [@db_connection, @dj_connection].each do |conn|
-      methods_to_sync.each do |method_name|
-        if conn.respond_to?(method_name, true) && !conn.respond_to?("#{method_name}_with_synchronization", true)
-          arg_list = "*args"
-          arg_list << ", &Proc.new" if method_name == "transaction"
-          conn.class.class_eval <<-RUBY, __FILE__, __LINE__ + 1
-            def #{method_name}_with_synchronization(*args)
-              SeleniumDriverSetup.request_mutex.synchronize { #{method_name}_without_synchronization(#{arg_list}) }
-            end
-            alias_method_chain :#{method_name}, :synchronization
-          RUBY
-        end
-      end
-    end
-
-    ActiveRecord::ConnectionAdapters::ConnectionPool.any_instance.stubs(:connection).returns(@db_connection)
-    Delayed::Backend::ActiveRecord::Job.stubs(:connection).returns(@dj_connection)
-    Delayed::Backend::ActiveRecord::Job::Failed.stubs(:connection).returns(@dj_connection)
+    allow(ActiveRecord::Base).to receive(:connection).and_return(@db_connection)
+    allow_any_instance_of(Switchman::ConnectionPoolProxy).to receive(:connection).and_return(@db_connection)
+    allow(Delayed::Backend::ActiveRecord::Job).to receive(:connection).and_return(@dj_connection)
+    allow(Delayed::Backend::ActiveRecord::Job::Failed).to receive(:connection).and_return(@dj_connection)
   end
 
   after(:each) do |example|
@@ -184,17 +192,86 @@ shared_context "in-process server selenium tests" do
     ensure
       SeleniumDriverSetup.disallow_requests!
     end
+
+    if SeleniumDriverSetup.saucelabs_test_run?
+      job_id = driver.session_id
+      job = SauceWhisk::Jobs.fetch job_id
+      old_name = job.name
+      job.name = old_name.prepend(example.metadata[:full_description].to_s + " - ")
+      job.passed = example.exception.nil?
+      job.save
+
+      driver.quit
+      SeleniumDriverSetup.reset!
+    end
   end
 
-  def record_spec_info(example)
-    Rails.logger.capture_messages do
-      begin
-        SeleniumDriverSetup.start_capturing_video
-        yield
-      ensure
-        exception = $ERROR_INFO || example.exception
-        SeleniumDriverSetup.note_recent_spec_run(example, exception)
-        SeleniumDriverSetup.record_errors(example, exception, Rails.logger.captured_messages)
+  # logs everything that showed up in the browser console during selenium tests
+  after(:each) do |example|
+    # safari driver and edge driver do not support driver.manage.logs
+    # don't run for sauce labs smoke tests
+    next if SeleniumDriverSetup.saucelabs_test_run?
+
+    if example.exception
+      html = f('body').attribute('outerHTML')
+      document = Nokogiri::HTML(html)
+      example.metadata[:page_html] = document.to_html
+    end
+
+    browser_logs = driver.manage.logs.get(:browser)
+
+    # log INSTUI deprecation warnings
+    if browser_logs.present?
+      spec_file = example.file_path.sub(/.*spec\/selenium\//, '')
+      deprecations =  browser_logs.select {|l| l.message =~ /\[.*deprecated./}.map do |l|
+        ">>> #{spec_file}: \"#{example.description}\": #{driver.current_url}: #{l.message.gsub(/.*Warning/, 'Warning') }"
+      end
+      puts "\n", deprecations.uniq
+    end
+
+    if !example.metadata[:ignore_js_errors] && browser_logs.present?
+      msg = "browser console logs for \"#{example.description}\":\n" + browser_logs.map(&:message).join("\n\n")
+      Rails.logger.info(msg)
+      # puts msg
+
+      # if you run into something that doesn't make sense t
+      browser_errors_we_dont_care_about = [
+        "Blocked attempt to show a 'beforeunload' confirmation panel for a frame that never had a user gesture since its load",
+        "Error: <path> attribute d: Expected number",
+        "elements with non-unique id #",
+        "Failed to load http://www.example.com/",
+        "Failed to load http://example.com/",
+        "Uncaught Error: cannot call methods on timeoutTooltip prior to initialization; attempted to call method 'close'",
+        "Failed to load resource",
+        "Deprecated use of magic jQueryUI widget markup detected",
+        "Uncaught SG: Did not receive drive#about kind when fetching import",
+        "Failed prop type",
+        "Please either add a 'report-uri' directive, or deliver the policy via the 'Content-Security-Policy' header.",
+        "isMounted is deprecated. Instead, make sure to clean up subscriptions and pending requests in componentWillUnmount to prevent memory leaks",
+        "https://www.gstatic.com/_/apps-viewer/_/js/k=apps-viewer.standalone.en_US",
+        "In webpack, loading timezones on-demand is not",
+        "Uncaught RangeError: Maximum call stack size exceeded",
+        "Warning: React does not recognize the `%s` prop on a DOM element.",
+        # For InstUI upgrade to 5.36. These should probably be fixed eventually.
+        "Warning: [Focusable] Exactly one focusable child is required (0 found).",
+        # COMMS-1815: Meeseeks should fix this one on the permissions page
+        "Warning: [Select] The option 'All Roles' doesn't correspond to an option.",
+        "Warning: [Focusable] Exactly one tabbable child is required (0 found).",
+        "[View] display style is set to 'inline'",
+        "Uncaught TypeError: Failed to fetch",
+        "Uncaught Error: Not Found", # for canvas-rce when no backend is set up
+        "Uncaught Error: Minified React error #200", # this is coming from canvas-rce, but we should fix it
+        "Access to Font at 'http://cdnjs.cloudflare.com/ajax/libs/mathjax/"
+      ].freeze
+
+      javascript_errors = browser_logs.select do |e|
+        e.level == "SEVERE" &&
+          e.message.present? &&
+          browser_errors_we_dont_care_about.none? {|s| e.message.include?(s)}
+      end
+
+      if javascript_errors.present?
+        raise RuntimeError, javascript_errors.map(&:message).join("\n\n")
       end
     end
   end

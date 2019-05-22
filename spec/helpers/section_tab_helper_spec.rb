@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -48,7 +48,7 @@ describe SectionTabHelper do
         let(:bad_tab) { { label: 'bad tab' } }
         before(:each) do
           tabs = Course.default_tabs + [bad_tab]
-          course.stubs(:tabs_available).returns(tabs)
+          allow(course).to receive(:tabs_available).and_return(tabs)
         end
         let(:available_section_tabs) do
           SectionTabHelperSpec::AvailableSectionTabs.new(
@@ -67,7 +67,7 @@ describe SectionTabHelper do
 
         context 'and tabs include TAB_CONFERENCES' do
           it 'should include TAB_CONFERENCES if WebConference.config' do
-            WebConference.stubs(:config).returns({})
+            allow(WebConference).to receive(:config).and_return({})
             expect(available_section_tabs.to_a.map do |tab|
               tab[:id]
             end).to include(Course::TAB_CONFERENCES)
@@ -82,7 +82,7 @@ describe SectionTabHelper do
 
         context 'and tabs include TAB_COLLABORATIONS' do
           it 'should include TAB_COLLABORATIONS if Collaboration.any_collaborations_configured?' do
-            Collaboration.stubs(:any_collaborations_configured?).returns(true)
+            allow(Collaboration).to receive(:any_collaborations_configured?).and_return(true)
             expect(available_section_tabs.to_a.map do |tab|
               tab[:id]
             end).to include(Course::TAB_COLLABORATIONS)
@@ -96,7 +96,7 @@ describe SectionTabHelper do
 
           it 'should not include TAB_COLLABORATIONS when new_collaborations feature flag has been enabled' do
             domain_root_account.set_feature_flag!(:new_collaborations, "on")
-            Collaboration.stubs(:any_collaborations_configured?).returns(true)
+            allow(Collaboration).to receive(:any_collaborations_configured?).and_return(true)
             expect(available_section_tabs.to_a.map { |tab| tab[:id] }).not_to include(Course::TAB_COLLABORATIONS)
           end
         end
@@ -150,7 +150,7 @@ describe SectionTabHelper do
         )
         expect(tag.a_classes).to be_a Array
         expect(tag.a_classes).to include tab_assignments[:css_class]
-        expect(tag.a_classes).to_not include 'active'
+        expect(tag.a_classes).not_to include 'active'
       end
 
       it 'should include `active` class if tab is active' do
@@ -169,20 +169,12 @@ describe SectionTabHelper do
         )
 
         expect(tag.a_attributes.keys).to include(:href, :class)
-        expect(tag.a_attributes.keys).to_not include(:'aria-label')
-      end
-
-      it 'should include key aria-label if tab has screenreader text' do
-        tag = SectionTabHelperSpec::SectionTabTag.new(
-          tab_assignments, course
-        )
-
-        expect(tag.a_attributes.keys).to include(:'aria-label')
+        expect(tag.a_attributes.keys).not_to include(:'aria-label')
       end
 
       it 'includes a target if tab has the target attribute' do
         tag = SectionTabHelperSpec::SectionTabTag.new(new_window_tab, course)
-        expect(tag.a_attributes[:target]).to  eq '_blank'
+        expect(tag.a_attributes[:target]).to eq '_blank'
       end
 
     end

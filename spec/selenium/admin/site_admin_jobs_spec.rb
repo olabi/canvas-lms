@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 describe "site admin jobs ui" do
@@ -20,7 +37,7 @@ describe "site admin jobs ui" do
       expect(jobs_on_hold.count).to eq count
     end
 
-    status_cells = ff('.r2')
+    status_cells = ff('.f2')
     status_cells.each { |status_cell| expect(status_cell.find_element(:css, 'span')).to have_class('on-hold') }
   end
 
@@ -41,13 +58,10 @@ describe "site admin jobs ui" do
     all_jobs.each { |job| expect(job).to have_class('selected') }
   end
 
-  def first_jobs_cell_displayed?
-    expect(f('#jobs-grid .slick-cell')).to be
-  end
-
   def load_jobs_page
     get "/jobs"
-    first_jobs_cell_displayed?
+    # wait for it
+    f('#jobs-grid .slick-cell')
   end
 
   def filter_jobs(job_flavor_text)
@@ -94,19 +108,19 @@ describe "site admin jobs ui" do
       Delayed::Job.delete_all
       job = "test".send_later_enqueue_args :to_s, no_delay: true
       load_jobs_page
-      ff("#jobs-grid .slick-row .l0.r0").find do |element|
+      ff("#jobs-grid .slick-row .b0.f0").find do |element|
         element.click if element.text == job.id.to_s
       end
       expect(f('#job-id').text).to eq job.id.to_s
       f('#job-handler-show').click
       wait_for_ajax_requests
       expect(get_value('#job-handler')).to eq job.handler
-      f('a.ui-dialog-titlebar-close').click
+      f('button.ui-dialog-titlebar-close').click
 
       # also for failed job
       filter_jobs(FlavorTags::FAILED)
       wait_for_ajax_requests
-      f('#jobs-grid .slick-row .l0.r0').click
+      f('#jobs-grid .slick-row .b0.f0').click
       expect(f('#job-id').text).to eq @failed_job.id.to_s
       f('#job-handler-show').click
       wait_for_ajax_requests
@@ -118,32 +132,10 @@ describe "site admin jobs ui" do
         load_jobs_page
       end
 
-      it "should confirm that clicking on delete button should delete all future jobs" do
-        2.times { "test".send_at 2.hours.from_now, :to_s }
-        filter_jobs(FlavorTags::FUTURE)
-        validate_all_jobs_selected
-        expect(f("#jobs-grid .odd")).to be_displayed
-        expect(f("#jobs-grid .even")).to be_displayed
-        expect(f("#jobs-total").text).to eq(future_jobs.count.to_s)
-
-        delete = f("#delete-jobs")
-        keep_trying_until do
-          delete.click
-          expect(driver.switch_to.alert).not_to be_nil
-          driver.switch_to.alert.accept
-        end
-
-        wait_for_ajaximations
-        expect(future_jobs.count).to eq(0)
-
-        expect(f("#content")).not_to contain_css("#jobs-grid .odd")
-        expect(f("#content")).not_to contain_css("#jobs-grid .even")
-      end
-
       it "should check current popular tags" do
         filter_tags(FlavorTags::CURRENT)
-        expect(f("#tags-grid .slick-row:nth-child(1) .r0")).to include_text "String#reverse"
-        expect(f("#tags-grid .slick-row:nth-child(1) .r1")).to include_text "2"
+        expect(f("#tags-grid .slick-row:nth-child(1) .f0")).to include_text "String#reverse"
+        expect(f("#tags-grid .slick-row:nth-child(1) .f1")).to include_text "2"
       end
 
       it "should check all popular tags", priority: "2" do
@@ -170,8 +162,8 @@ describe "site admin jobs ui" do
         f("#un-hold-jobs").click
         expect(driver.switch_to.alert).not_to be_nil
         driver.switch_to.alert.accept
-        expect(f("#jobs-grid .even .r2")).to include_text "0/ 15"
-        expect(f("#jobs-grid .odd .r2")).to include_text "0/ 15"
+        expect(f("#jobs-grid .even .f2")).to include_text "0/ 1"
+        expect(f("#jobs-grid .odd .f2")).to include_text "0/ 1"
         expect(jobs_on_hold.count).to eq 0
       end
 
@@ -180,7 +172,7 @@ describe "site admin jobs ui" do
         f("#jobs-refresh").click
         wait_for_ajax_requests
         job = Delayed::Job.where(tag: "String#capitalize").first
-        expect(f("#jobs-grid .l0").text).to eq job.id.to_s
+        expect(f("#jobs-grid .b0").text).to eq job.id.to_s
       end
 
       it "should confirm that failed jobs were selected" do
@@ -188,7 +180,7 @@ describe "site admin jobs ui" do
         f("#jobs-refresh").click
         wait_for_ajax_requests
         expect(ff("#jobs-grid .slick-row").count).to eq 1
-        expect(f("#jobs-grid .r1")).to include_text "String#downcase"
+        expect(f("#jobs-grid .f1")).to include_text "String#downcase"
       end
 
       it "should confirm that clicking on delete button should delete all future jobs" do
@@ -222,7 +214,7 @@ describe "site admin jobs ui" do
       Delayed::Job.get_and_lock_next_available('my test worker')
       load_jobs_page
       expect(ff('#running-grid .slick-row').size).to eq 1
-      first_cell = f('#running-grid .slick-cell.l0.r0')
+      first_cell = f('#running-grid .slick-cell.b0.f0')
       expect(first_cell).to include_text 'my test worker'
     end
 
@@ -233,9 +225,9 @@ describe "site admin jobs ui" do
 
       load_jobs_page
       expect(ff('#running-grid .slick-row').size).to eq 2
-      first_cell = f('#running-grid .slick-cell.l0.r0')
+      first_cell = f('#running-grid .slick-cell.b0.f0')
       expect(first_cell).to include_text 'my test worker 2'
-      last_cell = f('#running-grid .slick-cell.l6.r6 .super-slow')
+      last_cell = f('#running-grid .slick-cell.b6.f6 .super-slow')
       expect(last_cell).not_to be_nil
     end
 
@@ -248,12 +240,12 @@ describe "site admin jobs ui" do
       # sort ASC
       worker_header = f("#running-grid .slick-header div[id*='worker'] .slick-column-name")
       worker_header.click
-      first_cell = f('#running-grid .slick-cell.l0.r0')
+      first_cell = f('#running-grid .slick-cell.b0.f0')
       expect(first_cell).to include_text 'my test worker 1'
 
       # sort DESC
       worker_header.click
-      first_cell = f('#running-grid .slick-cell.l0.r0')
+      first_cell = f('#running-grid .slick-cell.b0.f0')
       expect(first_cell).to include_text 'my test worker 2'
     end
   end

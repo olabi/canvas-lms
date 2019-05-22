@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -218,14 +218,14 @@ describe ConversationParticipant do
 
     it "should let site admins see everything" do
       Account.site_admin.account_users.create!(user: @admin_user)
-      Account.site_admin.stubs(:grants_right?).with(@admin_user, :become_user).returns(false)
-      convos = @target_user.conversations.for_masquerading_user(@admin_user)
+      allow(Account.site_admin).to receive(:grants_right?).with(@admin_user, :become_user).and_return(false)
+      convos = @target_user.conversations.for_masquerading_user(@admin_user, @target_user)
       expect(convos.size).to eql 4
       expect(convos).to eq @target_user.conversations.to_a
     end
 
     it "should limit others to their associated root accounts" do
-      convos = @target_user.conversations.for_masquerading_user(@admin_user)
+      convos = @target_user.conversations.for_masquerading_user(@admin_user, @target_user)
       expect(convos.size).to eql 2
       expect(convos.sort_by(&:id)).to eql [@c1, @c2]
     end
@@ -247,6 +247,12 @@ describe ConversationParticipant do
       @convo.add_message("haha i forwarded it", :forwarded_message_ids => [message.id])
     end
 
+    matcher :have_same_ids do |expected|
+      match do |actual|
+        actual.map(&:id).sort == expected.map(&:id).sort
+      end
+    end
+
     it "should not include shared contexts by default" do
       users = @convo.reload.participants
       users.each do |user|
@@ -257,7 +263,7 @@ describe ConversationParticipant do
 
     it "should not include forwarded participants by default" do
       users = @convo.reload.participants
-      expect(users.map(&:id).sort).to eql [@me.id, @u1.id, @u2.id, @u3.id]
+      expect(users).to have_same_ids [@me, @u1, @u2, @u3]
     end
 
     it "should include shared contexts if requested" do
@@ -278,7 +284,27 @@ describe ConversationParticipant do
 
     it "should include include forwarded participants if requested" do
       users = @convo.reload.participants(:include_indirect_participants => true)
-      expect(users.map(&:id).sort).to eql [@me.id, @u1.id, @u2.id, @u3.id, @u4.id]
+      expect(users).to have_same_ids [@me, @u1, @u2, @u3, @u4]
+    end
+
+    it "should cache participants per conversation" do
+      allow(Rails.cache).to receive(:fetch) do |key, &block|
+        expect(key).to eq([@convo.conversation, 'participants'].cache_key)
+        expect(block.call).to have_same_ids([@me, @u1, @u2, @u3])
+      end
+      @convo.participants
+    end
+
+    it "should cache indirect participants per conversation and user" do
+      expect(Rails.cache).to receive(:fetch).with([@convo.conversation, @convo.user, 'indirect_participants'].cache_key)
+      allow(Rails.cache).to receive(:fetch) do |key, &block; users|
+        users = block.call
+        if key == [@convo.conversation, @convo.user, 'indirect_participants'].cache_key
+          expect(users).to have_same_ids([@u4])
+        end
+        users
+      end
+      @convo.participants(include_indirect_participants: true)
     end
   end
 
@@ -310,7 +336,7 @@ describe ConversationParticipant do
 
       c.move_to_user @user2
 
-      expect{ c.reload }.to raise_error # deleted
+      expect{ c.reload }.to raise_error(ActiveRecord::RecordNotFound) # deleted
 
       rconvo.reload
       expect(rconvo.participants.size).to eql 3
@@ -347,8 +373,8 @@ describe ConversationParticipant do
 
       c.reload.move_to_user @user2
 
-      expect{ c.reload }.to raise_error # deleted
-      expect{ Conversation.find(c.conversation_id) }.to raise_error # deleted
+      expect{ c.reload }.to raise_error(ActiveRecord::RecordNotFound) # deleted
+      expect{ Conversation.find(c.conversation_id) }.to raise_error(ActiveRecord::RecordNotFound) # deleted
 
       expect(c2.reload.messages.size).to eql 2
       expect(c2.messages.map(&:author_id)).to eql [@user2.id, @user2.id]
@@ -370,7 +396,7 @@ describe ConversationParticipant do
 
       c.reload.move_to_user @user2
 
-      expect{ c.reload }.to raise_error # deleted
+      expect{ c.reload }.to raise_error(ActiveRecord::RecordNotFound) # deleted
       rconvo.reload
       expect(rconvo.participants.size).to eql 1
       expect(rconvo.private_hash).not_to eql old_hash
@@ -388,8 +414,8 @@ describe ConversationParticipant do
 
       c.reload.move_to_user @user2
 
-      expect{ c.reload }.to raise_error # deleted
-      expect{ Conversation.find(c.conversation_id) }.to raise_error # deleted
+      expect{ c.reload }.to raise_error(ActiveRecord::RecordNotFound) # deleted
+      expect{ Conversation.find(c.conversation_id) }.to raise_error(ActiveRecord::RecordNotFound) # deleted
 
       expect(c2.reload.messages.size).to eql 2
       expect(c2.messages.map(&:author_id)).to eql [@user2.id, @user2.id]
@@ -409,8 +435,8 @@ describe ConversationParticipant do
 
       c.reload.move_to_user @user2
 
-      expect{ c.reload }.to raise_error # deleted
-      expect{ Conversation.find(c.conversation_id) }.to raise_error # deleted
+      expect{ c.reload }.to raise_error(ActiveRecord::RecordNotFound) # deleted
+      expect{ Conversation.find(c.conversation_id) }.to raise_error(ActiveRecord::RecordNotFound) # deleted
 
       expect(c2.reload.messages.size).to eql 2
       expect(c2.messages.map(&:author_id)).to eql [@user2.id, @user2.id]
@@ -434,8 +460,8 @@ describe ConversationParticipant do
         c.move_to_user @user2
       end
 
-      expect{ c.reload }.to raise_error # deleted
-      expect{ Conversation.find(c.conversation_id) }.to raise_error # deleted
+      expect{ c.reload }.to raise_error(ActiveRecord::RecordNotFound) # deleted
+      expect{ Conversation.find(c.conversation_id) }.to raise_error(ActiveRecord::RecordNotFound) # deleted
 
       expect(c2.reload.messages.size).to eql 2
       expect(c2.messages.map(&:author_id)).to eql [@user2.id, @user2.id]
@@ -476,9 +502,14 @@ describe ConversationParticipant do
           # not sure how this happens in prod, but it does
           @c1.update_attribute(:root_account_ids, [@a1.id, @a1.global_id].sort.join(","))
 
-          convos = @target_user.conversations.for_masquerading_user(@admin_user)
+          convos = @target_user.conversations.for_masquerading_user(@admin_user, @target_user)
           expect(convos.size).to eql 1
           expect(convos.sort_by(&:id)).to eql [@c1]
+
+          @cross_shard_admin =  @shard1.activate { user_factory }
+          @a1.account_users.create!(user: @cross_shard_admin)
+          convos = @target_user.conversations.for_masquerading_user(@cross_shard_admin, @target_user)
+          expect(convos.size).to eql 1
         end
       end
     end

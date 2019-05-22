@@ -53,7 +53,7 @@ describe "Module Items API", type: :request do
                                                :unlock_at => @christmas,
                                                :require_sequential_progress => true)
     @module2.prerequisites = "module_#{@module1.id}"
-    @wiki_page = @course.wiki.wiki_pages.create!(:title => "wiki title", :body => "")
+    @wiki_page = @course.wiki_pages.create!(:title => "wiki title", :body => "")
     @wiki_page.workflow_state = 'active'; @wiki_page.save!
     @wiki_page_tag = @module2.add_item(:id => @wiki_page.id, :type => 'wiki_page')
     @attachment = attachment_model(:context => @course)
@@ -68,6 +68,38 @@ describe "Module Items API", type: :request do
   context "as a teacher" do
     before :once do
       course_with_teacher(:course => @course, :active_all => true)
+    end
+
+    it 'properly shows a wiki page item locked by CYOE from progressions' do
+      module_with_page = @course.context_modules.create!(name: "new module")
+      assignment = @course.assignments.create!(
+        name: "some assignment",
+        submission_types: ["online_text_entry"],
+        points_possible: 20
+      )
+      module_with_page.add_item(:id => assignment.id, :type => 'assignment')
+      page = @course.wiki_pages.create!(title: "some page")
+      page.assignment = @course.assignments.create!(
+        name: "hidden page",
+        submission_types: ["wiki_page"],
+        only_visible_to_overrides: true
+      )
+      page.save!
+      page_tag = module_with_page.add_item(:id => page.id, :type => 'wiki_page')
+      quiz = @course.quizzes.create!(:title => "some quiz")
+      quiz.publish!
+      module_with_page.add_item(:id => quiz.id, :type => 'quiz')
+      json = api_call(
+        :get, "/api/v1/courses/#{@course.id}/"\
+          "module_item_sequence?asset_type=Assignment&asset_id=#{assignment.id}",
+        :controller => "context_module_items_api",
+        :action => "item_sequence",
+        :format => "json",
+        :course_id => @course.to_param,
+        :asset_type => 'Assignment',
+        :asset_id => assignment.to_param
+      )
+      expect(json['items'][0]['next']['id']).to eq page_tag.id
     end
 
     it "should list module items" do
@@ -135,10 +167,11 @@ describe "Module Items API", type: :request do
               "indent" => 1,
               "completion_requirement" => { "type" => "must_view" },
               "published" => true,
-              "module_id" => @module1.id
+              "module_id" => @module1.id,
+              "new_tab" => nil
           }
       ]
-      compare_json(json, expected)
+      expect(json).to eq expected
     end
 
     context 'index with content details' do
@@ -356,10 +389,22 @@ describe "Module Items API", type: :request do
         expect(tag.content_type).to eq 'Assignment'
         expect(tag.content_id).to eq assignment.id
         expect(tag.indent).to eq new_indent
+        expect(tag).to be_published
+      end
+
+      it "creates an unpublished tag for an unpublished item" do
+        assignment = @course.assignments.create!(:name => "pls submit", :submission_types => ["online_text_entry"],
+                                                 :workflow_state => 'unpublished')
+        json = api_call(:post, "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items",
+                        {:controller => "context_module_items_api", :action => "create", :format => "json",
+                         :course_id => "#{@course.id}", :module_id => "#{@module1.id}"},
+                        {:module_item => {:type => 'Assignment', :content_id => assignment.id}})
+        tag = @module1.content_tags.where(id: json['id']).first
+        expect(tag).to be_unpublished
       end
 
       it "should create with page_url for wiki page items" do
-        wiki_page = @course.wiki.wiki_pages.create!(:title => 'whateva i do wut i want')
+        wiki_page = @course.wiki_pages.create!(:title => 'whateva i do wut i want')
 
         json = api_call(:post, "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items",
                         {:controller => "context_module_items_api", :action => "create", :format => "json",
@@ -388,7 +433,7 @@ describe "Module Items API", type: :request do
       end
 
       it "should require a non-deleted page_url" do
-        page = @course.wiki.wiki_pages.create(:title => 'Deleted Page')
+        page = @course.wiki_pages.create(:title => 'Deleted Page')
         page.workflow_state = 'deleted'
         page.save!
 
@@ -498,6 +543,15 @@ describe "Module Items API", type: :request do
         expect(@assignment_tag.title).to eq new_title
         expect(@assignment.reload.title).to eq new_title
         expect(@assignment_tag.indent).to eq new_indent
+      end
+
+      it "should update the user for a wiki page sync" do
+        expect(@wiki_page.user).to be_nil
+        json = api_call(:put, "/api/v1/courses/#{@course.id}/modules/#{@module2.id}/items/#{@wiki_page_tag.id}",
+          {:controller => "context_module_items_api", :action => "update", :format => "json",
+            :course_id => "#{@course.id}", :module_id => "#{@module2.id}", :id => "#{@wiki_page_tag.id}"},
+          {:module_item => {:title => 'New title'}})
+        expect(@wiki_page.reload.user).to eq(@user)
       end
 
       it "should update new_tab" do
@@ -783,6 +837,34 @@ describe "Module Items API", type: :request do
         expect(json['modules'].map {|mod| mod['id']}.sort).to eq [@module1.id, @module2.id].sort
       end
 
+      context "section specific discussions" do
+        before :each do
+          @topic_section = @course.course_sections.create!
+          @topic.is_section_specific = true
+          @topic.course_sections = [@topic_section]
+          @topic.save!
+        end
+
+        it "should skip discussions invisible by section assignment" do
+          other_section = @course.course_sections.create!
+          @course.enroll_student(user_factory(:active_all => true), :section => other_section, :enrollment_state => "active")
+
+          json = api_call(:get, "/api/v1/courses/#{@course.id}/module_item_sequence?asset_type=ModuleItem&asset_id=#{@quiz_tag.id}",
+            :controller => "context_module_items_api", :action => "item_sequence", :format => "json",
+            :course_id => @course.to_param, :asset_type => 'ModuleItem', :asset_id => @quiz_tag.to_param)
+          expect(json["items"].first["next"]["id"]).to eq @external_url_tag.id
+        end
+
+        it "should still show visible section-specific discussions" do
+          @course.enroll_student(user_factory(:active_all => true), :section => @topic_section, :enrollment_state => "active")
+
+          json = api_call(:get, "/api/v1/courses/#{@course.id}/module_item_sequence?asset_type=ModuleItem&asset_id=#{@quiz_tag.id}",
+            :controller => "context_module_items_api", :action => "item_sequence", :format => "json",
+            :course_id => @course.to_param, :asset_type => 'ModuleItem', :asset_id => @quiz_tag.to_param)
+          expect(json["items"].first["next"]["id"]).to eq @topic_tag.id
+        end
+      end
+
       it "should find a (non-deleted) wiki page by url" do
         json = api_call(:get, "/api/v1/courses/#{@course.id}/module_item_sequence?asset_type=Page&asset_id=#{@wiki_page.url}",
                         :controller => "context_module_items_api", :action => "item_sequence", :format => "json",
@@ -911,8 +993,8 @@ describe "Module Items API", type: :request do
 
     describe 'POST select_mastery_path' do
       before do
-        ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
-        ConditionalRelease::Service.stubs(:select_mastery_path).returns({ code: '200', body: {} })
+        allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(true)
+        allow(ConditionalRelease::Service).to receive(:select_mastery_path).and_return({ code: '200', body: {} })
         student_in_course(course: @course)
       end
 
@@ -926,7 +1008,7 @@ describe "Module Items API", type: :request do
       end
 
       it 'should require mastery paths to be enabled' do
-        ConditionalRelease::Service.stubs(:enabled_in_context?).returns(false)
+        allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(false)
         call_select_mastery_path @assignment_tag, 100, @student.id, expected_status: 400
       end
 
@@ -945,7 +1027,7 @@ describe "Module Items API", type: :request do
       end
 
       it 'should return the CYOE error if the action is unsuccessful' do
-        ConditionalRelease::Service.stubs(:select_mastery_path).returns({ code: '909', body: { 'foo' => 'bar' } })
+        allow(ConditionalRelease::Service).to receive(:select_mastery_path).and_return({ code: '909', body: { 'foo' => 'bar' } })
         json = call_select_mastery_path @assignment_tag, 100, @student.id, expected_status: 909
         expect(json).to eq({ 'foo' => 'bar' })
       end
@@ -959,7 +1041,7 @@ describe "Module Items API", type: :request do
         def cyoe_returns(assignment_ids)
           cyoe_ids = assignment_ids.map {|id| { 'assignment_id' => "#{id}" }} # cyoe ids in strings
           cyoe_response = { 'assignments' => cyoe_ids }
-          ConditionalRelease::Service.stubs(:select_mastery_path).returns({ code: '200', body: cyoe_response })
+          allow(ConditionalRelease::Service).to receive(:select_mastery_path).and_return({ code: '200', body: cyoe_response })
         end
 
         it 'should return a list of assignments if the action is successful' do
@@ -1166,14 +1248,14 @@ describe "Module Items API", type: :request do
                     }]
                   }]
                 }]
-        ConditionalRelease::Service.stubs(headers_for: {}, submissions_for: [],
+        allow(ConditionalRelease::Service).to receive_messages(headers_for: {}, submissions_for: [],
           domain_for: "canvas.xyz", "enabled_in_context?" => true,
           rules_summary_url: "cyoe.abc/rules", request_rules: @resp)
       end
 
       describe "CYOE interaction" do
         it "makes a request to the CYOE service when included" do
-          ConditionalRelease::Service.expects(:request_rules).once
+          expect(ConditionalRelease::Service).to receive(:request_rules).once
 
           api_call(:get, "/api/v1/courses/#{@course.id}/modules/#{@cyoe_module1.id}/items?include[]=mastery_paths",
             :controller => "context_module_items_api", :action => "index", :format => "json",
@@ -1191,6 +1273,97 @@ describe "Module Items API", type: :request do
           expect(mastery_paths).to be_truthy
         end
 
+        it 'properly omits a wiki page item locked by CYOE from progressions' do
+          module_with_page = @course.context_modules.create!(name: "new module")
+          assignment = @course.assignments.create!(
+            name: "some assignment",
+            submission_types: ["online_text_entry"],
+            points_possible: 20
+          )
+          module_with_page.add_item(:id => assignment.id, :type => 'assignment')
+          page = @course.wiki_pages.create!(title: "some page")
+          page.assignment = @course.assignments.create!(
+            name: "hidden page",
+            submission_types: ["wiki_page"],
+            only_visible_to_overrides: true
+          )
+          page.save!
+          module_with_page.add_item(:id => page.id, :type => 'wiki_page')
+          quiz = @course.quizzes.create!(:title => "some quiz")
+          quiz.publish!
+          quiz_tag = module_with_page.add_item(:id => quiz.id, :type => 'quiz')
+          json = api_call(
+            :get, "/api/v1/courses/#{@course.id}/"\
+              "module_item_sequence?asset_type=Assignment&asset_id=#{assignment.id}",
+            :controller => "context_module_items_api",
+            :action => "item_sequence",
+            :format => "json",
+            :course_id => @course.to_param,
+            :asset_type => 'Assignment',
+            :asset_id => assignment.to_param
+          )
+          expect(json['items'][0]['next']['id']).to eq quiz_tag.id
+        end
+
+        it 'does not show an unpublished wiki page in progressions' do
+          module_with_page = @course.context_modules.create!(name: "new module")
+          assignment = @course.assignments.create!(
+            name: "some assignment",
+            submission_types: ["online_text_entry"],
+            points_possible: 20
+          )
+          module_with_page.add_item(:id => assignment.id, :type => 'assignment')
+          page = @course.wiki_pages.create!(title: "some page", workflow_state: 'unpublished')
+          module_with_page.add_item(:id => page.id, :type => 'wiki_page')
+          quiz = @course.quizzes.create!(:title => "some quiz")
+          quiz.publish!
+          quiz_tag = module_with_page.add_item(:id => quiz.id, :type => 'quiz')
+          json = api_call(
+            :get, "/api/v1/courses/#{@course.id}/"\
+              "module_item_sequence?asset_type=Assignment&asset_id=#{assignment.id}",
+            :controller => "context_module_items_api",
+            :action => "item_sequence",
+            :format => "json",
+            :course_id => @course.to_param,
+            :asset_type => 'Assignment',
+            :asset_id => assignment.to_param
+          )
+          expect(json['items'][0]['next']['id']).to eq quiz_tag.id
+        end
+
+        it 'does not omit a wiki page item if CYOE is disabled' do
+          allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(false)
+          module_with_page = @course.context_modules.create!(name: "new module")
+          assignment = @course.assignments.create!(
+            name: "some assignment",
+            submission_types: ["online_text_entry"],
+            points_possible: 20
+          )
+          module_with_page.add_item(:id => assignment.id, :type => 'assignment')
+          page = @course.wiki_pages.create!(title: "some page")
+          page.assignment = @course.assignments.create!(
+            name: "hidden page",
+            submission_types: ["wiki_page"],
+            only_visible_to_overrides: true
+          )
+          page.save!
+          page_tag= module_with_page.add_item(:id => page.id, :type => 'wiki_page')
+          quiz = @course.quizzes.create!(:title => "some quiz")
+          quiz.publish!
+          module_with_page.add_item(:id => quiz.id, :type => 'quiz')
+          json = api_call(
+            :get, "/api/v1/courses/#{@course.id}/"\
+              "module_item_sequence?asset_type=Assignment&asset_id=#{assignment.id}",
+            :controller => "context_module_items_api",
+            :action => "item_sequence",
+            :format => "json",
+            :course_id => @course.to_param,
+            :asset_type => 'Assignment',
+            :asset_id => assignment.to_param
+          )
+          expect(json['items'][0]['next']['id']).to eq page_tag.id
+        end
+
         it "includes model data merge from Canvas" do
           json = api_call(:get, "/api/v1/courses/#{@course.id}/modules/#{@cyoe_module2.id}/items?include[]=mastery_paths",
             :controller => "context_module_items_api", :action => "index", :format => "json",
@@ -1200,10 +1373,19 @@ describe "Module Items API", type: :request do
         end
       end
 
+      describe "module item sequence response data" do
+        it "should include mastery path information" do
+          json = api_call(:get, "/api/v1/courses/#{@course.id}/module_item_sequence?asset_type=Quiz&asset_id=#{@quiz.id}",
+                          :controller => "context_module_items_api", :action => "item_sequence", :format => "json",
+                          :course_id => @course.to_param, :asset_type => 'Quiz', :asset_id => @quiz.to_param)
+          expect(json['items'][0]['mastery_path']).to be_present
+        end
+      end
+
       describe "caching CYOE data" do
         it "uses the cache when requested again" do
-          ConditionalRelease::Service.expects(:request_rules).never
-          ConditionalRelease::Service.stubs(rules_cache: {rules: @resp, updated_at: 1.day.from_now})
+          expect(ConditionalRelease::Service).to receive(:request_rules).never
+          allow(ConditionalRelease::Service).to receive_messages(rules_cache: {rules: @resp, updated_at: 1.day.from_now})
           3.times do
             api_call(:get, "/api/v1/courses/#{@course.id}/modules/#{@cyoe_module3.id}/items?include[]=mastery_paths",
               :controller => "context_module_items_api", :action => "index", :format => "json",
@@ -1329,7 +1511,7 @@ describe "Module Items API", type: :request do
     context 'mark_as_done' do
       before :once do
         @module = @course.context_modules.create(:name => "mark_as_done_module")
-        wiki_page = @course.wiki.wiki_pages.create!(:title => "mark_as_done page", :body => "")
+        wiki_page = @course.wiki_pages.create!(:title => "mark_as_done page", :body => "")
         wiki_page.workflow_state = 'active'
         wiki_page.save!
         @tag = @module.add_item(:id => wiki_page.id, :type => 'wiki_page')
@@ -1478,8 +1660,8 @@ describe "Module Items API", type: :request do
 
     describe 'POST select_mastery_path' do
       before do
-        ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
-        ConditionalRelease::Service.stubs(:select_mastery_path).returns({ code: '200', body: { 'assignments' => [] } })
+        allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(true)
+        allow(ConditionalRelease::Service).to receive(:select_mastery_path).and_return({ code: '200', body: { 'assignments' => [] } })
       end
 
       it 'should allow a mastery path' do
@@ -1511,6 +1693,28 @@ describe "Module Items API", type: :request do
                         {},
                         {:expected_status => 401})
       end
+    end
+  end
+
+  describe 'POST duplicate' do
+    before :once do
+      course_with_teacher(:course => @course, :active_all => true)
+    end
+
+    it 'should duplicate module item' do
+      api_call(:post, "/api/v1/courses/#{@course.id}/modules/items/#{@assignment_tag.id}/duplicate",
+                      { controller: "context_module_items_api", action: 'duplicate', format: 'json',
+                        course_id: "#{@course.id}", id: "#{@assignment_tag.id}" },
+                      {}, {},
+                      {:expected_status => 200})
+    end
+
+    it 'should not duplicate invalid module item' do
+      api_call(:post, "/api/v1/courses/#{@course.id}/modules/items/#{@attachment_tag.id}/duplicate",
+                      { controller: "context_module_items_api", action: 'duplicate', format: 'json',
+                        course_id: "#{@course.id}", id: "#{@attachment_tag.id}" },
+                      {}, {},
+                      {:expected_status => 400})
     end
   end
 
@@ -1550,7 +1754,7 @@ describe "Module Items API", type: :request do
                {}, {},
                {:expected_status => 401}
       )
-      ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
+      allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(true)
       api_call(:post, "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items/#{@assignment_tag.id}/select_mastery_path",
                {:controller => "context_module_items_api", :action => "select_mastery_path", :format => "json",
                 :course_id => "#{@course.id}", :module_id => "#{@module1.id}", :id => "#{@assignment_tag.id}"},

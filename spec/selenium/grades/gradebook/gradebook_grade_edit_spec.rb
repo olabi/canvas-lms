@@ -1,6 +1,23 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../helpers/gradebook_common'
-require_relative '../page_objects/gradebook_page'
-require_relative '../page_objects/grading_curve_page'
+require_relative '../pages/gradebook_page'
+require_relative '../pages/grading_curve_page'
 
 describe "editing grades" do
   include_context "in-process server selenium tests"
@@ -20,9 +37,8 @@ describe "editing grades" do
 
   context 'submission details dialog', priority: "1", test_id: 220305 do
     it 'successfully grades a submission' do
-      skip_if_chrome('issue with set_value')
-      get "/courses/#{@course.id}/gradebook"
-      open_comment_dialog(0, 0)
+      Gradebook.visit_gradebook(@course)
+      Gradebook.open_comment_dialog(0, 0)
       grade_box = f("form.submission_details_grade_form input.grading_value")
       expect(grade_box).to have_value @assignment_1_points
       set_value(grade_box, 7)
@@ -35,14 +51,14 @@ describe "editing grades" do
 
   it "should update a graded quiz and have the points carry over to the quiz attempts page", priority: "1", test_id: 220310 do
     points = 50
-    q = factory_with_protected_attributes(@course.quizzes, :title => "new quiz", :points_possible => points, :quiz_type => 'assignment', :workflow_state => 'available')
+    q = factory_with_protected_attributes(@course.quizzes, title: "new quiz", points_possible: points, quiz_type: 'assignment', workflow_state: 'available')
     q.save!
     qs = q.generate_submission(@student_1)
     Quizzes::SubmissionGrader.new(qs).grade_submission
     q.reload
 
-    get "/courses/#{@course.id}/gradebook"
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .l5', points.to_s)
+    Gradebook.visit_gradebook(@course)
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .b5', points.to_s)
 
     get "/courses/#{@course.id}/quizzes/#{q.id}/history?quiz_submission_id=#{qs.id}"
     expect(f('.score_value')).to include_text points.to_s
@@ -50,7 +66,7 @@ describe "editing grades" do
   end
 
   it "should treat ungraded as 0s when asked, and ignore when not", priority: "1", test_id: 164222 do
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
     # make sure it shows like it is not treating ungraded as 0's by default
     expect(is_checked('#include_ungraded_assignments')).to be_falsey
@@ -68,7 +84,7 @@ describe "editing grades" do
     expect(final_score_for_row(1)).to eq @student_2_total_treating_ungraded_as_zeros
 
     # reload the page and make sure it remembered the setting
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
     expect(is_checked('#include_ungraded_assignments')).to be_truthy
     expect(final_score_for_row(0)).to eq @student_1_total_treating_ungraded_as_zeros
     expect(final_score_for_row(1)).to eq @student_2_total_treating_ungraded_as_zeros
@@ -84,7 +100,7 @@ describe "editing grades" do
   end
 
   it "should validate initial grade totals are correct", priority: "1", test_id: 220311 do
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
     expect(final_score_for_row(0)).to eq @student_1_total_ignoring_ungraded
     expect(final_score_for_row(1)).to eq @student_2_total_ignoring_ungraded
@@ -92,28 +108,29 @@ describe "editing grades" do
 
   it "should change grades and validate course total is correct", priority: "1", test_id: 220312 do
     expected_edited_total = "33.33%"
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
-    #editing grade for first row, first cell
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .l2', 0)
+    # editing grade for first row, first cell
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .b2', 0)
 
-    #editing grade for second row, first cell
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(2) .l2', 0)
+    # editing grade for second row, first cell
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(2) .b2', 0)
 
-    #refresh page and make sure the grade sticks
-    get "/courses/#{@course.id}/gradebook"
+    # refresh page and make sure the grade sticks
+    Gradebook.visit_gradebook(@course)
     expect(final_score_for_row(0)).to eq expected_edited_total
     expect(final_score_for_row(1)).to eq expected_edited_total
   end
 
   it "should allow setting a letter grade on a no-points assignment", priority: "1", test_id: 220313 do
-    assignment_model(:course => @course, :grading_type => 'letter_grade', :points_possible => nil, :title => 'no-points')
-    get "/courses/#{@course.id}/gradebook"
+    assignment_model(course: @course, grading_type: 'letter_grade', points_possible: nil, title: 'no-points')
+    Gradebook.visit_gradebook(@course)
 
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .l5', 'A-')
-    expect(f('#gradebook_grid .container_1 .slick-row:nth-child(1) .l5')).to include_text('A-')
-    expect(@assignment.reload.submissions.size).to eq 1
-    sub = @assignment.submissions.first
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .b5', 'A-')
+    expect(f('#gradebook_grid .container_1 .slick-row:nth-child(1) .b5')).to include_text('A-')
+    submissions = @assignment.submissions.where('grade is not null')
+    expect(submissions.count).to eq 1
+    sub = submissions.first
     expect(sub.grade).to eq 'A-'
     expect(sub.score).to eq 0.0
   end
@@ -121,7 +138,7 @@ describe "editing grades" do
   it "should not update default grades for users not in this section", priority: "1", test_id: 220314 do
     # create new user and section
 
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
     switch_to_section(@other_section)
 
     set_default_grade(2, 13)
@@ -130,22 +147,22 @@ describe "editing grades" do
   end
 
   it "should edit a grade, move to the next cell and validate focus is not lost", priority: "1", test_id: 220318 do
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
-    first_cell = f('#gradebook_grid .container_1 .slick-row:nth-child(1) .l2')
+    first_cell = f('#gradebook_grid .container_1 .slick-row:nth-child(1) .b2')
     first_cell.click
     grade_input = first_cell.find_element(:css, '.grade')
     set_value(grade_input, 3)
     grade_input.send_keys(:tab)
-    expect(f('#gradebook_grid .container_1 .slick-row:nth-child(1) .l3')).to have_class('editable')
+    expect(f('#gradebook_grid .container_1 .slick-row:nth-child(1) .b3')).to have_class('editable')
   end
 
   it "should display dropped grades correctly after editing a grade", priority: "1", test_id: 220316 do
     @course.assignment_groups.first.update_attribute :rules, 'drop_lowest:1'
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
-    assignment_1_sel = '#gradebook_grid .container_1 .slick-row:nth-child(1) .l3'
-    assignment_2_sel= '#gradebook_grid .container_1 .slick-row:nth-child(1) .l4'
+    assignment_1_sel = '#gradebook_grid .container_1 .slick-row:nth-child(1) .b3'
+    assignment_2_sel= '#gradebook_grid .container_1 .slick-row:nth-child(1) .b4'
     a1 = f(assignment_1_sel)
     a2 = f(assignment_2_sel)
     expect(a1).to have_class 'dropped'
@@ -160,9 +177,9 @@ describe "editing grades" do
   end
 
   it "should update a grade when clicking outside of slickgrid", priority: "1", test_id: 220319 do
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
-    first_cell = f('#gradebook_grid .container_1 .slick-row:nth-child(1) .l2')
+    first_cell = f('#gradebook_grid .container_1 .slick-row:nth-child(1) .b2')
     first_cell.click
     grade_input = first_cell.find_element(:css, '.grade')
     set_value(grade_input, 3)
@@ -171,10 +188,9 @@ describe "editing grades" do
   end
 
   it "should validate curving grades option", priority: "1", test_id: 220320 do
-    skip_if_chrome('issue with set_value')
     curved_grade_text = "8"
 
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
 
     open_assignment_options(0)
     f('[data-action="curveGrades"]').click
@@ -186,9 +202,10 @@ describe "editing grades" do
   end
 
   it "should optionally assign zeroes to unsubmitted assignments during curving", priority: "1", test_id: 220321 do
-    get "/courses/#{@course.id}/gradebook"
+    skip_if_safari(:alert)
+    Gradebook.visit_gradebook(@course)
 
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(2) .l2', '')
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(2) .b2', '')
 
     open_assignment_options(0)
     f('[data-action="curveGrades"]').click
@@ -201,10 +218,10 @@ describe "editing grades" do
 
   it "should not factor non graded assignments into group total", priority: "1", test_id: 220323 do
     expected_totals = [@student_1_total_ignoring_ungraded, @student_2_total_ignoring_ungraded]
-    ungraded_submission = @ungraded_assignment.submit_homework(@student_1, :body => 'student 1 submission ungraded assignment')
+    ungraded_submission = @ungraded_assignment.submit_homework(@student_1, body: 'student 1 submission ungraded assignment')
     @ungraded_assignment.grade_student(@student_1, grade: 20, grader: @teacher)
     ungraded_submission.save!
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
     assignment_group_cells = ff('.assignment-group-cell')
     expected_totals.zip(assignment_group_cells) do |expected, cell|
       expect(cell).to include_text expected
@@ -213,7 +230,7 @@ describe "editing grades" do
 
   it "should validate setting default grade for an assignment", priority: "1", test_id: 220383 do
     expected_grade = "45"
-    get "/courses/#{@course.id}/gradebook"
+    Gradebook.visit_gradebook(@course)
     set_default_grade(2, expected_grade)
     grade_grid = f('#gradebook_grid .container_1')
     StudentEnrollment.count.times do |n|
@@ -222,16 +239,59 @@ describe "editing grades" do
   end
 
   it "should display an error on failed updates", priority: "1", test_id: 220384 do
-    SubmissionsApiController.any_instance.expects(:update).returns('bad response')
-    get "/courses/#{@course.id}/gradebook"
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .l2', 0)
-    expect_flash_message :error, /refresh/
+    # forces a 400
+    expect_any_instance_of(SubmissionsApiController).to receive(:get_user_considering_section).and_return(nil)
+    Gradebook.visit_gradebook(@course)
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .b2', 0)
+    expect_flash_message :error, "refresh"
   end
 
-  context 'with multiple grading periods enabled' do
+  context "for a moderated assignment" do
+    before(:each) do
+      # turn on the moderation flag
+      Account.default.enable_feature!(:anonymous_marking)
+
+      # create 1 teacher
+      @teacher_one = user_factory(active_all: true)
+      @course.enroll_teacher(
+        @teacher_one,
+        enrollment_state: 'active'
+      )
+
+      now = Time.zone.now
+      # create a moderated assignment
+      @moderated_assignment = @course.assignments.create!(
+        title: 'Moderated Assignment',
+        submission_types: 'online_text_entry',
+        grader_count: 1,
+        final_grader: @teacher_one,
+        due_at: 1.week.from_now(now),
+        moderated_grading: true,
+        points_possible: 10
+      )
+
+      user_session(@teacher_one)
+      Gradebook.visit_gradebook(@course)
+    end
+
+    it "is not allowed until grades are posted", priority: "1", test_id: 3492444 do
+      Gradebook.cell_click(3, 0)
+      expect(Gradebook.grading_cell_attributes(3, 0).attribute("class")).to include "cannot_edit"
+      expect(Gradebook.cell_tooltip(3, 0).text).to eq("Moderated Assignment")
+    end
+
+    it "is allowed if grades are posted ",priority: "1", test_id: 3492444 do
+      @moderated_assignment.update!(grades_published_at: Time.zone.now)
+      @moderated_assignment.unmute!
+      refresh_page
+      Gradebook.enter_grade("20000", 3, 0)
+      expect(Gradebook.cell_graded?("20,000", 3, 0)).to be true
+    end
+  end
+
+  context 'with grading periods' do
     before(:once) do
       root_account = @course.root_account = Account.default
-      root_account.enable_feature!(:multiple_grading_periods)
 
       group = Factories::GradingPeriodGroupHelper.new.create_for_account(root_account)
       group.enrollment_terms << @course.enrollment_term
@@ -252,20 +312,15 @@ describe "editing grades" do
       @second_assignment.reload
     end
 
-    before(:each) do
-      @page = Gradebook::MultipleGradingPeriods.new
-    end
-
     context 'for assignments with at least one due date in a closed grading period' do
       before(:each) do
         get "/courses/#{@course.id}/gradebook?grading_period_id=0"
-
-        @page.assignment_header_menu(@first_assignment.name).click
+        Gradebook.assignment_header_menu_select(@first_assignment.id)
       end
 
       describe 'the Curve Grades menu item' do
         before(:each) do
-          @curve_grades_menu_item = @page.assignment_header_menu_item('Curve Grades')
+          @curve_grades_menu_item = Gradebook.assignment_header_menu_item_find('Curve Grades')
         end
 
         it 'is disabled' do
@@ -275,13 +330,13 @@ describe "editing grades" do
         it 'gives an error when clicked' do
           @curve_grades_menu_item.click
 
-          expect_flash_message :error, /Unable to curve grades/
+          expect_flash_message :error, "Unable to curve grades"
         end
       end
 
       describe 'the Set Default Grade menu item' do
         before(:each) do
-          @set_default_grade_menu_item = @page.assignment_header_menu_item('Set Default Grade')
+          @set_default_grade_menu_item = Gradebook.assignment_header_menu_item_find('Set Default Grade')
         end
 
         it 'is disabled' do
@@ -291,7 +346,7 @@ describe "editing grades" do
         it 'gives an error when clicked' do
           @set_default_grade_menu_item.click
 
-          expect_flash_message :error, /Unable to set default grade/
+          expect_flash_message :error, "Unable to set default grade"
         end
       end
     end

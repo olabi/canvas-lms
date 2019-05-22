@@ -1,12 +1,13 @@
+<% require 'lib/token_scopes_helper.rb' %>
+
 <% @routes.each do |route| %>
   <% route_path = route.path.spec.to_s.sub("(.:format)", "")
-     if route.verb.source =~ /\^?(\w*)\$/
-       verb = $1.upcase
-     else
-       verb = route.verb.source
-     end
      next if route_path =~ /\.json$/ %>
   <h3 class='endpoint'>
-    <%= verb %> <%= route_path %>
+    <%= route.verb %> <%= route_path %>
   </h3>
+  <div>
+    <strong>Scope: </strong>
+    <code class="scope"><%= TokenScopesHelper.scope_from_route(route) %></code>
+  </div>
 <% end %>

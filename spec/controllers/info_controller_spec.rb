@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,26 +23,65 @@ describe InfoController do
   describe "GET 'health_check'" do
     it "should work" do
       get 'health_check'
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to eq 'canvas ok'
     end
 
     it "should respond_to json" do
       request.accept = "application/json"
-      Canvas.stubs(:revision).returns("Test Proc")
+      allow(Canvas).to receive(:revision).and_return("Test Proc")
+      allow(Canvas::Cdn::RevManifest).to receive(:gulp_manifest).and_return({test_key: "mock_revved_url"})
       get "health_check"
-      expect(response).to be_success
+      expect(response).to be_successful
       json = JSON.parse(response.body)
       expect(json).to have_key('installation_uuid')
       json.delete('installation_uuid')
-      expect(json).to eq({ "status" => "canvas ok", "revision" => "Test Proc" })
+      expect(json).to eq({
+        "status" => "canvas ok",
+        "revision" => "Test Proc",
+        "asset_urls" => {
+          "common_css" => "/dist/brandable_css/new_styles_normal_contrast/bundles/common-#{BrandableCSS.cache_for('bundles/common', 'new_styles_normal_contrast')[:combinedChecksum]}.css",
+          "common_js" => ActionController::Base.helpers.javascript_url("#{ENV['USE_OPTIMIZED_JS'] == 'true' ? '/dist/webpack-production' : '/dist/webpack-dev'}/common"),
+          "revved_url" => "mock_revved_url"
+        }
+      })
+    end
+  end
+
+  describe "GET health_prognosis" do
+    it "should work if partitions are up to date" do
+      # just in case
+      Quizzes::QuizSubmissionEventPartitioner.process
+      Version::Partitioner.process
+      Messages::Partitioner.process
+
+      get "health_prognosis"
+      expect(response).to be_successful
+    end
+
+    it "should fail if partitions haven't been running" do
+      # stick a Version into last partition
+      last_partition = CanvasPartman::PartitionManager.create(Version).partition_tables.last
+      v_id = (last_partition.sub("versions_", "").to_i * Version.partition_size) + 1
+      Version.suspend_callbacks(:initialize_number) do
+        Version.create!(:versionable_id => v_id, :versionable_type => "Assignment")
+      end
+
+      Timecop.freeze(4.years.from_now) do # and jump forward a ways
+        get "health_prognosis"
+        expect(response).to be_server_error
+        body = response.body
+        %w{messages_partition quizzes_submission_events_partition versions_partition}.each do |type|
+          expect(body).to include(type)
+        end
+      end
     end
   end
 
   describe "GET 'help_links'" do
     it "should work" do
       get 'help_links'
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should set the locale for translated help link text from the current user" do
@@ -58,7 +97,7 @@ describe InfoController do
 
     it "should filter the links based on the current user's role" do
       account = Account.create!
-      Account::HelpLinks.stubs(:default_links).returns([
+      allow(Account::HelpLinks).to receive(:default_links).and_return([
         {
           :available_to => ['student'],
           :text => 'Ask Your Instructor a Question',
@@ -67,31 +106,26 @@ describe InfoController do
           :is_default => 'true'
         },
         {
-          :available_to => ['user', 'student', 'teacher', 'admin'],
+          :available_to => ['user', 'student', 'teacher', 'admin', 'observer', 'unenrolled'],
           :text => 'Search the Canvas Guides',
           :subtext => 'Find answers to common questions',
           :url => 'http://community.canvaslms.com/community/answers/guides',
           :is_default => 'true'
         },
         {
-          :available_to => ['user', 'student', 'teacher', 'admin'],
+          :available_to => ['user', 'student', 'teacher', 'admin', 'observer', 'unenrolled'],
           :text => 'Report a Problem',
           :subtext => 'If Canvas misbehaves, tell us about it',
           :url => '#create_ticket',
           :is_default => 'true'
         }
       ])
-      LoadAccount.stubs(:default_domain_root_account).returns(account)
+      allow(LoadAccount).to receive(:default_domain_root_account).and_return(account)
       admin = account_admin_user active_all: true
       user_session(admin)
 
       get 'help_links'
-
-      # because this is a normal application session, the response is prepended
-      # with our anti-csrf measure
-      json = response.body
-      anti_csrf = 'while(1);'
-      links = JSON.parse(json[anti_csrf.length..json.length-1])
+      links = json_parse(response.body)
       expect(links.select {|link| link[:text] == 'Ask Your Instructor a Question'}.size).to eq 0
     end
   end

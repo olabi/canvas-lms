@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,19 +20,22 @@ class AssignmentOverride < ActiveRecord::Base
   include Workflow
   include TextHelper
 
+  NOOP_MASTERY_PATHS = 1
+
+  SET_TYPE_NOOP = 'Noop'.freeze
+
   simply_versioned :keep => 10
 
   attr_accessor :dont_touch_assignment, :preloaded_student_ids, :changed_student_ids
 
   belongs_to :assignment
   belongs_to :quiz, class_name: 'Quizzes::Quiz'
-  belongs_to :set, :polymorphic => true
-  has_many :assignment_override_students, :dependent => :destroy, :validate => false
+  belongs_to :set, polymorphic: [:group, :course_section], exhaustive: false
+  has_many :assignment_override_students, -> { where(workflow_state: 'active') }, :dependent => :destroy, :validate => false
   validates_presence_of :assignment_version, :if => :assignment
   validates_presence_of :title, :workflow_state
-  validates :set_type, inclusion: %w(CourseSection Group ADHOC Noop)
+  validates :set_type, inclusion: ['CourseSection', 'Group', 'ADHOC', SET_TYPE_NOOP]
   validates_length_of :title, :maximum => maximum_string_length, :allow_nil => true
-
   concrete_set = lambda{ |override| ['CourseSection', 'Group'].include?(override.set_type) }
 
   validates_presence_of :set, :set_id, :if => concrete_set
@@ -75,22 +78,66 @@ class AssignmentOverride < ActiveRecord::Base
     end
   end
 
-  after_save :update_cached_due_dates
   after_save :touch_assignment, :if => :assignment
+  after_save :update_grading_period_grades
+  after_commit :update_cached_due_dates
 
   def set_not_empty?
     overridable = assignment? ? assignment : quiz
-    ['CourseSection', 'Group', 'Noop'].include?(self.set_type) ||
+    ['CourseSection', 'Group', SET_TYPE_NOOP].include?(self.set_type) ||
     (set.any? && overridable.context.current_enrollments.where(user_id: set).exists?)
   end
 
-  def update_cached_due_dates
-    return unless assignment?
-    if due_at_overridden_changed? ||
-      (due_at_overridden && due_at_changed?) ||
-      (due_at_overridden && workflow_state_changed?)
-      DueDateCacher.recompute(assignment)
+  def update_grading_period_grades
+    return true unless due_at_overridden && saved_change_to_due_at? && !saved_change_to_id?
+
+    course = assignment&.context || quiz&.context || quiz&.assignment&.context
+    return true unless course&.grading_periods?
+
+    grading_period_was = GradingPeriod.for_date_in_course(date: due_at_before_last_save, course: course)
+    grading_period = GradingPeriod.for_date_in_course(date: due_at, course: course)
+    return true if grading_period_was&.id == grading_period&.id
+
+    students = applies_to_students.map(&:id)
+    return true if students.blank?
+
+    if grading_period_was
+      # recalculate just the old grading period's score
+      course.recompute_student_scores(students, grading_period_id: grading_period_was.id, update_course_score: false)
     end
+    # recalculate the new grading period's score. If the grading period group is
+    # weighted, then we need to recalculate the overall course score too. (If
+    # grading period is nil, make sure we pass true for `update_course_score`
+    # so we can use a singleton job.)
+    course.recompute_student_scores(
+      students,
+      grading_period_id: grading_period&.id,
+      update_course_score: grading_period.blank? || grading_period.grading_period_group&.weighted?
+    )
+    true
+  end
+  private :update_grading_period_grades
+
+  # This method is meant to be used in an after_commit setting
+  def update_cached_due_dates?
+    return false if assignment.blank?
+
+    set_id_changed = previous_changes.key?(:set_id)
+    set_type_changed_to_non_adhoc = previous_changes.key?(:set_type) && set_type != 'ADHOC'
+    due_at_overridden_changed = previous_changes.key?(:due_at_overridden)
+    due_at_changed = previous_changes.key?(:due_at) && due_at_overridden?
+    workflow_state_changed = previous_changes.key?(:workflow_state)
+
+    due_at_overridden_changed ||
+      set_id_changed ||
+      set_type_changed_to_non_adhoc ||
+      due_at_changed ||
+      workflow_state_changed
+  end
+  private :update_cached_due_dates?
+
+  def update_cached_due_dates
+    DueDateCacher.recompute(assignment) if update_cached_due_dates?
   end
 
   def touch_assignment
@@ -113,7 +160,8 @@ class AssignmentOverride < ActiveRecord::Base
     transaction do
       self.assignment_override_students.reload.destroy_all
       self.workflow_state = 'deleted'
-      self.save!
+      self.default_values
+      self.save!(validate: false)
     end
   end
 
@@ -129,7 +177,7 @@ class AssignmentOverride < ActiveRecord::Base
       scope = scope.primary_shard.activate {
         scope.joins("INNER JOIN #{visible_ids.klass.quoted_table_name} ON assignment_override_students.user_id=#{visible_ids.klass.table_name}.#{column}")
       }
-      return scope.merge(visible_ids.except(:select))
+      next scope.merge(visible_ids.except(:select))
     end
 
     scope.where(
@@ -154,6 +202,10 @@ class AssignmentOverride < ActiveRecord::Base
   end
   protected :default_values
 
+  def mastery_paths?
+    set_type == SET_TYPE_NOOP && set_id == NOOP_MASTERY_PATHS
+  end
+
   # override set read accessor and set_id read/write accessors so that reading
   # set/set_id or setting set_id while set_type=ADHOC doesn't try and find the
   # ADHOC model
@@ -164,7 +216,7 @@ class AssignmentOverride < ActiveRecord::Base
   def set
     if self.set_type == 'ADHOC'
       assignment_override_students.preload(:user).map(&:user)
-    elsif self.set_type == 'Noop'
+    elsif self.set_type == SET_TYPE_NOOP
       nil
     else
       super
@@ -172,7 +224,7 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   def set_id=(id)
-    if %w(ADHOC Noop).include? self.set_type
+    if ['ADHOC', SET_TYPE_NOOP].include? self.set_type
       write_attribute(:set_id, id)
     else
       super
@@ -285,10 +337,9 @@ class AssignmentOverride < ActiveRecord::Base
     self.assignment.context.available? &&
     self.assignment.published? &&
     self.assignment.created_at < 3.hours.ago &&
-    (!self.prior_version ||
-      self.workflow_state != self.prior_version.workflow_state ||
-      self.due_at_overridden != self.prior_version.due_at_overridden ||
-      self.due_at_overridden && !Assignment.due_dates_equal?(self.due_at, self.prior_version.due_at))
+    (saved_change_to_workflow_state? ||
+      saved_change_to_due_at_overridden? ||
+      due_at_overridden && !Assignment.due_dates_equal?(due_at, due_at_before_last_save))
   end
 
   def set_title_if_needed
@@ -303,18 +354,16 @@ class AssignmentOverride < ActiveRecord::Base
 
   def title_from_students(students)
     return t("No Students") if students.blank?
-    t(:student_count,
-      {
-        one: '%{count} student',
-        other: '%{count} students'
-      },
-      count: students.count
-     )
+    self.class.title_from_student_count(students.count)
+  end
+
+  def self.title_from_student_count(student_count)
+    t(:student_count, { one: '%{count} student', other: '%{count} students' }, count: student_count)
   end
 
   def destroy_if_empty_set
     return unless set_type == 'ADHOC'
-    self.assignment_override_students.reload if self.id_was.nil? # fixes a problem with rails 4.2 caching an empty association scope
+    self.assignment_override_students.reload if self.id_before_last_save.nil? # fixes a problem with rails 4.2 caching an empty association scope
     self.destroy if set.empty?
   end
 

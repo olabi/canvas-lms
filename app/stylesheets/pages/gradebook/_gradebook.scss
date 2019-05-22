@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 $gradebook_letter-grade-font: lighten($ic-color-dark, 8%);
 
 a#accessibility_warning {
@@ -15,14 +33,14 @@ $cell_height: 33px;
 .slick-sort-indicator {
   position: absolute;
   bottom: 4px;
-  left: 0px;
+  #{direction(left)}: 0px;
 }
 
 .container_0,
 .container_1 {
   .slick-cell {
     border-bottom: 1px dotted #ccc;
-    border-right: 1px dotted #ccc;
+    border-#{direction(right)}: 1px dotted #ccc;
     padding: 0;
     overflow: visible;
     &.editable {
@@ -53,15 +71,15 @@ $cell_height: 33px;
 }
 
 .student-grades-link {
-  @if $use_high_contrast { color: darken($ic-link-color, 5%); }
+  @if $use_high_contrast { color: var(--ic-link-color-darkened-10); }
 }
 
 .meta-cell .avatar {
   width: 25px;
   height: 25px;
   margin-top: 3px;
-  margin-right: 4px;
-  float: left;
+  margin-#{direction(right)}: 4px;
+  float: direction(left);
   position: relative;
   z-index: 1;
 }
@@ -101,7 +119,7 @@ $cell_height: 33px;
 }
 
 .slick-header-column {
-  background-color: #f3f4f8;
+  background-color: $ic-bg-light-neutral;
   background-image: none;
   padding: 10px;
   @include fontSize(12px);
@@ -114,8 +132,7 @@ $cell_height: 33px;
   &.hovered-column,
   &.slick-header-column-active,
   &.ui-state-hover {
-    @if $use_high_contrast { @include vertical-gradient(#eef5fc, #d5e2ed); }
-    @else { @include vertical-gradient(#e0ecf9, #bdd2e3); }
+    background-color: $ic-bg-light-primary;
   }
   .slick-column-name {
     font-weight: bold;
@@ -133,7 +150,7 @@ $cell_height: 33px;
     @if $use_high_contrast {
       &:hover, &:focus { text-decoration: underline; }
     }
-    @else { color: $ic-link-color; }
+    @else { color: var(--ic-link-color); }
   }
   .muted i {
     color: $ic-color-medium-darker;
@@ -142,11 +159,11 @@ $cell_height: 33px;
     font-weight: normal;
     @include fontSize(12px);
     margin: {
-      left: 10px;
-      right: 14px;
+      #{direction(left)}: 10px;
+      #{direction(right)}: 14px;
     };
     // If high contrast, default to regular dark text
-    @if $use_high_contrast == false { color: lighten($ic-font-color-dark, 15%); }
+    @if not $use_high_contrast { color: var(--ic-brand-font-color-dark-lightened-15); }
   }
   .gradebook-header-drop {
     //put it above the "out of"
@@ -155,7 +172,7 @@ $cell_height: 33px;
     height: 14px;
     position: absolute;
     bottom: 3px;
-    right: 3px;
+    #{direction(right)}: 3px;
     text-indent: 999px;
     opacity: 0;
     //override jqueryui blue border
@@ -244,7 +261,7 @@ $cell_height: 33px;
 
 .slick-cell {
   // we're adding this further in
-  // border-right: none
+  // border-#{direction(right)}: none
 }
 
 .slick-cell.editable {
@@ -259,38 +276,22 @@ $cell_height: 33px;
 @mixin first-row-tooltip() {
   top: 35px;
   &:after {
-    border-top-color: transparent;
-    border-left-color: transparent;
-    border-right-color: transparent;
-    border-bottom: 5px solid #444444;
-    bottom: 30px;
+    display: none;
   }
-}
-
-// We need both visibility and opacity because visibility is binary but opacity will allow fading in/out
-@keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
-}
-@-o-keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
-}
-@-moz-keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
-}
-@-webkit-keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
+  &:before {
+    border-color: #444444 transparent;
+    border-style: solid;
+    border-width: 5px 5px 0;
+    position: absolute;
+    width: 0;
+    #{direction(left)}: 15px;
+    content: "";
+    border-top-color: transparent;
+    border-#{direction(left)}-color: transparent;
+    border-#{direction(right)}-color: transparent;
+    border-bottom: 5px solid #444444;
+    top: -10px;
+  }
 }
 
 .gradebook-tooltip {
@@ -303,8 +304,9 @@ $cell_height: 33px;
   z-index: 7;
   position: absolute;
   font-size: 0.8em;
-  left: 0;
+  #{direction(left)}: 0;
   top: -30px;
+  line-height: 1rem;
   &:after {
     border-color: #444444 transparent;
     border-style: solid;
@@ -312,7 +314,7 @@ $cell_height: 33px;
     position: absolute;
     bottom: -5px;
     width: 0;
-    left: 15px;
+    #{direction(left)}: 15px;
     content: "";
   }
   .slick-cell.hover &, .slick-cell.focus &, .slick-cell.selected & {
@@ -322,10 +324,6 @@ $cell_height: 33px;
   .slick-cell.active &, .slick-cell.editable & {
     visibility: visible;
     opacity: 1;
-    -webkit-animation: fade-in-and-out 2s 1 forwards;
-    -moz-animation: fade-in-and-out 2s 1 forwards;
-    -o-animation: fade-in-and-out 2s 1 forwards;
-    animation: fade-in-and-out 2s 1 forwards;
   }
   &.first-row {
     @include first-row-tooltip();
@@ -353,11 +351,11 @@ $cell_height: 33px;
 }
 
 .gradebook-tooltip-last {
-  left: auto;
-  right: 0;
+  #{direction(left)}: auto;
+  #{direction(right)}: 0;
   &:after {
-    left: auto;
-    right: 15px;
+    #{direction(left)}: auto;
+    #{direction(right)}: 15px;
   }
 }
 
@@ -389,7 +387,7 @@ $gradebook_cell_padding_top: 8px;
 .gradebook-cell-turnitin {
   position: absolute;
   top: 2px;
-  right: 2px;
+  #{direction(right)}: 2px;
   z-index: 1;
   width: 20px;
   height: 16px;
@@ -411,12 +409,18 @@ $gradebook_cell_padding_top: 8px;
   &.failure-score {
     background-image: url(/images/turnitin_failure_score.png);
   }
+  &.pending-score {
+    background-image: url(/images/turnitin_submission_pending.png);
+  }
+  &.error-score {
+    background-image: url(/images/turnitin_submission_error.png);
+  }
 }
 
 .gradebook-cell-comment {
   position: absolute;
   top: -1px;
-  right: -1px;
+  #{direction(right)}: -1px;
   height: 12px;
   width: 12px;
   visibility: hidden;
@@ -474,7 +478,6 @@ $gradebook_cell_padding_top: 8px;
 }
 
 .gradebook-cell-comment-label {
-  @include hide-text;
   display: inline-block;
 }
 
@@ -532,13 +535,13 @@ $gradebook_cell_padding_top: 8px;
   .grade-and-outof-wrapper {
     position: absolute;
     top: 50%;
-    left: 50%;
+    #{direction(left)}: 50%;
     width: 400px;
-    margin-left: -200px;
+    margin-#{direction(left)}: -200px;
     //changeme
     margin-top: -10px;
     .divider {
-      padding: 0 1px 0 2px;
+      padding: direction-sides(0 1px 0 2px);
     }
     .outof, .grade {
       width: 200px;
@@ -546,14 +549,14 @@ $gradebook_cell_padding_top: 8px;
       background: transparent;
     }
     .outof {
-      @include user-select(none);
-      text-align: left;
+      user-select: none;
+      text-align: direction(left);
       // if high contrast, no color value (default to regular dark text color)
       @if $use_high_contrast == false { color: #888888; }
     }
     .grade {
       border: none;
-      text-align: right;
+      text-align: direction(right);
       outline: none;
       @include fontSize(12px);
     }
@@ -568,10 +571,10 @@ $gradebook_checkbox_size: 16px;
 .gradebook-checkbox {
   display: block;
   position: absolute;
-  left: 50%;
+  #{direction(left)}: 50%;
   top: 50%;
   margin-top: -($gradebook_checkbox_size / 2) - ( $gradebook_cell_padding_top / 2 );
-  margin-left: -$gradebook_checkbox_size / 2;
+  margin-#{direction(left)}: -$gradebook_checkbox_size / 2;
 }
 
 #hide_warning {
@@ -613,7 +616,7 @@ $gradebook_checkbox_size: 16px;
     width: 248px;
   }
   @include breakpoint(desktop) {
-    margin-left: $ic-sp/3;
+    margin-#{direction(left)}: $ic-sp/3;
   }
 }
 
@@ -623,7 +626,7 @@ $gradebook_checkbox_size: 16px;
     white-space: nowrap;
     margin-top: 0;
     flex: 1;
-    text-align: right;
+    text-align: direction(right);
   }
 }
 
@@ -683,7 +686,7 @@ $gradebook_checkbox_size: 16px;
 .gpa-scale-points {
   position: absolute;
   @include fontSize(12px);
-  padding-left: 8px;
+  padding-#{direction(left)}: 8px;
   line-height: 19px;
   color: $gradebook_letter-grade-font;
   .muted & {
@@ -693,7 +696,7 @@ $gradebook_checkbox_size: 16px;
 }
 
 .final-warning {
-  margin-left: -16px;
+  margin-#{direction(left)}: -16px;
 }
 
 .gradebook_dropdown, .export_dropdown {
@@ -739,7 +742,7 @@ $gradebook_checkbox_size: 16px;
 
   div {
     position: relative;
-    left: 0;
+    #{direction(left)}: 0;
     width: 20px;
     height: 8px;
     background: blue;

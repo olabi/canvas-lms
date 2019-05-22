@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Importers
   class LinkParser
     module Helpers
@@ -45,7 +62,7 @@ module Importers
       return unless node[attr].present?
 
       if attr == 'value'
-        return unless node['name'] && node['name'] == 'src'
+        return unless node[attr] && node[attr] =~ %r{IMS(?:-|_)CC(?:-|_)FILEBASE} || node[attr] =~ %r{CANVAS_COURSE_REFERENCE}
       end
 
       url = node[attr].dup
@@ -95,10 +112,12 @@ module Importers
         unresolved(:wiki_page, :migration_id => $1)
       elsif url =~ /discussion_topic_migration_id=(.*)/
         unresolved(:discussion_topic, :migration_id => $1)
-      elsif url =~ %r{\$CANVAS_COURSE_REFERENCE\$/modules/items/(.*)}
-        unresolved(:module_item, :migration_id => $1)
-      elsif url =~ %r{(?:\$CANVAS_OBJECT_REFERENCE\$|\$WIKI_REFERENCE\$)/([^/]*)/(.*)}
-        unresolved(:object, :type => $1, :migration_id => $2)
+      elsif url =~ %r{\$CANVAS_COURSE_REFERENCE\$/modules/items/([^\?]*)(\?.*)?}
+        unresolved(:module_item, :migration_id => $1, :query => $2)
+      elsif url =~ %r{\$CANVAS_COURSE_REFERENCE\$/file_ref/([^/\?#]+)(.*)}
+        unresolved(:file_ref, :migration_id => $1, :rest => $2)
+      elsif url =~ %r{(?:\$CANVAS_OBJECT_REFERENCE\$|\$WIKI_REFERENCE\$)/([^/]*)/([^\?]*)(\?.*)?}
+        unresolved(:object, :type => $1, :migration_id => $2, :query => $3)
 
       elsif url =~ %r{\$CANVAS_COURSE_REFERENCE\$/(.*)}
         resolved("#{context_path}/#{$1}")
@@ -113,6 +132,8 @@ module Importers
       elsif attr == 'href' && node['class'] && node['class'] =~ /instructure_inline_media_comment/
         # Course copy media reference, leave it alone
         resolved
+      elsif attr == 'src' && (info_match = url.match(/\Adata:(?<mime_type>[-\w]+\/[-\w\+\.]+)?;base64,(?<image>.*)/m))
+        link_embedded_image(info_match)
       elsif attr == 'src' && node['class'] && node['class'] =~ /equation_image/
         # Equation image, leave it alone
         resolved
@@ -134,6 +155,24 @@ module Importers
       else
         resolved
       end
+    end
+
+    def link_embedded_image(info_match)
+      extension = MIME::Types[info_match[:mime_type]]&.first&.extensions&.first
+      image_data = Base64.decode64(info_match[:image])
+      md5 = Digest::MD5.hexdigest image_data
+      folder_name = I18n.t('embedded_images')
+      @folder ||= Folder.root_folders(context).first.sub_folders.
+        where(name: folder_name, workflow_state: 'hidden', context: context).first_or_create!
+      filename = "#{md5}.#{extension}"
+      file = Tempfile.new([md5, ".#{extension}"])
+      file.binmode
+      file.write(image_data)
+      file.close
+      attachment = FileInContext.attach(context, file.path, filename, @folder, filename, false, md5)
+      resolved("#{context_path}/files/#{attachment.id}/preview")
+    rescue
+      unresolved(:file, rel_path: "#{folder_name}/#{filename}")
     end
   end
 end

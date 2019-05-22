@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,21 +12,19 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!sub_accounts',
-  'jquery' /* jQuery, $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_forms' /* formSubmit, fillFormData */,
-  'jquery.instructure_misc_helpers' /* replaceTags */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, showIf */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */
-], function(I18n, jQuery) {
+import I18n from 'i18n!sub_accounts'
+import jQuery from 'jquery'
+import './jquery.ajaxJSON'
+import './jquery.instructure_forms' /* formSubmit, fillFormData */
+import './jquery.instructure_misc_helpers' /* replaceTags */
+import './jquery.instructure_misc_plugins' /* confirmDelete, showIf */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import './jquery.templateData'
 
 jQuery(function($){
   
@@ -191,5 +189,4 @@ jQuery(function($){
     return false;
   });
   
-});
 });

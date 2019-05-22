@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "pages/shared/menu_tools.scss";
 @import "pages/shared/move_dialog";
@@ -17,14 +35,14 @@ $answersSprite: url(/images/answers_sprite.png);
   @include accessibility-prompt;
   @include fontSize($ic-font-size--xsmall);
   position: absolute;
-  left: 0px;
+  #{direction(left)}: 0px;
   top: -16px;
 }
 
 // quiz index
 li.quiz {
   cursor: pointer;
-  .ellipses, i[class^=icon-]:not(.icon-publish):not(.icon-quiz):not(.icon-post-to-sis):not(.icon-lock) {
+  .ellipses, i[class^=icon-]:not(.icon-publish):not(.icon-quiz):not(.icon-post-to-sis):not(.icon-lock):not(.icon-blueprint-lock) {
     color: darken($ic-color-neutral, 40);
   }
   .ig-title {
@@ -40,9 +58,9 @@ li.quiz {
     opacity: 1;
   }
   .alert {
-    padding-right: 14px;
+    padding-#{direction(right)}: 14px;
     .actions {
-      text-align: right;
+      text-align: direction(right);
       line-height: 36px;
     }
 
@@ -54,8 +72,8 @@ li.quiz {
     }
   }
   .admin-links {
-    text-align: left;
-    margin-left: 10px;
+    text-align: direction(left);
+    margin-#{direction(left)}: 10px;
     .al-options {
       min-width: 125px;
     }
@@ -69,7 +87,7 @@ li.quiz {
     resize: vertical;
   }
   .lock_explanation {
-    text-align: left;
+    text-align: direction(left);
     margin-top: 20px;
   }
   .take_quiz_button {
@@ -85,11 +103,11 @@ li.quiz {
   #quiz_details {
     // display: none so jquery ui toggles correctly
     display: none;
-    margin: 0 auto 10px auto;
+    margin: 0 auto 10px;
     max-height: 500px;
     overflow: auto;
     .submitted_list {
-      float: left;
+      float: direction(left);
       width: 50%;
     }
     .name {
@@ -105,7 +123,7 @@ li.quiz {
       width: 33.3%;
     }
     .controls {
-      margin-left: 35%;
+      margin-#{direction(left)}: 35%;
       .value {
         display: block;
         padding-top: 5px;
@@ -125,10 +143,10 @@ li.quiz {
       display: inline-block;
       .title {
         font-weight: bold;
-        margin-right: 2px;
+        margin-#{direction(right)}: 2px;
       }
       .value {
-        padding-right: 2.5em;
+        padding-#{direction(right)}: 2.5em;
       }
     }
   }
@@ -185,20 +203,20 @@ li.quiz {
     min-width: 120px;
   }
   .button-container {
-    padding: 0 30px 0 30px;
+    padding: 0 30px;
     .previous-question,
     .next-question {
       position: relative;
     }
     .previous-question {
       i {
-        left: 5px;
+        #{direction(left)}: 5px;
       }
     }
     .next-question {
-      float: right;
+      float: direction(right);
       i {
-        right: 5px;
+        #{direction(right)}: 5px;
       }
     }
     .next-question:after, .previous-question:before {
@@ -214,7 +232,7 @@ li.quiz {
   max-height: 250px;
   overflow: auto;
   margin: 0px 0px 20px;
-  padding-left: 30px;
+  padding-#{direction(left)}: 30px;
   line-height: 1.5em;
   li {
     cursor: pointer;
@@ -236,7 +254,7 @@ li.quiz {
     .answers {
       .answer {
         clear: both;
-        margin: 0 0 8px 0;
+        margin: 0 0 8px;
         position: relative;
         @if $use_high_contrast {
           opacity: 0.7;
@@ -311,7 +329,7 @@ li.quiz {
 #questions.assessing, #questions.assessment_results {
   .question_holder {
     .question {
-      margin: 0.7em 30px 30px 30px;
+      margin: 0.7em 30px 30px;
       &.related {
         border-width: 2px;
       }
@@ -331,7 +349,7 @@ li.quiz {
   padding: 16px;
   min-height: 225px;
   .answer {
-    padding: 5px 5px;
+    padding: 5px;
     margin: 0;
     @include clearfix;
     &:last-child {
@@ -366,12 +384,12 @@ li.quiz {
     display: none;
   }
   .group_placeholder {
-    border-right: 1px solid #aaa;
-    border-left: 1px solid #aaa;
+    border-#{direction(right)}: 1px solid #aaa;
+    border-#{direction(left)}: 1px solid #aaa;
   }
   .group_top {
     border: 1px solid #aaa;
-    padding: 8px 10px 3px 10px;
+    padding: 8px 10px 3px;
     background-color: #eee;
     clear: both;
     position: relative;
@@ -399,8 +417,8 @@ li.quiz {
     .move {
       width: 20px;
       height: 20px;
-      float: left;
-      margin-right: 7px;
+      float: direction(left);
+      margin-#{direction(right)}: 7px;
       .draggable-handle {
         color: #888;
         cursor: pointer;
@@ -408,7 +426,7 @@ li.quiz {
     }
     .group_display.name {
       font-weight: bold;
-      padding-right: 20px;
+      padding-#{direction(right)}: 20px;
       line-height: 20px;
       @include fontSize($ic-font-size--small);
       display: inline;
@@ -448,8 +466,8 @@ li.quiz {
     border: 1px solid #aaa;
     border-top-width: 0;
     margin-bottom: 30px;
-    -moz-border-radius-bottomright: 5px;
-    -moz-border-radius-bottomleft: 5px;
+    -moz-border-radius-bottom#{direction(right)}: 5px;
+    -moz-border-radius-bottom#{direction(left)}: 5px;
   }
   .question_holder.ui-sortable-placeholder {
     .question_placeholder {
@@ -459,11 +477,11 @@ li.quiz {
     }
   }
   .assessment_question_bank, .question_holder.group, .insufficient_count_warning {
-    border-left: 1px solid #aaa;
-    border-right: 1px solid #aaa;
+    border-#{direction(left)}: 1px solid #aaa;
+    border-#{direction(right)}: 1px solid #aaa;
     border-top: 0;
-    padding-left: 20px;
-    padding-right: 20px;
+    padding-#{direction(left)}: 20px;
+    padding-#{direction(right)}: 20px;
     padding-top: 1em;
     -moz-border-radius: 0;
   }
@@ -499,10 +517,6 @@ li.quiz {
     // Don't display the "move"  icon since the the new order change isn't persisted for a bank. #10148
 
   }
-  .icon-bookmark,
-  .icon-remove-bookmark {
-    color: $ic-color-medium-darker;
-  }
 }
 
 .question_holder {
@@ -521,7 +535,7 @@ li.quiz {
 }
 
 #questions.assessment_results .question_holder .question {
-  margin: 0.7em auto 30px auto;
+  margin: 0.7em auto 30px;
   min-width: 415px;
   width: 80%;
 }
@@ -531,7 +545,7 @@ li.quiz {
   background-color: #fff;
   position: relative;
   min-height: 50px;
-  margin: 0.7em auto 30px auto;
+  margin: 0.7em auto 30px;
   _height: 10px;
   &.modified_but_not_saved {
     border-width: 2px;
@@ -542,8 +556,8 @@ li.quiz {
   }
   .move {
     background: none !important;
-    float: left;
-    margin: 8px 8px 0 8px;
+    float: direction(left);
+    margin: 8px 8px 0;
     width: 16px;
     height: 16px;
     padding: 2px;
@@ -560,7 +574,7 @@ li.quiz {
     padding: 8px 20px;
     margin: 0;
     .question_points_holder {
-      float: right;
+      float: direction(right);
       font-size: 0.9em;
       font-weight: bold;
       color: darken($ic-color-neutral, 55);
@@ -568,8 +582,8 @@ li.quiz {
     }
   }
   .text {
-    clear: left;
-    padding: 5px 20px 20px 20px;
+    clear: direction(left);
+    padding: 5px 20px 20px;
     .button-container {
       clear: both;
     }
@@ -598,7 +612,7 @@ li.quiz {
       margin-bottom: 2px;
     }
     .calculated_question_answers_content {
-      margin-left: 20px;
+      margin-#{direction(left)}: 20px;
       margin-bottom: 5px;
       max-width: 400px;
       overflow: auto;
@@ -606,14 +620,14 @@ li.quiz {
         border-collapse: collapse;
       }
       th {
-        text-align: left;
+        text-align: direction(left);
         font-weight: normal;
-        padding-left: 5px;
-        padding-right: 5px;
+        padding-#{direction(left)}: 5px;
+        padding-#{direction(right)}: 5px;
       }
       td {
         border-top: 1px solid #ccc;
-        text-align: left;
+        text-align: direction(left);
       }
     }
     .equation_combinations_holder {
@@ -629,26 +643,33 @@ li.quiz {
         word-wrap: break-word;
       }
       .answer {
-        padding: 8px 30px 0 30px;
+        padding: 8px 30px 0;
         .answer_list {
           margin: 5px;
-          padding-left: 0;
+          padding-#{direction(left)}: 0;
           font-weight: bold;
         }
+        .answer_row {
+          display: flex;
+          align-items: flex-start;
+        }
         .answer_input {
+          width: 12px;
           vertical-align: top;
+          padding-top: 2px;
           input[type="radio"], input[type="checkbox"] {
             margin-top: 0;
           }
         }
         .answer_label {
-          padding-left: 0.5em;
+          padding-#{direction(left)}: 0.5rem;
           padding-top: 2px;
+          width: 100%;
         }
-        .answer_label > label > *:first-child, .answer_label > label + * {
+        .answer_label > *:first-child, .answer_label + * {
           margin-top: 0;
         }
-        .answer_label > label > p:last-child {
+        .answer_label > p:last-child {
           margin-bottom: 0;
         }
         .answer_html > p:last-child {
@@ -689,7 +710,7 @@ li.quiz {
   }
   .question_comment {
     position: relative;
-    float: left;
+    float: direction(left);
     width: auto;
     min-width: 50px;
     border: 2px solid #faa;
@@ -700,7 +721,7 @@ li.quiz {
       position: absolute;
       display: block;
       top: -8px;
-      left: 10px;
+      #{direction(left)}: 10px;
       width: 19px;
       height: 8px;
       background-image: url(/images/comment_top.png);
@@ -720,21 +741,25 @@ li.quiz {
     }
   }
   .links {
-    float: right;
-    margin: 8px 8px 0 0;
+    float: direction(right);
+    margin: direction-sides(8px 8px 0 0);
     a {
       position: relative;
-      left: -100000px;
+      #{direction(left)}: -100000px;
       &:focus {
-        left: 0;
+        #{direction(left)}: 0;
       }
     }
   }
   .flag_question {
     background: $answersSprite -48px top;
+
+    // flip the sprite in RTL
+    @if $direction == 'rtl' { transform: scale(-1, 1) }
+
     cursor: pointer;
     position: absolute;
-    left: -30px;
+    #{direction(left)}: -30px;
     margin-top: 13px;
     height: 16px;
     width: 20px;
@@ -756,7 +781,7 @@ li.quiz {
       }
     }
     .links a {
-      left: 0;
+      #{direction(left)}: 0;
     }
     .flag_question {
       background-color: #fff;
@@ -795,24 +820,24 @@ li.quiz {
     }
   }
   .answer_match {
-    padding: 0 0 10px 0;
+    padding: 0 0 10px;
     .answer_match_left, .answer_match_left_html {
-      float: left;
+      float: direction(left);
       width: 45%;
       font-weight: bold;
       overflow: auto;
     }
     .answer_match_middle {
-      float: left;
+      float: direction(left);
       width: 10%;
     }
     .answer_match_right {
-      float: left;
+      float: direction(left);
       width: 45%;
       .answer {
         border-top: none;
         .correct_answer {
-          padding-left: 5px;
+          padding-#{direction(left)}: 5px;
           .answer_text {
             font-weight: bold;
           }
@@ -858,6 +883,10 @@ li.quiz {
     .answer_select .answer_image {
       background-repeat: no-repeat;
       background-position: 3px 5px;
+
+      // flip the arrow in RTL
+      @if $direction == 'rtl' { transform: scale(-1, 1) }
+
       cursor: pointer;
     }
     &.hover .answer_select .answer_image,
@@ -993,14 +1022,14 @@ form.question_form {
     }
     .answer .question_actions a {
       position: relative;
-      left: -100000px;
+      #{direction(left)}: -100000px;
     }
     .answer.hover .question_actions a, .question_actions a:focus {
-      left: 0;
+      #{direction(left)}: 0;
     }
     .answer_comments {
       overflow-x: auto;
-      margin-left: 30px;
+      margin-#{direction(left)}: 30px;
       padding: 10px 5px;
       margin-top: 5px;
       .answer_comment_box {
@@ -1053,22 +1082,22 @@ form.question_form {
 
     .comment_focus {
       position: relative;
-      left: -100000px;
-      float: right;
+      #{direction(left)}: -100000px;
+      float: direction(right);
       .ellipsis {
         display: none;
       }
     }
 
     &.hover .comment_focus, .comment_focus:focus {
-      left: 0;
+      #{direction(left)}: 0;
     }
 
     .comment_top {
       position: absolute;
       display: block;
       top: -8px;
-      left: 10px;
+      #{direction(left)}: 10px;
       width: 19px;
       height: 8px;
       background-repeat: no-repeat;
@@ -1079,7 +1108,7 @@ form.question_form {
       width: 50px;
       opacity: 0.5;
       .comment_focus {
-        left: 0;
+        #{direction(left)}: 0;
         float: none;
         display: block;
         text-align: center;
@@ -1111,23 +1140,25 @@ form.question_form {
 
 ul#question_list {
   margin: 0 0 13px;
-  padding: 0 0 0 20px;
+  padding: direction-sides(0 0 0 20px);
   list-style-type: none;
   li {
-    padding-left: 20px;
+    padding-#{direction(left)}: 20px;
     i {
       color: #595959;
-      margin-right: 4px;
+      margin-#{direction(right)}: 4px;
     }
     &.answered a {
-      color: darken($ic-brand-primary, 15);
+      color: var(--ic-brand-primary-darkened-15);
     }
     &.answered.current_question a {
       color: #396eb2;
     }
     &.marked {
       font-weight: bold;
-      background: url(/images/flagged_question.png) 3px 7px no-repeat;
+      background-image: url("/images/flagged_question#{direction-rtl('-rtl', '')}.png");
+      background-position: direction('left') 3px top 7px;
+      background-repeat: no-repeat;
       @if $use_high_contrast {
         @include bg-image(flagged_question_hc, png, no-repeat, 3px, 7px, transparent, 10px, 8px);
       }
@@ -1179,7 +1210,7 @@ ul#quiz_versions {
   #quiz_display_points_possible {
     line-height: 33px;
     font-size: 1.1em;
-    text-align: right;
+    text-align: direction(right);
   }
 }
 
@@ -1187,9 +1218,9 @@ ul#quiz_versions {
   border: 1px solid #b6babf;
   border-width: 1px 0;
   padding: 12px 13px;
-  text-align: right;
+  text-align: direction(right);
   .notify {
-    text-align: left;
+    text-align: direction(left);
     .checkbox {
       margin-bottom: 0;
       margin-top: 5px;
@@ -1197,7 +1228,7 @@ ul#quiz_versions {
     }
   }
   #cancel_button {
-    margin-right: 6px;
+    margin-#{direction(right)}: 6px;
   }
 }
 
@@ -1221,11 +1252,10 @@ ul#quiz_versions {
   #quiz_display_points_possible {
     line-height: 40px;
     font-size: 1.2em;
-    text-align: right;
+    text-align: direction(right);
   }
   .admin-links {
     line-height: 40px;
-    margin-left: 10px;
     .al-options {
       min-width: 125px;
     }
@@ -1281,7 +1311,7 @@ ul#quiz_versions {
       }
       #keep_score_select,
       #quiz_allowed_attempts {
-        margin-left: 10px;
+        margin-#{direction(left)}: 10px;
       }
       #quiz_allowed_attempts {
         width: 20px;
@@ -1307,7 +1337,7 @@ ul#quiz_versions {
       }
       .option-group {
         max-width: 478px;
-        padding: 10px 10px 0 10px;
+        padding: 10px 10px 0;
         border: 1px solid #ccc;
         border-radius: 4px;
         margin-bottom: 15px;
@@ -1321,9 +1351,9 @@ ul#quiz_versions {
             position: absolute;
             z-index: -1;
             top: -10px;
-            right: -10px;
+            #{direction(right)}: -10px;
             bottom: -10px;
-            left: -10px;
+            #{direction(left)}: -10px;
             background: #E7F4FF;
             border-radius: 4px;
           }
@@ -1341,7 +1371,7 @@ ul#quiz_versions {
         }
       }
       .options {
-        margin-left: 20px;
+        margin-#{direction(left)}: 20px;
       }
     }
   }
@@ -1351,9 +1381,9 @@ ul#quiz_versions {
   font-weight: bold;
   font-size: 1.2em;
   a {
-    margin-right: 10px;
+    margin-#{direction(right)}: 10px;
     margin-top: 0.35em;
-    float: right;
+    float: direction(right);
     font-size: 0.8em;
   }
 }
@@ -1366,7 +1396,7 @@ ul#quiz_versions {
   display: none;
   margin-bottom: 0;
   .equation_subheader {
-    margin-left: 0;
+    margin-#{direction(left)}: 0;
     font-size: 0.8em;
   }
 }
@@ -1374,12 +1404,6 @@ ul#quiz_versions {
 .true_false_question {
   .delete_answer_link {
     display: none !important;
-  }
-  .question_correct_comment {
-    display: none;
-  }
-  .question_incorrect_comment {
-    display: none;
   }
 }
 
@@ -1414,7 +1438,7 @@ ul#quiz_versions {
     width: 100%;
     th {
       vertical-align: top;
-      text-align: left;
+      text-align: direction(left);
     }
   }
   .word_problem {
@@ -1452,12 +1476,12 @@ ul#quiz_versions {
     }
   }
   .combinations td, .combinations th {
-    text-align: left;
+    text-align: direction(left);
     width: 10%;
   }
   .combinations th {
-    padding-right: 5px;
-    padding-left: 5px;
+    padding-#{direction(right)}: 5px;
+    padding-#{direction(left)}: 5px;
   }
   .combinations td.final_answer, .combinations th.final_answer {
     width: 1%;
@@ -1488,11 +1512,11 @@ ul#quiz_versions {
       .equation_subheader {
         font-size: 0.7em;
         font-weight: normal;
-        margin-left: 20px;
+        margin-#{direction(left)}: 20px;
       }
     }
     .equation_content {
-      margin-left: 20px;
+      margin-#{direction(left)}: 20px;
       margin-bottom: 15px;
     }
   }
@@ -1511,7 +1535,7 @@ ul#quiz_versions {
   .found_question {
     margin-bottom: 5px;
     .question_text {
-      margin: 2px 10px 2px 25px;
+      margin: direction-sides(2px 10px 2px 25px);
       font-size: 0.8em;
     }
     .question_name {
@@ -1529,7 +1553,7 @@ ul#quiz_versions {
         font-size: 0.8em;
         color: #888;
         font-style: italic;
-        margin-left: 25px;
+        margin-#{direction(left)}: 25px;
       }
     }
   }
@@ -1548,7 +1572,7 @@ ul#quiz_versions {
     }
     .ip_filter {
       .name_and_account {
-        padding: 2px 10px 2px 5px;
+        padding: direction-sides(2px 10px 2px 5px);
         .name {
           font-weight: bold;
         }
@@ -1560,7 +1584,7 @@ ul#quiz_versions {
       .filter {
         vertical-align: top;
         text-style: italic;
-        padding: 2px 5px 2px 10px;
+        padding: direction-sides(2px 5px 2px 10px);
       }
       &:hover {
         td {
@@ -1577,15 +1601,15 @@ ul#quiz_versions {
     padding-bottom: 3px;
     border-bottom: 1px dotted #ccc;
     .short_description {
-      float: left;
+      float: direction(left);
       font-weight: bold;
     }
     .delete_outcome_link {
-      float: right;
+      float: direction(right);
     }
     .content {
       font-size: 0.8em;
-      padding-left: 20px;
+      padding-#{direction(left)}: 20px;
     }
   }
 }
@@ -1610,7 +1634,7 @@ ul#quiz_versions {
     }
     .sub_content {
       font-size: 0.8em;
-      padding-left: 20px;
+      padding-#{direction(left)}: 20px;
     }
     &:hover {
       background-color: #eee;
@@ -1624,7 +1648,7 @@ ul#quiz_versions {
 
 #last_saved_indicator {
   color: #666;
-  padding-right: 10px;
+  padding-#{direction(right)}: 10px;
 }
 
 .muted-notice {
@@ -1651,7 +1675,7 @@ ul#quiz_versions {
 }
 
 .edit_html_done_wrapper {
-  text-align: right;
+  text-align: direction(right);
 }
 
 .question_actions .edit_html {
@@ -1681,6 +1705,10 @@ ul#quiz_versions {
   &.incorrect:before, &.incorrect:after,
   &.info:before, &.info:after {
     background-image: $answersSprite;
+
+    // flip the arrow in RTL
+    @if $direction == 'rtl' { transform: scale(-1, 1) }
+
     background-repeat: no-repeat;
     content: " ";
     height: 27px;
@@ -1688,11 +1716,11 @@ ul#quiz_versions {
     top: 0;
   }
   &.correct:before, &.incorrect:before, &.info:before {
-    left: -3px;
+    #{direction(left)}: -3px;
     width: 3px;
   }
   &.correct:after, &.incorrect:after, &.info:after {
-    right: -11px;
+    #{direction(right)}: -11px;
     width: 11px;
   }
   &.correct {
@@ -1748,7 +1776,7 @@ ul#quiz_versions {
   padding: 14px;
   position: relative;
   margin: 16px 30px;
-  text-align: left;
+  text-align: direction(left);
   display: inline-block;
   &.empty {
     display: none;
@@ -1762,13 +1790,13 @@ ul#quiz_versions {
   &:before {
     @include comment-arrow;
     border-bottom-color: #b5bfc7;
-    left: 30px;
+    #{direction(left)}: 30px;
     top: -20px;
   }
   &:after {
     @include comment-arrow;
     border-bottom-color: #fff;
-    left: 30px;
+    #{direction(left)}: 30px;
     top: -19px;
   }
 }
@@ -1776,12 +1804,12 @@ ul#quiz_versions {
 .answer_comment_holder {
   border-radius: 5px;
   border: 1px solid #faa;
-  margin-left: 20px;
+  margin-#{direction(left)}: 20px;
   padding: 5px;
   margin-top: 5px;
   font-size: 0.8em;
   position: relative;
-  float: left;
+  float: direction(left);
   width: auto;
   min-width: 50px;
   @include vertical-gradient(#ffeae7, #fdd7d7);
@@ -1792,7 +1820,7 @@ ul#quiz_versions {
     position: absolute;
     display: block;
     top: -8px;
-    left: 10px;
+    #{direction(left)}: 10px;
     width: 19px;
     height: 8px;
     background-repeat: no-repeat;
@@ -1803,8 +1831,29 @@ ul#quiz_versions {
 .answers {
   .quiz_comment {
     font-size: 0.9em;
-    margin: 16px 0 8px 0;
+    margin: 16px 0 8px;
     padding: 5px 10px;
+  }
+}
+
+.question_comments {
+  display: flex;
+  flex-wrap: wrap;
+
+  .comments_header {
+    font-weight: bold;
+  }
+
+  .quiz_comment {
+    font-size: 0.9em;
+  }
+
+  .correct_comments_header {
+    color: $ic-color-success;
+  }
+
+  .incorrect_comments_header {
+    color: $ic-color-danger;
   }
 }
 
@@ -1819,7 +1868,7 @@ ul#quiz_versions {
   }
   .button-container {
     padding: 16px;
-    text-align: right;
+    text-align: direction(right);
   }
   #questions {
     .user_points, .question_points_holder {
@@ -1848,7 +1897,7 @@ ul#quiz_versions {
 
 .summary .footnote {
   @include fontSize($ic-font-size--xsmall);
-  text-align: right;
+  text-align: direction(right);
 }
 
 .answer-group-heading {
@@ -1859,7 +1908,7 @@ ul#quiz_versions {
 .answers_wrapper {
   position: relative;
   .margin {
-    margin-left: 8px;
+    margin-#{direction(left)}: 8px;
     color: #999;
   }
 }
@@ -1900,6 +1949,9 @@ ul#quiz_versions {
       /* Display persistent correct answer arrow when editing only. */
       &.selectable .form_answers .answer.correct_answer .answer_select .answer_image {
         background-image: url(/images/correct_answer.png);
+
+        // flip the arrow in RTL
+        @if $direction == 'rtl' { transform: scale(-1, 1) }
       }
     }
     .blank_id_select {
@@ -1914,7 +1966,7 @@ ul#quiz_versions {
       }
     }
     .tinymce-keyboard-shortcuts-toggle {
-      float: right;
+      float: direction(right);
     }
   }
 }
@@ -1927,11 +1979,11 @@ ul#quiz_versions {
 #quiz_options_holder {
   select {
     width: auto;
-    margin-left: 3px;
+    margin-#{direction(left)}: 3px;
   }
   input[type="text"] {
     width: 90%;
-    margin-left: 3px;
+    margin-#{direction(left)}: 3px;
     &.hasDatepicker {
       width: 45%;
     }
@@ -1939,7 +1991,7 @@ ul#quiz_versions {
 }
 
 .question_holder .display_question .upload-label {
-  padding-right: 2px;
+  padding-#{direction(right)}: 2px;
   padding-top: 25px;
 }
 
@@ -1951,7 +2003,7 @@ ul#quiz_versions {
 
 .question_holder .display_question .file-upload-question-holder {
   .file-status {
-    margin-left: 55px;
+    margin-#{direction(left)}: 55px;
   }
   .file-removed {
     color: red;
@@ -1965,11 +2017,11 @@ ul#quiz_versions {
     vertical-align: top;
   }
   .file-upload-box-with-file {
-    padding: 5px 5px 5px 5px;
+    padding: 5px;
     .icon-end {
       color: grey;
-      border-top-left-radius: 0;
-      border-bottom-left-radius: 0;
+      border-top-#{direction(left)}-radius: 0;
+      border-bottom-#{direction(left)}-radius: 0;
     }
   }
   .file-upload-box {
@@ -1977,11 +2029,11 @@ ul#quiz_versions {
     position: relative;
     display: inline-block;
     width: 85%;
-    border-top-left-radius: 5px;
-    border-bottom-left-radius: 5px;
+    border-top-#{direction(left)}-radius: 5px;
+    border-bottom-#{direction(left)}-radius: 5px;
   }
   .controls {
-    margin: 0 auto 30px auto;
+    margin: 0 auto 30px;
   }
 }
 
@@ -1995,7 +2047,7 @@ ul#quiz_versions {
   background: #e8e8e8;
   margin: 0;
   padding: 15px;
-  right: -15px;
+  #{direction(right)}: -15px;
   height: 30px;
   z-index: 9;
   border-bottom: 1px solid #cccccc;
@@ -2035,17 +2087,17 @@ ul#quiz_versions {
       position: absolute;
     }
     &#nav-next {
-      right: 0px;
+      #{direction(right)}: 0px;
     }
     &#nav-prev {
-      left: 0px;
+      #{direction(left)}: 0px;
     }
   }
 }
 
 #quiz-nav-inner-wrapper {
   position: absolute;
-  left: 32px;
+  #{direction(left)}: 32px;
   z-index: 11;
 }
 
@@ -2076,12 +2128,12 @@ ul#quiz_versions {
   .checkbox {
     input {
       height: 16px;
-      margin: 0 9px 0 0;
+      margin: direction-sides(0 9px 0 0);
     }
   }
   label {
     display: block;
-    padding-left: 0px;
+    padding-#{direction(left)}: 0px;
   }
 }
 
@@ -2090,17 +2142,17 @@ ul#quiz_versions {
 }
 
 .regraded-warning {
-  margin: 0 0 10px 0;
+  margin: 0 0 10px;
 }
 
 #quiz-submission-version-table {
-  margin: 30px 0 20px 0;
+  margin: 30px 0 20px;
   @include clearfix;
 
   .submission-pending-review {
     width: 65%;
-    float: left;
-    margin-left: 24%;
+    float: direction(left);
+    margin-#{direction(left)}: 24%;
     margin-bottom: 0;
     color: #707070;
     font-size: 90%;
@@ -2111,28 +2163,28 @@ ul#quiz_versions {
   background: #e8e8e8;
   border-top: 1px solid #ccc;
   width: 100%;
-  padding: 20px 0 20px 20px;
+  padding: direction-sides(20px 0 20px 20px);
   position: fixed;
   bottom: 0px;
-  left: 0px;
+  #{direction(left)}: 0px;
   .update_scores_fudge {
-    padding-right: 200px;
+    padding-#{direction(right)}: 200px;
   }
   .button-container {
     position: fixed;
     bottom: 30px;
-    right: 10px;
+    #{direction(right)}: 10px;
   }
 }
 
 #update_scores {
   position: relative;
   .update_scores_fudge {
-    padding-right: 200px;
+    padding-#{direction(right)}: 200px;
   }
   .button-container {
     position: absolute;
-    right: 0px;
+    #{direction(right)}: 0px;
     bottom: 0px;
     padding-bottom: 0px;
   }
@@ -2141,8 +2193,8 @@ ul#quiz_versions {
 #ldb_deauthorized_dialog {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  #{direction(left)}: 0;
+  #{direction(right)}: 0;
   bottom: 0;
   background-color: #4b555d;
   background: url("/images/Money_Noise_tm.png"), radial-gradient(50% -100px, circle cover, rgba(255, 255, 255, 0.6) 0%, transparent 100%), linear-gradient(to bottom, #59656e, #3e464c);
@@ -2159,10 +2211,10 @@ ul#quiz_versions {
   #unauthorized_message {
     margin: 0;
     width: auto;
-    padding-left: 80px;
+    padding-#{direction(left)}: 80px;
     h2 {
       font-size: 1.5em;
-      margin: 0 0 -10px 0;
+      margin: direction-sides(0 0 -10px 0);
       height: 41px;
     }
     p {
@@ -2181,7 +2233,7 @@ ul#quiz_versions {
     background: #f6f6f6 none;
     border: 6px solid rgba(255, 255, 255, 0.25);
     border-radius: 7px;
-    padding: 12px 9px 12px 17px;
+    padding: direction-sides(12px 9px 12px 17px);
     box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.4);
     background-clip: padding-box;
     width: 40%;
@@ -2200,14 +2252,14 @@ ul#quiz_versions {
     position: relative;
     .btn-primary {
       position: absolute;
-      right: 0;
+      #{direction(right)}: 0;
       top: 0;
       padding: 10px 36px;
       @include fontSize(15px);
     }
   }
   span.field + span.field {
-    margin-left: 0;
+    margin-#{direction(left)}: 0;
   }
 }
 
@@ -2219,7 +2271,7 @@ ul#quiz_versions {
     cursor: move;
   }
   .links a {
-    left: 0;
+    #{direction(left)}: 0;
   }
 }
 
@@ -2240,7 +2292,7 @@ li.quiz.quiz-loading-overrides {
     display: block;
     background-image: url("/images/ajax-loader-black-on-white.gif");
     background-color: white;
-    background-position: 90% 50%;
+    background-position: direction('left') 90% top 50%;
     background-repeat: no-repeat;
     opacity: 0.35;
     width: 100%;
@@ -2248,19 +2300,34 @@ li.quiz.quiz-loading-overrides {
 }
 
 .rce_links {
-  float: right;
+  float: direction(right);
   font-size: 0.8em;
   cursor: pointer;
 
   .icon-info {
-    margin-left: 2px;
+    margin-#{direction(left)}: 2px;
   }
 }
 
-.master-course-cell i {
-  margin-right: 12px;
-}
 .options-spacer {
   width: 52px;
 }
 
+/* support for master class locked input fields */
+#quiz_edit_wrapper {
+  input[readonly] { // copied from
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    font-weight: bold;
+    cursor: default;
+    padding-#{direction(left)}: 0;
+    &:focus {
+      outline-style: none;
+    }
+  }
+}
+
+.new-quiz-form {
+  display: inline;
+}

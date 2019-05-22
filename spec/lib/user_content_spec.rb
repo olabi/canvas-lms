@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -114,6 +114,60 @@ describe UserContent do
       expect(rewriter.user_can_view_content?(att1)).to be_truthy
       expect(rewriter.user_can_view_content?(att2)).to be_falsey
     end
+
+    describe "@toplevel_regex" do
+      let(:regex) do
+        rewriter.instance_variable_get(:@toplevel_regex)
+      end
+
+      it "matches relative paths" do
+        expect(regex.match("<a href='/courses/#{rewriter.context.id}/assignments/5'>").to_a).to eq([
+          "/courses/#{rewriter.context.id}/assignments/5",
+          nil,
+          "/courses/#{rewriter.context.id}",
+          "assignments",
+          "5",
+          ""
+        ])
+      end
+
+      it "matches relative paths with no content prefix" do
+        expect(regex.match("<a href='/files/101/download?download_frd=1'>").to_a).to eq([
+          "/files/101/download?download_frd=1",
+          nil,
+          nil,
+          "files",
+          "101",
+          "/download?download_frd=1"
+        ])
+      end
+
+      it "matches absolute paths with http" do
+        expect(regex.match(%Q{<img src="http://localhost:3000/files/110/preview">}).to_a).to eq([
+            "http://localhost:3000/files/110/preview",
+            "http://localhost:3000",
+            nil,
+            "files",
+            "110",
+            "/preview"
+          ])
+      end
+
+      it "matches absolute paths with https" do
+        expect(regex.match(%Q{<a href="https://this-is-terrible.example.com/courses/#{rewriter.context.id}/pages/whatever?srsly=0">}).to_a).to eq([
+            "https://this-is-terrible.example.com/courses/#{rewriter.context.id}/pages/whatever?srsly=0",
+            "https://this-is-terrible.example.com",
+            "/courses/#{rewriter.context.id}",
+            "pages",
+            "whatever",
+            "?srsly=0"
+          ])
+      end
+
+      it "doesn't match invalid hostnames" do
+        expect(regex.match("https://thisisn'tvalid.com/files/3")[1]).to be_nil
+      end
+    end
   end
 
   describe ".latex_to_mathml" do
@@ -135,16 +189,16 @@ describe UserContent do
 
   describe ".escape" do
     it "stuffs mathml into a data attribute on equation images" do
-      string = "<div><ul><li><img class='equation_image' alt='\int f(x)/g(x)'/></li>"\
-             "<li><img class='equation_image' alt='\\sum 1..n'/></li>"\
+      string = "<div><ul><li><img class='equation_image' data-equation-content='\int f(x)/g(x)'/></li>"\
+             "<li><img class='equation_image' data-equation-content='\\sum 1..n'/></li>"\
              "<li><img class='nothing_special'></li></ul></div>"
       html = UserContent.escape(string)
       expected = "<div><ul>\n"\
         "<li>\n"\
-        "<img class=\"equation_image\" alt=\"int f(x)/g(x)\"><span class=\"hidden-readable\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"><mi>i</mi><mi>n</mi><mi>t</mi><mi>f</mi><mo stretchy=\"false\">(</mo><mi>x</mi><mo stretchy=\"false\">)</mo><mo>/</mo><mi>g</mi><mo stretchy=\"false\">(</mo><mi>x</mi><mo stretchy=\"false\">)</mo></math></span>\n"\
+        "<img class=\"equation_image\" data-equation-content=\"int f(x)/g(x)\"><span class=\"hidden-readable\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"><mi>i</mi><mi>n</mi><mi>t</mi><mi>f</mi><mo stretchy=\"false\">(</mo><mi>x</mi><mo stretchy=\"false\">)</mo><mo>/</mo><mi>g</mi><mo stretchy=\"false\">(</mo><mi>x</mi><mo stretchy=\"false\">)</mo></math></span>\n"\
         "</li>\n"\
         "<li>\n"\
-        "<img class=\"equation_image\" alt=\"\\sum 1..n\"><span class=\"hidden-readable\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"><mo lspace=\"thinmathspace\" rspace=\"thinmathspace\">&amp;Sum;</mo><mn>1</mn><mo>.</mo><mo>.</mo><mi>n</mi></math></span>\n"\
+        "<img class=\"equation_image\" data-equation-content=\"\\sum 1..n\"><span class=\"hidden-readable\"><math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"><mo lspace=\"thinmathspace\" rspace=\"thinmathspace\">&amp;Sum;</mo><mn>1</mn><mo>.</mo><mo>.</mo><mi>n</mi></math></span>\n"\
         "</li>\n"\
         "<li><img class=\"nothing_special\"></li>\n"\
         "</ul></div>"
@@ -152,4 +206,3 @@ describe UserContent do
     end
   end
 end
-

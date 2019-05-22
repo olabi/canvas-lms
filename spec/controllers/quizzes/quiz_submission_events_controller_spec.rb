@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,7 @@ describe Quizzes::QuizSubmissionEventsController do
 
   describe 'GET /log (#index)' do
     def subject
-      get 'index', {
+      get 'index', params: {
         course_id: @course.id,
         quiz_id: @quiz.id,
         quiz_submission_id: @quiz_submission.id
@@ -51,7 +51,7 @@ describe Quizzes::QuizSubmissionEventsController do
 
       subject()
 
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should not let the student in" do

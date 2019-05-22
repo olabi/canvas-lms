@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,22 +12,20 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!instructure',
-  'jquery',
-  'timezone',
-  'str/htmlEscape',
-  'compiled/widget/DatetimeField',
-  'jsx/shared/render-datepicker-time',
-  'jquery.keycodes' /* keycodes */,
-  'vendor/date' /* Date.parse, Date.UTC, Date.today */,
-  'jqueryui/datepicker' /* /\.datepicker/ */,
-  'jqueryui/sortable' /* /\.sortable/ */,
-  'jqueryui/widget' /* /\.widget/ */
-], function(I18n, $, tz, htmlEscape, DatetimeField, renderDatepickerTime) {
+
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import tz from 'timezone'
+import htmlEscape from './str/htmlEscape'
+import DatetimeField from 'compiled/widget/DatetimeField'
+import renderDatepickerTime from 'jsx/shared/render-datepicker-time'
+import './jquery.keycodes'
+import './vendor/date' /* Date.parse, Date.UTC, Date.today */
+import 'jqueryui/datepicker'
+
   // fudgeDateForProfileTimezone is used to apply an offset to the date which represents the
   // difference between the user's configured timezone in their profile, and the timezone
   // of the browser. We want to display times in the timezone of their profile. Use
@@ -210,7 +208,21 @@ define([
       $(document).delegate(".ui-datepicker-time-hour", 'change keypress focus blur', function(event) {
         var cur = $.datepicker._curInst;
         if(cur) {
-          var val = $(this).val();
+          const $this = $(this)
+          let val = $this.val();
+          const $ampm = $this.closest('.ui-datepicker-time').find(".ui-datepicker-time-ampm")
+          if (event.type === 'change' && val && $ampm.length && !$ampm.val()) {
+            let ampmVal
+            if (parseInt(val, 10) === 0) {
+              ampmVal = I18n.t('#time.am')
+              val = '12'
+              $this.val(val)
+            } else {
+              ampmVal = I18n.t('#time.pm')
+            }
+            $ampm.val(ampmVal)
+            cur.input.data('time-ampm', ampmVal);
+          }
           cur.input.data('time-hour', val);
         }
       }).delegate(".ui-datepicker-time-minute", 'change keypress focus blur', function(event) {
@@ -462,4 +474,4 @@ define([
     return $picker;
   };
 
-});
+export default $

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -38,6 +38,7 @@ module CC
       zipper.user = @user
       zipper.process_folder(course_folder, @zip_file, [CCHelper::WEB_RESOURCES_FOLDER], :exporter => @manifest.exporter) do |file, folder_names|
         begin
+          next if file.display_name.blank?
           if file.is_a? Folder
             dir = File.join(folder_names[1..-1])
             files_with_metadata[:folders] << [file, dir] if file_or_folder_restricted?(file)
@@ -191,15 +192,18 @@ module CC
       tracks_file.close
     end
 
+    def export_media_objects?
+      CanvasKaltura::ClientV3.config && !for_course_copy
+    end
+
     MAX_MEDIA_OBJECT_SIZE = 4.gigabytes
     def add_media_objects(html_content_exporter)
-      return if for_course_copy
-      return unless CanvasKaltura::ClientV3.config
+      return unless export_media_objects?
 
       # check to make sure we don't export more than 4 gigabytes of media objects
       total_size = 0
       html_content_exporter.used_media_objects.each do |obj|
-        next if @added_attachment_ids.include?(obj.attachment_id)
+        next if @added_attachment_ids&.include?(obj.attachment_id)
 
         info = html_content_exporter.media_object_infos[obj.id]
         next unless info && info[:asset] && info[:asset][:size]
@@ -217,7 +221,7 @@ module CC
 
       tracks = {}
       html_content_exporter.used_media_objects.each do |obj|
-        next if @added_attachment_ids.include?(obj.attachment_id)
+        next if @added_attachment_ids&.include?(obj.attachment_id)
         begin
           migration_id = create_key(obj)
           info = html_content_exporter.media_object_infos[obj.id]
@@ -252,7 +256,7 @@ module CC
         end
       end
 
-      add_tracks(tracks)
+      add_tracks(tracks) if @canvas_resource_dir
     end
   end
 end

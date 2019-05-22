@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,21 +17,34 @@
 #
 
 class DeveloperKeysController < ApplicationController
-  before_filter :set_key, only: [:update, :destroy ]
-  before_filter :require_manage_developer_keys
+  before_action :set_key, only: [:update, :destroy ]
+  before_action :require_manage_developer_keys
 
   include Api::V1::DeveloperKey
 
   def index
-    scope = @context.site_admin? ? DeveloperKey : @context.developer_keys
-    scope = scope.nondeleted.preload(:account).order("id DESC")
+    raise ActiveRecord::RecordNotFound unless @context.root_account?
+    scope = index_scope.nondeleted.preload(:account).order("id DESC")
     @keys = Api.paginate(scope, self, account_developer_keys_url(@context))
     respond_to do |format|
       format.html do
         set_navigation
-        js_env(accountEndpoint: api_v1_account_developer_keys_path(@context))
+        js_env(
+          accountEndpoint: api_v1_account_developer_keys_path(@context),
+          enableTestClusterChecks: DeveloperKey.test_cluster_checks_enabled?,
+          LTI_1_3_ENABLED: @context.root_account.feature_enabled?(:lti_1_3),
+          validLtiScopes: TokenScopes::LTI_SCOPES,
+          validLtiPlacements: Lti::ResourcePlacement::PLACEMENTS
+        )
+
+        render :index_react
       end
-      format.json { render :json => developer_keys_json(@keys, @current_user, session, account_context) }
+
+      format.json do
+        render :json => developer_keys_json(
+          @keys, @current_user, session, account_context, inherited: params[:inherited].present?
+        )
+      end
     end
   end
 
@@ -61,12 +74,28 @@ class DeveloperKeysController < ApplicationController
   end
 
   protected
+
   def set_navigation
     @active_tab = 'developer_keys'
     add_crumb t('#crumbs.developer_keys', "Developer Keys")
   end
 
   private
+
+  def index_scope
+    if params[:inherited].present?
+      return DeveloperKey.none if @context.site_admin?
+      Account.site_admin.shard.activate do
+        # site_admin keys have a nil account_id
+        DeveloperKey.visible.where(account_id: nil)
+      end
+    elsif @context.site_admin?
+      DeveloperKey
+    else
+      DeveloperKey.where(account_id: @context.id)
+    end
+  end
+
   def set_key
     @key = DeveloperKey.nondeleted.find(params[:id])
   end
@@ -76,11 +105,15 @@ class DeveloperKeysController < ApplicationController
       return @key.account || Account.site_admin
     elsif params[:account_id]
       require_account_context
-      return @context if @context == @domain_root_account
+      return @context if context_is_domain_root_account?
     end
 
     # failover to what require_site_admin_with_permission uses
     return Account.site_admin
+  end
+
+  def context_is_domain_root_account?
+    @context == @domain_root_account
   end
 
   def require_manage_developer_keys
@@ -88,6 +121,19 @@ class DeveloperKeysController < ApplicationController
   end
 
   def developer_key_params
-    params.require(:developer_key).permit(:api_key, :name, :icon_url, :redirect_uri, :redirect_uris, :email, :auto_expire_tokens)
+    params.require(:developer_key).permit(
+      :auto_expire_tokens,
+      :email,
+      :icon_url,
+      :name,
+      :notes,
+      :redirect_uri,
+      :redirect_uris,
+      :vendor_code,
+      :visible,
+      :test_cluster_only,
+      :require_scopes,
+      scopes: []
+    )
   end
 end

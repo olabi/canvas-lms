@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -159,6 +159,19 @@ describe "BookmarkedCollection::MergeProxy" do
         it "should not have next_page with exactly a page left" do
           expect(@proxy.paginate(:page => @next_page, :per_page => 3).next_page).to be_nil
         end
+      end
+
+      it "merges when bookmarks have nil values" do
+        nil_bookmark = BookmarkedCollection::SimpleBookmarker.new(@example_class, :date, :id)
+        course = @created_scope.create!(:date => "2017-11-30T00:00:00-06:00")
+        created_collection = BookmarkedCollection.wrap(nil_bookmark, @created_scope.order('date DESC, id'))
+        deleted_collection = BookmarkedCollection.wrap(nil_bookmark, @deleted_scope.order('date DESC, id'))
+        proxy = BookmarkedCollection::MergeProxy.new([
+          ['created', created_collection],
+          ['deleted', deleted_collection]
+        ])
+
+        expect(proxy.paginate(:per_page => 5)).to eq([course] + @courses[0, 4])
       end
     end
 

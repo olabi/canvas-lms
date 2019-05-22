@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 describe DiscussionTopicsApiController do
@@ -10,8 +27,8 @@ describe DiscussionTopicsApiController do
 
     before :each do
       user_session(@student)
-      controller.stubs(:form_authenticity_token => 'abc', :form_authenticity_param => 'abc')
-      post 'add_entry', :format => 'json', :topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message', :read_state => 'read'
+      allow(controller).to receive_messages(:form_authenticity_token => 'abc', :form_authenticity_param => 'abc')
+      post 'add_entry', params: {:topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message', :read_state => 'read'}, :format => 'json'
     end
 
     it 'creates a new discussion entry' do
@@ -44,24 +61,49 @@ describe DiscussionTopicsApiController do
       @course.save!
       @topic = @course.discussion_topics.create!(:title => 'discussion')
       user_session(@student)
-      controller.stubs(:form_authenticity_token => 'abc', :form_authenticity_param => 'abc')
+      allow(controller).to receive_messages(:form_authenticity_token => 'abc', :form_authenticity_param => 'abc')
+    end
+
+    it "uploads attachment to submissions folder if topic is graded" do
+      assignment_model(:course => @course)
+      @topic.assignment = @assignment
+      @topic.save
+      Setting.set('user_default_quota', -1)
+      expect(@student.attachments.count).to eq 0
+
+      post 'add_entry', params: {:topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message',
+        :read_state => 'read', :attachment => default_uploaded_data}, :format => 'json'
+
+      expect(response).to be_successful
+      expect(@student.attachments.count).to eq 1
+      expect(@student.attachments.first.folder.for_submissions?).to be_truthy
+      expect(@student.attachments.pluck(:filename)).to include(default_uploaded_data.original_filename)
     end
 
     it "fails if attachment a file over student quota (not course)" do
       Setting.set('user_default_quota', -1)
 
-      post 'add_entry', :format => 'json', :topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message',
-        :read_state => 'read', :attachment => default_uploaded_data
+      post 'add_entry', params: {:topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message',
+        :read_state => 'read', :attachment => default_uploaded_data}, :format => 'json'
 
-      expect(response).to_not be_success
+      expect(response).to_not be_successful
       expect(response.body).to include("User storage quota exceeded")
     end
 
     it "succeeds otherwise" do
-      post 'add_entry', :format => 'json', :topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message',
-        :read_state => 'read', :attachment => default_uploaded_data
+      post 'add_entry', params: {:topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message',
+        :read_state => 'read', :attachment => default_uploaded_data}, :format => 'json'
 
-      expect(response).to be_success
+      expect(response).to be_successful
+    end
+
+    it "uses instfs to store attachment if instfs is enabled" do
+      allow(InstFS).to receive(:enabled?).and_return(true)
+      uuid = "1234-abcd"
+      allow(InstFS).to receive(:direct_upload).and_return(uuid)
+      post 'add_entry', params: {:topic_id => @topic.id, :course_id => @course.id, :user_id => @user.id, :message => 'message',
+        :read_state => 'read', :attachment => default_uploaded_data}, :format => 'json'
+      expect(@student.attachments.first.instfs_uuid).to eq(uuid)
     end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,24 +28,28 @@ module SIS
       end
 
       def generate(previous_data_path, current_data_path)
-        previous_import = SIS::CSV::Import.new(@root_account, files: [previous_data_path])
+        previous_import = SIS::CSV::ImportRefactored.new(@root_account, files: [previous_data_path], batch: @batch)
         previous_csvs = previous_import.prepare
-        current_import = SIS::CSV::Import.new(@root_account, files: [current_data_path])
+        current_import = SIS::CSV::ImportRefactored.new(@root_account, files: [current_data_path], batch: @batch)
         current_csvs = current_import.prepare
-        @batch.add_warnings(current_import.warnings)
-        @batch.add_errors(current_import.errors)
 
         output_csvs = generate_csvs(previous_csvs, current_csvs)
+        return unless output_csvs.any?
+
         output_file = Tempfile.new(["sis_csv_diff_generator", ".zip"])
         output_path = output_file.path
         output_file.close!
+        row_count = 0
         Zip::File.open(output_path, Zip::File::CREATE) do |zip|
           output_csvs.each do |csv|
+            row_count += csv[:row_count] if csv[:row_count]
             zip.add(csv[:file], csv[:fullpath])
           end
         end
-        File.open(output_path, 'rb')
+        {:file_io => File.open(output_path, 'rb'), :row_count => row_count}
       end
+
+      VALID_ENROLLMENT_DROP_STATUS = %w(deleted inactive completed deleted_last_completed).freeze
 
       def generate_csvs(previous_csvs, current_csvs)
         generated = []
@@ -66,8 +70,12 @@ module SIS
           end
 
           begin
-            io = generate_diff(class_for_importer(import_type), previous_csv[:fullpath], current_csv[:fullpath])
+            status = @batch.options && @batch.options[:diffing_drop_status].presence
+            status = 'deleted' unless import_type == :enrollment && VALID_ENROLLMENT_DROP_STATUS.include?(status)
+            diff = generate_diff(class_for_importer(import_type), previous_csv[:fullpath], current_csv[:fullpath], status)
+            io = diff[:file_io]
             generated << {
+              row_count: diff[:row_count],
               file: current_csv[:file],
               fullpath: io.path,
               tmpfile: io # returning the Tempfile alongside its path, to keep it in scope
@@ -86,15 +94,18 @@ module SIS
         SIS::CSV.const_get(import_type.to_s.camelcase + 'Importer')
       end
 
-      def generate_diff(importer, previous_input, current_input)
+      def generate_diff(importer, previous_input, current_input, status = 'deleted')
         previous_csv = ::CSV.open(previous_input, CSVBaseImporter::PARSE_ARGS)
         current_csv = ::CSV.open(current_input, CSVBaseImporter::PARSE_ARGS)
         diff = CsvDiff::Diff.new(importer.identifying_fields)
-        diff.generate(previous_csv, current_csv, deletes: ->(row) { row['status'] = 'deleted' })
+        diff.generate(previous_csv, current_csv, deletes: ->(row) { row['status'] = status }, return_count: true)
       end
 
-      def add_warning(csv, message)
-        @batch.add_warnings([[csv ? csv[:file] : "", message]])
+      def add_warning(csv, message, failure: false)
+        @batch.sis_batch_errors.create!(root_account: @batch.account,
+                                        message: message,
+                                        failure: failure,
+                                        file: csv ? csv[:file] : "")
       end
     end
   end

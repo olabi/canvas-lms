@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ module CC::Importer::Canvas
     def convert_wikis
       wikis = []
 
-      wiki_dir = File.join(@unzipped_file_path, WIKI_FOLDER)
+      wiki_dir = @package_root.item_path(WIKI_FOLDER)
       Dir["#{wiki_dir}/**/**"].each do |path|
         next if File.directory?(path)
         doc = open_file(path)
@@ -47,8 +47,13 @@ module CC::Importer::Canvas
       wiki[:text] = body
       wiki[:url_name] = wiki_name
       wiki[:assignment] = nil
+      wiki[:todo_date] = meta['todo_date']
       if asg_id = meta['assignment_identifier']
-        wiki[:assignment] = { migration_id: asg_id }
+        wiki[:assignment] = {
+          migration_id: asg_id,
+          assignment_overrides: [],
+          only_visible_to_overrides: meta['only_visible_to_overrides'] == 'true'
+        }
       end
       wiki
     end

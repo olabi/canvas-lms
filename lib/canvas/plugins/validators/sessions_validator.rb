@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,10 +19,10 @@
 module Canvas::Plugins::Validators::SessionsValidator
   def self.validate(settings, plugin_setting)
     timeout = settings["session_timeout"].to_f.minutes
-    if timeout < 20.minutes
+    if timeout.to_i < 20.minutes.to_i
       plugin_setting.errors.add(:base, I18n.t('canvas.plugins.errors.login_expiration_minimum', 'Session expiration must be 20 minutes or greater'))
-    else 
-      settings
+    else
+      settings.to_hash.with_indifferent_access
     end
   end
 end

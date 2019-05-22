@@ -1,5 +1,7 @@
-define(['jquery', 'str/htmlEscape', 'jqueryui/dialog-unpatched'], function($, h, returnValOfUnpatchedDialog) {
-  
+import $ from 'jquery'
+import h from '../../str/htmlEscape'
+import 'jqueryui/dialog-unpatched'
+
   // have UI dialogs default to modal:true
   $.ui.dialog.prototype.options.modal = true
 
@@ -39,7 +41,3 @@ define(['jquery', 'str/htmlEscape', 'jqueryui/dialog-unpatched'], function($, h,
       return setOption.call(this, key, value);
     }
   });
-
-  return returnValOfUnpatchedDialog;
-
-});

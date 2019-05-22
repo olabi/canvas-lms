@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -58,8 +58,11 @@ class StreamItem < ActiveRecord::Base
       root_discussion_entries = root_discussion_entries.map { |entry| reconstitute_ar_object('DiscussionEntry', entry) }
       res.association(:root_discussion_entries).target = root_discussion_entries
       res.attachment = reconstitute_ar_object('Attachment', data.delete(:attachment))
+      res.total_root_discussion_entries = data.delete(:total_root_discussion_entries)
     when 'Submission'
       data['body'] = nil
+    when 'Conversation'
+      res.latest_messages_from_stream_item = data.delete(:latest_messages)
     end
     if data.has_key?('users')
       users = data.delete('users')
@@ -114,6 +117,7 @@ class StreamItem < ActiveRecord::Base
 
   def prepare_conversation(conversation)
     res = conversation.attributes.slice('id', 'has_attachments', 'updated_at')
+    res['title'] = conversation.subject
     res['private'] = conversation.private?
     res['participant_count'] = conversation.conversation_participants.size
     # arbitrary limit. would be nice to say "John, Jane, Michael, and 6
@@ -123,6 +127,18 @@ class StreamItem < ActiveRecord::Base
     if res['participant_count'] <= 8
       res['participants'] = conversation.participants.map{ |u| prepare_user(u) }
     end
+
+    messages = conversation.conversation_messages.human.order(:created_at => :desc).limit(LATEST_ENTRY_LIMIT).to_a.reverse
+    res['latest_messages'] = messages.map do |message|
+      {
+        "id" => message.id,
+        "created_at" => message.created_at,
+        "author_id" => message.author_id,
+        "message" => message.body.present? ? message.body[0, 4.kilobytes] : "",
+        "participating_user_ids" => message.conversation_message_participants.active.pluck(:user_id).sort
+      }
+    end
+
     res
   end
 
@@ -150,16 +166,16 @@ class StreamItem < ActiveRecord::Base
     item.try(:destroy)
   end
 
-  ROOT_DISCUSSION_ENTRY_LIMIT = 3
+  LATEST_ENTRY_LIMIT = 3
   def generate_data(object)
-    self.context ||= object.context rescue nil
+    self.context ||= object.try(:context) unless object.is_a?(Message)
 
     case object
     when DiscussionTopic
       res = object.attributes
       res['user_ids_that_can_see_responses'] = object.user_ids_who_have_posted_and_admins if object.require_initial_post?
       res['total_root_discussion_entries'] = object.root_discussion_entries.active.count
-      res[:root_discussion_entries] = object.root_discussion_entries.active.reverse[0,ROOT_DISCUSSION_ENTRY_LIMIT].reverse.map do |entry|
+      res[:root_discussion_entries] = object.root_discussion_entries.active.order(:created_at => :desc).limit(LATEST_ENTRY_LIMIT).to_a.reverse.map do |entry|
         hash = entry.attributes
         hash['user_short_name'] = entry.user.short_name if entry.user
         hash['message'] = hash['message'][0, 4.kilobytes] if hash['message'].present?
@@ -174,10 +190,8 @@ class StreamItem < ActiveRecord::Base
     when Message
       res = object.attributes
       res['notification_category'] = object.notification_display_category
-      if !object.context.is_a?(Context) && object.context.respond_to?(:context) && object.context.context.is_a?(Context)
-        self.context = object.context.context
-      elsif object.asset_context_type
-        self.context_type, self.context_id = object.asset_context_type, object.asset_context_id
+      if !object.context.is_a?(Context) && object.context_context
+        self.context = object.context_context
       end
     when Submission
       res = object.attributes
@@ -196,7 +210,7 @@ class StreamItem < ActiveRecord::Base
       raise "Unexpected stream item type: #{object.class}"
     end
     if self.context_type
-      res['context_short_name'] = Rails.cache.fetch(['short_name_lookup', self.context_type, self.context_id].cache_key) do
+      res['context_short_name'] = Rails.cache.fetch(['short_name_lookup', "#{self.context_type.underscore}_#{self.context_id}"].cache_key) do
         self.context.short_name rescue ''
       end
     end
@@ -256,35 +270,38 @@ class StreamItem < ActiveRecord::Base
       # do the bulk insert in user id order to avoid locking problems on postges < 9.3 (foreign keys)
       user_ids_subset.sort!
 
-      inserts = user_ids_subset.map do |user_id|
-        {
-          :stream_item_id => stream_item_id,
-          :user_id => user_id,
-          :hidden => false,
-          :workflow_state => object_unread_for_user(object, user_id),
-          :context_type => l_context_type,
-          :context_id => l_context_id,
-        }
-      end
-      if object.is_a?(Submission) && object.assignment.muted?
-        # set the hidden flag if an assignment and muted (for the owner of the submission)
-        if owner_insert = inserts.detect{|i| i[:user_id] == object.user_id}
-          owner_insert[:hidden] = true
+      user_ids_subset.each_slice(500) do |sliced_user_ids|
+
+        inserts = sliced_user_ids.map do |user_id|
+          {
+            :stream_item_id => stream_item_id,
+            :user_id => user_id,
+            :hidden => false,
+            :workflow_state => object_unread_for_user(object, user_id),
+            :context_type => l_context_type,
+            :context_id => l_context_id,
+          }
         end
-      end
+        if object.is_a?(Submission) && object.assignment.muted?
+          # set the hidden flag if an assignment and muted (for the owner of the submission)
+          if owner_insert = inserts.detect{|i| i[:user_id] == object.user_id}
+            owner_insert[:hidden] = true
+          end
+        end
 
-      StreamItemInstance.unique_constraint_retry do
-        StreamItemInstance.where(:stream_item_id => stream_item_id, :user_id => user_ids_subset).delete_all
-        StreamItemInstance.bulk_insert(inserts)
-      end
+        StreamItemInstance.unique_constraint_retry do
+          StreamItemInstance.where(:stream_item_id => stream_item_id, :user_id => sliced_user_ids).delete_all
+          StreamItemInstance.bulk_insert(inserts)
+        end
 
-      #reset caches manually because the observer wont trigger off of the above mass inserts
-      user_ids_subset.each do |user_id|
-        StreamItemCache.invalidate_recent_stream_items(user_id, l_context_type, l_context_id)
-      end
+        #reset caches manually because the observer wont trigger off of the above mass inserts
+        sliced_user_ids.each do |user_id|
+          StreamItemCache.invalidate_recent_stream_items(user_id, l_context_type, l_context_id)
+        end
 
-      # touch all the users to invalidate the cache
-      User.where(id: user_ids_subset).touch_all
+        # touch all the users to invalidate the cache
+        User.where(id: sliced_user_ids).touch_all
+      end
     end
 
     return [res]
@@ -367,6 +384,14 @@ class StreamItem < ActiveRecord::Base
       User.where(:id => user_ids.to_a).touch_all
     end
 
+    Shackles.activate(:deploy) do
+      Shard.current.database_server.unshackle do
+        StreamItem.connection.execute("VACUUM ANALYZE #{StreamItem.quoted_table_name}")
+        StreamItemInstance.connection.execute("VACUUM ANALYZE #{StreamItemInstance.quoted_table_name}")
+        ActiveRecord::Base.connection_pool.current_pool.disconnect! unless Rails.env.test?
+      end
+    end
+
     count
   end
 
@@ -406,8 +431,13 @@ class StreamItem < ActiveRecord::Base
           res.id = original_res.id
           res.association(:root_discussion_entries).target = []
           res.user_has_posted = false
+          res.total_root_discussion_entries = original_res.total_root_discussion_entries
           res.readonly!
         end
+      end
+    when Conversation
+      if res.latest_messages_from_stream_item
+        res.latest_messages_from_stream_item.select!{|m| m["participating_user_ids"].include?(viewing_user_id)}
       end
     end
 

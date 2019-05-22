@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/calendar2_common'
 
@@ -32,6 +49,8 @@ describe "scheduler" do
         title = 'Ultimate AG'
         create_appointment_group title: title
         get "/calendar"
+        # navigate to the next month for end of month
+        f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
         f('.scheduler-event').click
         f('.edit_event_link').click
         expect(fj("span.ui-dialog-title:contains('Edit #{title}')")).not_to be_nil
@@ -81,6 +100,8 @@ describe "scheduler" do
         Account.default.enable_feature!(:better_scheduler)
         create_appointment_group(contexts: [@course])
         get "/calendar2"
+        # navigate to the next month for end of month
+        f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
         f('.fc-title').click
         f('.pull-right .group_details').click
         expect(f('.EditPage')).to include_text("Edit new appointment group")

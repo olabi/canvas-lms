@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016-2017 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ describe "MustViewModuleProgressor" do
   def create_item(item_type)
     case item_type
     when :page
-      @course.wiki.wiki_pages.create!(title: 'some page')
+      @course.wiki_pages.create!(title: 'some page')
     when :assignment
       @course.assignments.create!(title: 'some assignment')
     when :discussion
@@ -64,11 +64,11 @@ describe "MustViewModuleProgressor" do
 
   def sequential_module_progression_fixture(assignment_requirement_type: 'must_view')
     mod = @course.context_modules.create!(name: 'some module')
-    initial_page = @course.wiki.wiki_pages.create!(title: "initial page")
+    initial_page = @course.wiki_pages.create!(title: "initial page")
     initial_page_tag = mod.add_item(id: initial_page.id, type: 'page')
     assignment = @course.assignments.create!(title: "some assignment")
     assignment_tag = mod.add_item(id: assignment.id, type: 'assignment')
-    final_page = @course.wiki.wiki_pages.create!(title: "some page")
+    final_page = @course.wiki_pages.create!(title: "some page")
     final_page_tag = mod.add_item(id: final_page.id, type: 'page')
     mod.completion_requirements = {
       initial_page_tag.id => {type: 'must_view'},
@@ -93,7 +93,7 @@ describe "MustViewModuleProgressor" do
     # needed to get updated info as progress is made
     it "calls evaluate_for on modules" do
       @course.context_modules.create!(name: 'some module')
-      ContextModule.any_instance.expects(:evaluate_for)
+      expect_any_instance_of(ContextModule).to receive(:evaluate_for)
       progressor = MustViewModuleProgressor.new(@student, @course)
       progressor.make_progress
     end
@@ -306,7 +306,7 @@ describe "MustViewModuleProgressor" do
     end
 
     it "triggers completion events" do
-      ContextModuleProgression.any_instance.expects(:trigger_completion_events)
+      expect_any_instance_of(ContextModuleProgression).to receive(:trigger_completion_events)
       module_with_item(:page)
       progressor = MustViewModuleProgressor.new(@student, @course)
       progressor.make_progress
@@ -366,6 +366,41 @@ describe "MustViewModuleProgressor" do
 
       progression = second_mod.reload.find_or_create_progression(@student)
       expect(progression.requirements_met).to eq []
+    end
+  end
+
+  describe '#current_progress' do
+    before :once do
+      course_with_student(active_all: true)
+      @module, @assignment = module_with_item_return_all(:assignment, 'must_contribute')
+    end
+
+    it "should export module status into a hash" do
+      progress = MustViewModuleProgressor.new(@student, @course).current_progress
+      expect(progress[@module.id][:status]).to eq 'unlocked'
+      expect(progress[@module.id][:items].keys.length).to eq 1
+    end
+
+    it "should export module item completion into a hash" do
+      assign_item = @module.content_tags.find_by(content: @assignment)
+      progress = MustViewModuleProgressor.new(@student, @course).current_progress
+      expect(progress[@module.id][:items][assign_item.id]).to be false
+    end
+
+    it "should not create progressions for non-enrolled admins and allow view if appropriate" do
+      account_admin_user
+      progress = MustViewModuleProgressor.new(@admin, @course).current_progress
+      expect(progress[@module.id][:status]).to eq 'unlocked'
+      expect(ContextModuleProgression.where(user: @admin, context_module: @module).count).to eq 0
+    end
+
+    it "should not create progressions for non-enrolled non-admins" do
+      course_factory(is_public: true, active_all: true)
+      user_factory(active_all: true)
+      modul = module_with_item(:assignment, 'must_contribute')
+      progress = MustViewModuleProgressor.new(@user, @course).current_progress
+      expect(progress[modul.id][:status]).to eq 'unlocked'
+      expect(ContextModuleProgression.where(user: @user, context_module: modul).count).to eq 0
     end
   end
 end

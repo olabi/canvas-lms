@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -27,6 +28,7 @@ module Lti
       external_tools_collection = BookmarkedCollection.wrap(ExternalToolNameBookmarker, external_tools_scope)
       tool_proxy_scope = ToolProxy.find_installed_proxies_for_context(@context)
       tool_proxy_collection = BookmarkedCollection.wrap(ToolProxyNameBookmarker, tool_proxy_scope)
+
       BookmarkedCollection.merge(
         ['external_tools', external_tools_collection],
         ['message_handlers', tool_proxy_collection]
@@ -37,22 +39,40 @@ module Lti
       collection.map do |o|
         case o
         when ContextExternalTool
+          next if o.use_1_3?
           hash = external_tool_definition(o)
-          if opts[:include_master_course_restrictions]
-            hash.merge!(o.master_course_api_restriction_data)
+          if opts[:master_course_status]
+            hash.merge!(o.master_course_api_restriction_data(opts[:master_course_status]))
           end
           hash
         when ToolProxy
           tool_proxy_definition(o)
+        when Hash
+          lti13_tool_definition(o)
         end
-      end
+      end.compact
     end
 
     private
 
+    def lti13_tool_definition(tool_configuration)
+      config = tool_configuration[:config]
+      {
+        app_type: "LTI 1.3 Tool",
+        app_id: config.developer_key.id,
+        name: config[:settings]['title'],
+        description: config[:settings]['description'],
+        installed_for_context: tool_configuration[:installed_for_context],
+        installed_at_context_level: tool_configuration[:installed_at_context_level],
+        installed_tool_id: tool_configuration[:installed_tool_id],
+        context_id: config.developer_key.account_id,
+        lti_version: '1.3'
+      }
+    end
+
     def external_tool_definition(external_tool)
       {
-        app_type: external_tool.class.name,
+        app_type: 'ContextExternalTool',
         app_id: external_tool.id,
         name: external_tool.name,
         description: external_tool.description,
@@ -62,7 +82,8 @@ module Lti
         context: external_tool.context_type,
         context_id: external_tool.context.id,
         reregistration_url: nil,
-        has_update: nil
+        has_update: nil,
+        lti_version: '1.1'
       }
     end
 
@@ -78,7 +99,8 @@ module Lti
         context: tool_proxy.context_type,
         context_id: tool_proxy.context.id,
         reregistration_url: build_reregistration_url(tool_proxy),
-        has_update: root_account.feature_enabled?(:lti2_rereg) ? tool_proxy.update? : nil
+        has_update: root_account.feature_enabled?(:lti2_rereg) ? tool_proxy.update? : nil,
+        lti_version: '2.0'
       }
     end
 

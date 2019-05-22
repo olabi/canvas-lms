@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,34 +18,39 @@
 
 module Lti
   module MembershipService
-    class CourseGroupCollator
-      attr_reader :role, :per_page, :page, :context, :user, :memberships
+    class CourseGroupCollator < CollatorBase
+      attr_reader :role, :per_page, :page, :context, :user
 
       def initialize(context, opts={})
+        super()
         @role = opts[:role]
         @per_page = [[opts[:per_page].to_i, Api.per_page].max, Api.max_per_page].min
-        @page = [opts[:page].to_i - 1, 0].max
+        @page = [opts[:page].to_i, 1].max
         @context = context
-        @memberships = collate_memberships
       end
 
-      def next_page?
-        groups.length > @per_page
+      def memberships(context: nil)
+        @_memberships ||= collate_memberships
       end
 
       private
 
+      def membership_type
+        Group
+      end
+
       def collate_memberships
-        groups.slice(0, @per_page).map do |user|
+        groups.to_a.slice(0, @per_page).map do |user|
           generate_membership(user)
         end
       end
 
       def groups
-        @groups ||= @context.groups.active
-                             .order(:id)
-                             .offset(@page * @per_page)
-                             .limit(@per_page + 1)
+        @groups ||= bookmarked_collection.paginate(per_page: @per_page)
+      end
+
+      def scope
+        @context.groups.active
       end
 
       def generate_member(group)

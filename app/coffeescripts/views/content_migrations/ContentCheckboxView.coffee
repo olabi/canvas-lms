@@ -1,12 +1,29 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'Backbone'
   'i18n!content_migrations'
   'jst/content_migrations/ContentCheckbox'
   'jst/content_migrations/ContentCheckboxCollection'
-  'compiled/collections/content_migrations/ContentCheckboxCollection'
-  'compiled/views/CollectionView'
-  'compiled/str/TextHelper'
+  '../../collections/content_migrations/ContentCheckboxCollection'
+  '../CollectionView'
+  '../../str/TextHelper'
 ], ($, Backbone, I18n, template, checkboxCollectionTemplate, CheckboxCollection, CollectionView, TextHelper) ->
   class ContentCheckboxView extends Backbone.View
     template: template
@@ -75,6 +92,7 @@ define [
       discussion_topics:            "icon-discussion"
       wiki_pages:                   "icon-note-light"
       context_external_tools:       "icon-lti"
+      tool_profiles:                "icon-lti"
       announcements:                "icon-announcement"
       calendar_events:              "icon-calendar-days"
       rubrics:                      "icon-rubric"

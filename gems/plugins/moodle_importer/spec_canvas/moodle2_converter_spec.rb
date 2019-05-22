@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
 describe Moodle::Converter do
@@ -88,8 +105,12 @@ describe Moodle::Converter do
 
   context "modules" do
     it "should convert modules and module items" do
+      skip 'Requires QtiMigrationTool' unless Qti.qti_enabled?
+
       expect(@course.context_modules.count).to eq 8
       expect(@course.context_module_tags.where(:content_type => "Assignment", :title => "Assignment Name")).to be_exists
+      expect(@course.context_module_tags.where(:content_type => "WikiPage", :title => "My First Book")).to be_exists
+      expect(@course.context_module_tags.where(:content_type => "WikiPage", :title => "Chapter 1")).to be_exists
       expect(@course.context_module_tags.where(:content_type => "WikiPage", :title => "My Sample Page")).to be_exists
       expect(@course.context_module_tags.where(:content_type => "ContextModuleSubHeader", :title => "This is some label text")).to be_exists
       expect(@course.context_module_tags.where(:content_type => "DiscussionTopic", :title => "Hidden Forum")).to be_exists

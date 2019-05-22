@@ -1,33 +1,85 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 
 describe MathMan do
   let(:latex) do
     '\sqrt{25}+12^{12}'
   end
-  let(:service_url) { 'http://www.mml-service.com' }
+  # we explicitly don't want a trailing slash here for the url tests
+  let(:service_url) { 'http://www.mml-service.com/beta' }
   let(:use_for_mml) { false }
   let(:use_for_svg) { false }
 
   before do
-    PluginSetting.create(
+    @original_fallback = Canvas::DynamicSettings.fallback_data
+    Canvas::DynamicSettings.fallback_data = {
+      config: {
+        canvas: {
+          'math-man': {
+            base_url: service_url,
+          }
+        }
+      }
+    }
+    PluginSetting.create!(
       name: 'mathman',
       settings: {
-        base_url: service_url,
         use_for_mml: use_for_mml,
         use_for_svg: use_for_svg
-      }
+      }.with_indifferent_access
     )
   end
 
+  after do
+    Canvas::DynamicSettings.fallback_data = @original_fallback
+  end
+
   describe '.url_for' do
-    it 'should include target string in generated url' do
+    it 'must retain the path from base_url setting' do
+      url = MathMan.url_for(latex: latex, target: :mml)
+      parsed = Addressable::URI.parse(url)
+      expect(parsed.path).to eq ('/beta/mml')
+    end
+
+    it 'includes target string in generated url' do
       expect(MathMan.url_for(latex: latex, target: :mml)).to match(/mml/)
       expect(MathMan.url_for(latex: latex, target: :svg)).to match(/svg/)
+    end
+
+    it 'errors if DynamicSettings is not configured' do
+      Canvas::DynamicSettings.fallback_data = nil
+      expect { MathMan.url_for(latex: latex, target: :mml) }.to raise_error MathMan::InvalidConfigurationError
     end
   end
 
   describe '.use_for_mml?' do
-    it 'returns false when not appropriately configured' do
+    it 'returns false when set to false' do
+      expect(MathMan.use_for_mml?).to be_falsey
+    end
+
+    it 'returns false when PluginSetting is missing' do
+      PluginSetting.where(name: 'mathman').first.destroy
+      expect(MathMan.use_for_mml?).to be_falsey
+    end
+
+    it 'does not error if DynamicSettings is not configured' do
+      Canvas::DynamicSettings.fallback_data = nil
       expect(MathMan.use_for_mml?).to be_falsey
     end
 
@@ -41,7 +93,17 @@ describe MathMan do
   end
 
   describe '.use_for_svg?' do
-    it 'returns false when not appropriately configured' do
+    it 'returns false when set to false' do
+      expect(MathMan.use_for_svg?).to be_falsey
+    end
+
+    it 'returns false when PluginSetting is missing' do
+      PluginSetting.where(name: 'mathman').first.destroy
+      expect(MathMan.use_for_svg?).to be_falsey
+    end
+
+    it 'does not error if DynamicSettings is not configured' do
+      Canvas::DynamicSettings.fallback_data = nil
       expect(MathMan.use_for_svg?).to be_falsey
     end
 

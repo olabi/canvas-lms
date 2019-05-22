@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/assignment_overrides')
 
@@ -75,10 +92,9 @@ describe "discussions overrides" do
       f('#bordered-wrapper .Container__DueDateRow-item:nth-of-type(2) button[title = "Remove These Dates"]').click
       f('.form-actions button[type=submit]').click
       wait_for_ajaximations
-      expect(f('.ui-dialog')).to be_present
-      expect(f('#ui-id-7').text).to include('Not all sections will be assigned this item')
-      f('.ui-dialog .ui-dialog-buttonset .btn-primary').click
-      wait_for_ajaximations
+      expect(fj('.ui-dialog:contains("Warning")')).to be_present
+      expect(fj('.ui-dialog:contains("Warning")').text).to include('Not all sections will be assigned this item')
+      wait_for_new_page_load{f('.ui-dialog .ui-dialog-buttonset .btn-primary').click}
       f('.toggle_due_dates').click
       wait_for_ajaximations
       # The toggle dates does not show the due date for everyone else

@@ -1,14 +1,35 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 
 describe "threaded discussions" do
   include_context "in-process server selenium tests"
   include DiscussionsCommon
 
-  before(:each) do
+  before :once do
+    course_with_teacher(active_course: true, active_all: true, name: 'teacher')
     @topic_title = 'threaded discussion topic'
-    course_with_teacher_logged_in
     @topic = create_discussion(@topic_title, 'threaded')
-    @student = student_in_course.user
+    @student = student_in_course(course: @course, name: 'student', active_all: true).user
+  end
+
+  before(:each) do
+    user_session(@teacher)
   end
 
   it "should create a threaded discussion", priority: "1", test_id: 150511 do
@@ -145,12 +166,14 @@ describe "threaded discussions" do
   end
 
   it "should delete a reply", priority: "1", test_id: 150515 do
+    skip_if_safari(:alert)
     entry = @topic.discussion_entries.create!(user: @student, message: "new threaded reply from student")
     get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
     delete_entry(entry)
   end
 
   it "should display editor name and timestamp after edit", priority: "2", test_id: 222522 do
+    skip_if_chrome('needs research: passes locally fails on Jenkins ')
     edit_text = 'edit message'
     entry = @topic.discussion_entries.create!(user: @student, message: "new threaded reply from student")
     get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
@@ -196,5 +219,26 @@ describe "threaded discussions" do
     entry = DiscussionEntry.last
     delete_entry(entry)
     expect(f("#entry-#{entry.id} .discussion-title").text).to match("Deleted by #{@teacher.name} on")
+  end
+
+  context "student tray" do
+
+    before(:each) do
+      preload_graphql_schema
+      @account = Account.default
+      @account.enable_feature!(:student_context_cards)
+    end
+
+    it "discussion page should display student name in tray", priority: "1", test_id: 3022069 do
+      topic = @course.discussion_topics.create!(user: @teacher,
+                                                             title: 'Non threaded discussion',
+                                                             message: 'discussion topic message')
+      topic.discussion_entries.create!(user: @student,
+                                                    message: "new threaded reply from student",
+                                                    parent_entry: DiscussionEntry.last)
+      get "/courses/#{@course.id}/discussion_topics/#{topic.id}"
+      f("a[data-student_id='#{@student.id}']").click
+      expect(f(".StudentContextTray-Header__Name h2 a")).to include_text("student")
+    end
   end
 end

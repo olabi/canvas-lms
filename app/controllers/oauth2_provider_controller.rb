@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,8 +20,8 @@ class Oauth2ProviderController < ApplicationController
 
   rescue_from Canvas::Oauth::RequestError, with: :oauth_error
   protect_from_forgery :except => [:token, :destroy], with: :exception
-  before_filter :run_login_hooks, :only => [:token]
-  skip_before_filter :require_reacceptance_of_terms
+  before_action :run_login_hooks, :only => [:token]
+  skip_before_action :require_reacceptance_of_terms
 
   def auth
     if params[:code] || params[:error]
@@ -37,6 +37,9 @@ class Oauth2ProviderController < ApplicationController
 
     raise Canvas::Oauth::RequestError, :invalid_client_id unless provider.has_valid_key?
     raise Canvas::Oauth::RequestError, :invalid_redirect unless provider.has_valid_redirect?
+    if provider.key.require_scopes?
+      raise Canvas::Oauth::RequestError, :invalid_scope unless provider.valid_scopes?
+    end
 
     session[:oauth2] = provider.session_hash
     session[:oauth2][:state] = params[:state] if params.key?(:state)
@@ -54,11 +57,11 @@ class Oauth2ProviderController < ApplicationController
     end
 
     if @current_pseudonym && !params[:force_login]
-      redirect_to Canvas::Oauth::Provider.confirmation_redirect(self, provider, @current_user)
+      redirect_to Canvas::Oauth::Provider.confirmation_redirect(self, provider, @current_user, logged_in_user)
     else
       params["pseudonym_session"] = {"unique_id" => params[:unique_id]} if params.key?(:unique_id)
-      redirect_to login_url(params.slice(:canvas_login, :pseudonym_session, :force_login,
-                                         :authentication_provider, :pseudonym_session))
+      redirect_to login_url(params.permit(:canvas_login, :force_login,
+                                          :authentication_provider, pseudonym_session: :unique_id))
     end
   end
 
@@ -77,42 +80,42 @@ class Oauth2ProviderController < ApplicationController
   end
 
   def accept
-    redirect_params = Canvas::Oauth::Provider.final_redirect_params(session[:oauth2], @current_user, remember_access: params[:remember_access])
+    redirect_params = Canvas::Oauth::Provider.final_redirect_params(session[:oauth2], @current_user, logged_in_user, remember_access: params[:remember_access])
     redirect_to Canvas::Oauth::Provider.final_redirect(self, redirect_params)
   end
 
   def deny
-    redirect_to Canvas::Oauth::Provider.final_redirect(self, :error => "access_denied")
+    params = { error: "access_denied" }
+    params[:state] = session[:oauth2][:state] if session[:oauth2][:state]
+    redirect_to Canvas::Oauth::Provider.final_redirect(self, params)
   end
 
   def token
     basic_user, basic_pass = ActionController::HttpAuthentication::Basic.user_name_and_password(request) if request.authorization
     client_id = params[:client_id].presence || basic_user
     secret = params[:client_secret].presence || basic_pass
-    provider = Canvas::Oauth::Provider.new(client_id)
-    raise Canvas::Oauth::RequestError, :invalid_client_id unless provider.has_valid_key?
-    raise Canvas::Oauth::RequestError, :invalid_client_secret unless provider.is_authorized_by?(secret)
 
-    if grant_type == "authorization_code"
-      raise OAuth2RequestError :authorization_code_not_supplied unless params[:code]
-
-      token = provider.token_for(params[:code])
-      raise Canvas::Oauth::RequestError, :invalid_authorization_code  unless token.is_for_valid_code?
-      raise Canvas::Oauth::RequestError, :incorrect_client unless token.key.id == token.client_id
-
-      token.create_access_token_if_needed(value_to_boolean(params[:replace_tokens]))
-      Canvas::Oauth::Token.expire_code(params[:code])
-    elsif params[:grant_type] == "refresh_token"
-      raise Canvas::Oauth::RequestError, :refresh_token_not_supplied unless params[:refresh_token]
-
-      token = provider.token_for_refresh_token(params[:refresh_token])
-      # token = AccessToken.authenticate_refresh_token(params[:refresh_token])
-      raise Canvas::Oauth::RequestError, :invalid_refresh_token unless token
-      raise Canvas::Oauth::RequestError, :incorrect_client unless token.access_token.developer_key_id == token.key.id
-      token.access_token.regenerate_access_token
+    granter = if grant_type == "authorization_code"
+      Canvas::Oauth::GrantTypes::AuthorizationCode.new(client_id, secret, params)
+    elsif grant_type == "refresh_token"
+      Canvas::Oauth::GrantTypes::RefreshToken.new(client_id, secret, params)
+    elsif grant_type == 'client_credentials'
+      Canvas::Oauth::GrantTypes::ClientCredentials.new(params, request.host)
     else
-      raise Canvas::Oauth::RequestError, :unsupported_grant_type
+      Canvas::Oauth::GrantTypes::BaseType.new(client_id, secret, params)
     end
+
+    raise Canvas::Oauth::RequestError, :unsupported_grant_type unless granter.supported_type?
+
+    token = granter.token
+    # make sure locales are set up
+    if token.is_a?(Canvas::Oauth::Token)
+      @current_user = token.user
+      assign_localizer
+      I18n.set_locale_with_localizer
+    end
+
+    increment_request_cost(Setting.get("oauth_token_additional_request_cost", "200").to_i)
 
     render :json => token
   end

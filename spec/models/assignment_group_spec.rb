@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,6 +33,20 @@ describe AssignmentGroup do
 
   it "should act as list" do
     expect(AssignmentGroup).to be_respond_to(:acts_as_list)
+  end
+
+  it "should convert NaN group weight values to 0 on save" do
+    ag = @course.assignment_groups.create!(@valid_attributes)
+    ag.group_weight = 0/0.0
+    ag.save!
+    expect(ag.group_weight).to eq 0
+  end
+
+  it "allows association with scores" do
+    ag = @course.assignment_groups.create!(@valid_attributes)
+    enrollment = @course.student_enrollments.first
+    score = ag.scores.first
+    expect(score.assignment_group_id).to be ag.id
   end
 
   context "visible assignments" do
@@ -170,19 +184,15 @@ describe AssignmentGroup do
     end
 
     context "to delete" do
-      before(:each) do
-        @course.root_account.enable_feature!(:multiple_grading_periods)
-      end
-
-      context "when multiple grading periods is disabled" do
+      context "without grading periods" do
         it "is true for admins" do
-          @course.root_account.disable_feature!(:multiple_grading_periods)
-          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+          allow(@course).to receive(:grading_periods?).and_return false
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to be true
         end
 
         it "is false for teachers" do
-          @course.root_account.disable_feature!(:multiple_grading_periods)
-          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+          allow(@course).to receive(:grading_periods?).and_return false
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to be true
         end
       end
 
@@ -432,9 +442,79 @@ describe AssignmentGroup do
     it 'calls EffectiveDueDates#in_closed_grading_period?' do
       assignment_group_model
       edd = EffectiveDueDates.for_course(@ag.context, @ag.published_assignments)
-      EffectiveDueDates.expects(:for_course).with(@ag.context, @ag.published_assignments).returns(edd)
-      edd.expects(:any_in_closed_grading_period?).returns(true)
+      expect(EffectiveDueDates).to receive(:for_course).with(@ag.context, @ag.published_assignments).and_return(edd)
+      expect(edd).to receive(:any_in_closed_grading_period?).and_return(true)
       expect(@ag.any_assignment_in_closed_grading_period?).to eq(true)
+    end
+  end
+
+  describe "#destroy" do
+    before(:once) do
+      @student_enrollment = @student.enrollments.find_by(course_id: @course)
+      @group = @course.assignment_groups.create!(@valid_attributes)
+    end
+
+    let(:student_score) do
+      Score.find_by(enrollment_id: @student_enrollment, assignment_group_id: @group)
+    end
+
+    it "destroys scores belonging to active students" do
+      expect { @group.destroy }.to change { student_score.reload.state }.from(:active).to(:deleted)
+    end
+
+    it "does not destroy scores belonging to concluded students" do
+      @student_enrollment.conclude
+      expect { @group.destroy }.not_to change { student_score.reload.state }
+    end
+
+    it 'destroys active assignments belonging to the group' do
+      assignment = @course.assignments.create!
+      @group.destroy
+      expect(assignment.reload).to be_deleted
+    end
+
+    it 'does not run validations on soft-deleted assignments belonging to the group' do
+      now = Time.zone.now
+      assignment = @course.assignments.create!(
+        unlock_at: 3.days.ago(now),
+        due_at: now,
+        lock_at: 3.days.from_now(now),
+        workflow_state: 'deleted'
+      )
+      # update the assignment to be invalid, so that if validations are run
+      # we'll get an error
+      assignment.update_columns(lock_at: 2.days.ago(now))
+      expect { @group.destroy }.not_to raise_error
+    end
+  end
+
+  describe "#restore" do
+    before(:once) do
+      @student_enrollment = @student.enrollments.find_by(course_id: @course)
+      @group = @course.assignment_groups.create!(@valid_attributes)
+      @group.destroy
+    end
+
+    let(:student_score) do
+      Score.find_by(enrollment_id: @student_enrollment, assignment_group_id: @group)
+    end
+
+    it "restores the assignment group back to an 'available' state" do
+      expect { @group.restore }.to change { @group.state }.from(:deleted).to(:available)
+    end
+
+    it "restores scores belonging to active students" do
+      expect { @group.restore }.to change { student_score.reload.state }.from(:deleted).to(:active)
+    end
+
+    it "does not restore scores belonging to concluded students" do
+      @student_enrollment.conclude
+      expect { @group.restore }.not_to change { student_score.reload.state }
+    end
+
+    it "does not restore scores belonging to deleted students" do
+      @student_enrollment.destroy
+      expect { @group.restore }.not_to change { student_score.reload.state }
     end
   end
 end

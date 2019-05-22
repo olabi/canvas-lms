@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "courses" do
@@ -17,11 +34,15 @@ describe "courses" do
       account = Account.default
       account.settings = {:open_registration => true, :no_enrollments_can_create_courses => true, :teachers_can_create_courses => true}
       account.save!
+      allow_any_instance_of(Account).to receive(:feature_enabled?).and_call_original
+      allow_any_instance_of(Account).to receive(:feature_enabled?).with(:new_user_tutorial).and_return(false)
     end
 
     context 'draft state' do
       before(:each) do
         course_with_teacher_logged_in
+        @course.default_view = 'feed'
+        @course.save
       end
 
       def validate_action_button(postion, validation_text)
@@ -59,7 +80,7 @@ describe "courses" do
         get "/courses/#{@course.id}"
         course_status_buttons = ff('#course_status_actions button')
         expect(course_status_buttons.first).not_to have_class('disabled')
-        expect(course_status_buttons.first.text).to eq 'Unpublish'
+        expect(course_status_buttons.first.text).to eq ' Unpublish'
         expect(course_status_buttons.last).to have_class('disabled')
         expect(course_status_buttons.last.text).to eq 'Published'
         expect_new_page_load { course_status_buttons.first.click }
@@ -68,6 +89,8 @@ describe "courses" do
 
       it "should allow publishing even if graded submissions exist" do
         course_with_student_submissions({submission_points: true, unpublished: true})
+        @course.default_view = 'feed'
+        @course.save
         get "/courses/#{@course.id}"
         course_status_buttons = ff('#course_status_actions button')
         expect(course_status_buttons.first).to have_class('disabled')
@@ -81,12 +104,16 @@ describe "courses" do
 
       it "should not show course status if published and graded submissions exist" do
         course_with_student_submissions({submission_points: true})
+        @course.default_view = 'feed'
+        @course.save
         get "/courses/#{@course.id}"
         expect(f("#content")).not_to contain_css('#course_status')
       end
 
       it "should allow unpublishing of the course if submissions have no score or grade" do
         course_with_student_submissions
+        @course.default_view = 'feed'
+        @course.save
         get "/courses/#{@course.id}"
         course_status_buttons = ff('#course_status_actions button')
         expect_new_page_load { course_status_buttons.first.click }
@@ -118,7 +145,7 @@ describe "courses" do
         get "/courses/#{@course.id}"
         f(".wizard_popup_link").click()
         expect(f(".ic-wizard-box")).to be_displayed
-        wait_for_ajaximations(500)
+        wait_for_ajaximations
       end
 
       def check_if_item_complete(item)
@@ -141,7 +168,7 @@ describe "courses" do
         f("#wizard_home_page").click
         f(".ic-wizard-box__message-button a").click
         wait_for_ajaximations
-        modal = f("#edit_course_home_content_form")
+        modal = fj("h3:contains('Choose Home Page')")
         expect(modal).to be_displayed
       end
 
@@ -275,11 +302,12 @@ describe "courses" do
 
       get "/courses/#{course1.id}/grades/#{student.id}"
 
-      select = f('#course_url')
+      select = f('#course_select_menu')
       options = select.find_elements(:css, 'option')
       expect(options.length).to eq 2
       wait_for_ajaximations
-      expect_new_page_load{ click_option('#course_url', course2.name) }
+      click_option('#course_select_menu', course2.name)
+      expect_new_page_load { f('#apply_select_menus').click }
       expect(f('#breadcrumbs .home + li a')).to include_text(course2.name)
     end
 
@@ -414,7 +442,7 @@ describe "courses" do
 
       create_session(@student.pseudonym)
       get "/courses/#{@course.id}"
-      assert_flash_notice_message /Invitation accepted!/
+      assert_flash_notice_message "Invitation accepted!"
       expect(f("#content")).not_to contain_css(".ic-notification button[name='accept'] ")
     end
 
@@ -424,7 +452,7 @@ describe "courses" do
       create_session(@student.pseudonym)
       get "/courses/#{@course.id}"
       f(".ic-notification button[name='accept'] ").click
-      assert_flash_notice_message /Invitation accepted!/
+      assert_flash_notice_message "Invitation accepted!"
     end
 
     it "should reject a course invitation" do
@@ -433,7 +461,7 @@ describe "courses" do
       create_session(@student.pseudonym)
       get "/courses/#{@course.id}"
       f(".ic-notification button[name=reject]").click
-      assert_flash_notice_message /Invitation canceled./
+      assert_flash_notice_message "Invitation canceled."
     end
 
     it "should display user groups on courses page" do
@@ -469,7 +497,7 @@ describe "courses" do
 
         # manually trigger a stale enrollment - should recalculate on visit if it didn't already in the background
         Course.where(:id => @course).update_all(:start_at => 1.day.ago)
-        Enrollment.where(:id => @student.student_enrollments).update_all(:updated_at => 1.second.from_now) # because of enrollment date caching
+        Enrollment.where(:id => @student.student_enrollments).update_all(:updated_at => 1.minute.from_now) # because of enrollment date caching
         EnrollmentState.where(:enrollment_id => @student.student_enrollments).update_all(:state_is_current => false)
 
         refresh_page
@@ -502,14 +530,22 @@ describe "courses" do
 
     expect(element_exists?('#announcements_on_home_page')).to be_falsey
 
+    text = "here's some html or whatever"
+    html = "<p>#{text}</p>"
+    @course.announcements.create!(:title => "something", :message => html)
+
+    @course.wiki_pages.create!(:title => 'blah').set_as_front_page!
+
+    @course.reload
     @course.default_view = "wiki"
     @course.show_announcements_on_home_page = true
     @course.home_page_announcement_limit = 5
     @course.save!
-    @course.wiki.wiki_pages.create!(:title => 'blah').set_as_front_page!
 
     get "/courses/#{@course.id}"
 
     expect(f('#announcements_on_home_page')).to be_displayed
+    expect(f('#announcements_on_home_page')).to include_text(text)
+    expect(f('#announcements_on_home_page')).to_not include_text(html)
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -14,12 +14,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
-#
+
+require "active_support/hash_with_indifferent_access"
+
 module BroadcastPolicy
   module InstanceMethods
 
-    # Some generic flags for inside the policy
-    attr_accessor :just_created, :prior_version
+    def just_created
+      saved_changes? && id_before_last_save.nil?
+    end
 
     # Some flags for auditing policy matching
     def messages_sent
@@ -36,73 +39,93 @@ module BroadcastPolicy
       @messages_failed ||= {}
     end
 
-    # This is called before_save
-    def set_broadcast_flags
-      @broadcasted = false
-      unless @skip_broadcasts
-        self.just_created = self.new_record?
-        self.prior_version = generate_prior_version
+    def with_changed_attributes_from(other)
+      return yield unless other
+      begin
+        # I'm pretty sure we can stop messing with @changed_attributes once
+        # we're on Rails 5.2 (CANVAS_RAILS5_1)
+        frd_changed_attributes = @changed_attributes
+        @changed_attributes = ActiveSupport::HashWithIndifferentAccess.new
+        other.attributes.each do |key, value|
+          @changed_attributes[key] = value if value != attributes[key]
+        end
+
+        if defined?(ActiveRecord)
+          frd_mutations_before_last_save = @mutations_before_last_save
+          other_attributes = other.instance_variable_get(:@attributes).deep_dup
+          namespace = CANVAS_RAILS5_1 ? ActiveRecord : ActiveModel
+          @attributes.send(:attributes).each_key do |key|
+            value = @attributes[key]
+            # ignore newly added columns in the db that we don't really know
+            # about yet
+            if other_attributes[key].is_a?(namespace::Attribute.const_get(:Null))
+              other_attributes.instance_variable_get(:@attributes).delete(key)
+              next
+            end
+            if value.value != other_attributes[key].value
+              other_attributes.write_from_user(key, value.value)
+            else
+              other_attributes.write_from_database(key, value.value)
+            end
+          end
+          @mutations_before_last_save = namespace::AttributeMutationTracker.new(other_attributes)
+        end
+        yield
+      ensure
+        @changed_attributes = frd_changed_attributes
+        @mutations_before_last_save = frd_mutations_before_last_save
       end
     end
 
-    def generate_prior_version
-      obj = self.class.new
-      self.attributes.each do |attr, value|
-        next unless obj.has_attribute?(attr)
-        value = changed_attributes[attr] if changed_attributes.key?(attr)
-        obj.write_attribute(attr, value)
-      end
-      obj
-    end
-
-    # This is called after_save
-    def broadcast_notifications
-      return if @broadcasted
-      @broadcasted = true
+    # This is called after_save, but you can call it manually to trigger
+    # notifications. If you pass in a prior_version of self, its
+    # attributes will be used to fake out the various _was/_changed?
+    # helpers
+    def broadcast_notifications(prior_version = nil)
       raise ArgumentError, "Broadcast Policy block not supplied for #{self.class}" unless self.class.broadcast_policy_list
-      self.class.broadcast_policy_list.broadcast(self)
+      if prior_version
+        with_changed_attributes_from(prior_version) do
+          self.class.broadcast_policy_list.broadcast(self)
+        end
+      else
+        self.class.broadcast_policy_list.broadcast(self)
+      end
     end
 
     attr_accessor :skip_broadcasts
 
     def save_without_broadcasting
-      begin
-        @skip_broadcasts = true
-        self.save
-      ensure
-        @skip_broadcasts = false
-      end
+      @skip_broadcasts = true
+      self.save
+    ensure
+      @skip_broadcasts = false
     end
 
     def save_without_broadcasting!
-      begin
-        @skip_broadcasts = true
-        self.save!
-      ensure
-        @skip_broadcasts = false
-      end
+      @skip_broadcasts = true
+      self.save!
+    ensure
+      @skip_broadcasts = false
     end
 
     # The rest of the methods here should just be helper methods to make
     # writing a condition that much easier.
-    def changed_in_state(state, opts={})
-      fields  = opts[:fields] || []
-      fields = [fields] unless fields.is_a?(Array)
-
-      fields.map {|field| self.prior_version.send(field) != self.send(field) }.include?(true) &&
-        self.workflow_state == state.to_s &&
-        self.prior_version.workflow_state == state.to_s
+    def changed_in_state(state, fields: [])
+      fields = Array(fields)
+      fields.any? { |field| saved_change_to_attribute?(field) } &&
+        workflow_state == state.to_s &&
+        workflow_state_before_last_save == state.to_s
     end
 
     def changed_state(new_state=nil, old_state=nil)
       if new_state && old_state
-        self.workflow_state == new_state.to_s &&
-          self.prior_version.workflow_state == old_state.to_s
+        workflow_state == new_state.to_s &&
+          workflow_state_before_last_save == old_state.to_s
       elsif new_state
-        self.workflow_state.to_s == new_state.to_s &&
-          self.prior_version.workflow_state != self.workflow_state
+        workflow_state.to_s == new_state.to_s &&
+          saved_change_to_workflow_state?
       else
-        self.workflow_state != self.prior_version.workflow_state
+        saved_change_to_workflow_state?
       end
     end
     alias :changed_state_to :changed_state

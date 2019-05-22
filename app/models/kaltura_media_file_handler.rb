@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -27,7 +27,7 @@ class KalturaMediaFileHandler
     attachments.select{|a| !a.media_object }.each do |attachment|
       files << {
                   :name       => attachment.display_name,
-                  :url        => attachment.download_url,
+                  :url        => attachment.public_download_url,
                   :media_type => (attachment.content_type || "").match(/\Avideo/) ? 'video' : 'audio',
                   :partner_data  => build_partner_data(attachment)
                }

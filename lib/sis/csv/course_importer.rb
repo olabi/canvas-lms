@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,30 +30,33 @@ module SIS
 
       # expected columns
       # course_id,short_name,long_name,account_id,term_id,status
-      def process(csv)
-        course_ids = {}
+      def process(csv, index=nil, count=nil)
         messages = []
-        @sis.counts[:courses] += SIS::CourseImporter.new(@root_account, importer_opts).process(messages) do |importer|
-          csv_rows(csv) do |row|
-            update_progress
-
-            start_date = nil
-            end_date = nil
+        count = SIS::CourseImporter.new(@root_account, importer_opts).process(messages) do |importer|
+          csv_rows(csv, index, count) do |row|
+            start_date = (row.key? 'start_date') ? nil : 'not_present'
+            end_date = (row.key? 'end_date') ? nil : 'not_present'
             begin
-              start_date = DateTime.parse(row['start_date']) unless row['start_date'].blank?
-              end_date = DateTime.parse(row['end_date']) unless row['end_date'].blank?
+              start_date = Time.zone.parse(row['start_date']) if row['start_date'].present?
+              end_date = Time.zone.parse(row['end_date']) if row['end_date'].present?
             rescue
-              messages << "Bad date format for course #{row['course_id']}"
+              messages << SisBatch.build_error(csv, "Bad date format for course #{row['course_id']}", sis_batch: @batch, row: row['lineno'], row_info: row)
             end
-
+            course_format = row.key?('course_format') && (row['course_format'] || 'not_set')
             begin
-              importer.add_course(row['course_id'], row['term_id'], row['account_id'], row['fallback_account_id'], row['status'], start_date, end_date, row['abstract_course_id'], row['short_name'], row['long_name'], row['integration_id'], row['course_format'])
+              importer.add_course(row['course_id'], row['term_id'], row['account_id'], row['fallback_account_id'], row['status'], start_date, end_date,
+                                  row['abstract_course_id'], row['short_name'], row['long_name'], row['integration_id'], course_format, row['blueprint_course_id'])
             rescue ImportError => e
-              messages << "#{e}"
+              messages << SisBatch.build_error(csv, e.to_s, sis_batch: @batch, row: row['lineno'], row_info: row)
             end
           end
         end
-        messages.each { |message| add_warning(csv, message) }
+        errors = []
+        messages.each do |message|
+          errors << ((message.is_a? SisBatchError) ? message : SisBatch.build_error(csv, message, sis_batch: @batch))
+        end
+        SisBatch.bulk_insert_sis_errors(errors)
+        count
       end
     end
   end

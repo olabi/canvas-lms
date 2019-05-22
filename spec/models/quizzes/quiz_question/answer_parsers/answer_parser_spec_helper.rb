@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -46,6 +46,11 @@ shared_examples_for "All answer parsers" do
   it "provides IDs for the answers" do
     ids = @answer_data.answers.map { |a| a[:id] }
     ids.each { |id| expect(id).to be_kind_of(Integer) }
+  end
+
+  it "sanitizes answer comments" do
+    expect(@answer_data.first[:comments_html]).to include('<img')
+    expect(@answer_data.first[:comments_html]).not_to include('onerror')
   end
 end
 

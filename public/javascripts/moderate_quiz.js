@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,26 +12,25 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!quizzes.moderate',
-  'jquery' /* $ */,
-  'quiz_timing',
-  'jsx/quizzes/moderate/openModerateStudentDialog',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_date_and_time' /* datetimeString */,
-  'jquery.instructure_forms' /* fillFormData, getFormData */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_helpers' /* replaceTags */,
-  'jquery.instructure_misc_plugins' /* showIf */,
-  'compiled/jquery.rails_flash_notifications',
-  'jquery.templateData' /* fillTemplateData */,
-  'vendor/date' /* Date.parse */
-], function(I18n, $, timing, openModerateStudentDialog) {
+import I18n from 'i18n!quizzes.moderate'
+import $ from 'jquery'
+import timing from './quiz_timing'
+import openModerateStudentDialog from 'jsx/quizzes/moderate/openModerateStudentDialog'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' /* datetimeString */
+import './jquery.instructure_forms' /* fillFormData, getFormData */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import './jquery.instructure_misc_helpers' /* replaceTags */
+import './jquery.instructure_misc_plugins' /* showIf */
+import 'compiled/jquery.rails_flash_notifications'
+import './jquery.templateData' /* fillTemplateData */
+import './vendor/date' /* Date.parse */
+
   var DIALOG_WIDTH = 490;
   /**
    * Updates the digit(s) in the "gets X extra minutes" message in a student's
@@ -53,6 +52,7 @@ define([
     $extraTime.toggle(extraTime > 0);
   };
 
+  /*global moderation*/
   window.moderation = {
     updateTimes: function() {
       var now = new Date();
@@ -424,7 +424,7 @@ define([
       },
       buildResultList: function(data) {
         $.each(data["quiz_submissions"], function (index, qs) {
-          clone = $(".example_autosubmit_row").clone()
+          var clone = $(".example_autosubmit_row").clone()
             .removeClass("example_autosubmit_row")
             .appendTo(".outstanding_submissions_list").show();
           clone.children("input").val(qs.id);
@@ -487,4 +487,3 @@ define([
     outstanding.fetchData();
     $("#check_outstanding").click(outstanding.init.bind(outstanding));
   });
-});

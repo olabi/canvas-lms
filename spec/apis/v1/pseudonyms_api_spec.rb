@@ -44,7 +44,8 @@ describe PseudonymsController, type: :request do
             'id' => p.id,
             'sis_user_id' => p.sis_user_id,
             'unique_id' => p.unique_id,
-            'user_id' => p.user_id
+            'user_id' => p.user_id,
+            'created_at' => p.created_at
           }
         end)
       end
@@ -141,7 +142,8 @@ describe PseudonymsController, type: :request do
           'sis_user_id' => '12345',
           'integration_id' => nil,
           'unique_id'   => 'test@example.com',
-          'user_id'     => @student.id
+          'user_id'     => @student.id,
+          'created_at' => json['created_at']
         })
       end
 
@@ -225,7 +227,7 @@ describe PseudonymsController, type: :request do
       @teacher.pseudonyms.create!(:unique_id => 'teacher@example.com')
       @path = "/api/v1/accounts/#{@account.id}/logins/#{@student.pseudonym.id}"
       @path_options = { :controller => 'pseudonyms', :format => 'json', :action => 'update', :account_id => @account.id.to_param, :id => @student.pseudonym.id.to_param }
-      a = Account.find(Account.default)
+      a = Account.find(Account.default.id)
       a.settings[:admins_can_change_passwords] = true
       a.save!
     end
@@ -246,7 +248,8 @@ describe PseudonymsController, type: :request do
           'sis_user_id' => 'new-12345',
           'integration_id' => nil,
           'unique_id' => 'student+new@example.com',
-          'user_id' => @student.id
+          'user_id' => @student.id,
+          'created_at' => @student.pseudonym.created_at.iso8601
         })
         expect(@student.pseudonym.reload.valid_password?('password123')).to be_truthy
       end
@@ -276,7 +279,7 @@ describe PseudonymsController, type: :request do
       end
 
       it "should allow changing sis id even if password setting is disabled" do
-        a = Account.find(Account.default)
+        a = Account.find(Account.default.id)
         a.settings[:admins_can_change_passwords] = true
         a.save!
         json = api_call(:put, @path, @path_options, {
@@ -333,7 +336,8 @@ describe PseudonymsController, type: :request do
           'account_id' => Account.default.id,
           "authentication_provider_id" => nil,
           'id' => pseudonym.id,
-          'user_id' => @student.id
+          'user_id' => @student.id,
+          'created_at' => pseudonym.created_at.iso8601
         })
       end
 

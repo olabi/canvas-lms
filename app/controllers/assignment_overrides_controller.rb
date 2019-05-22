@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@
 # @model AssignmentOverride
 #     {
 #       "id": "AssignmentOverride",
-#       "description": "NOTE: The Assignment Override feature is in beta! This API is not finalized and there could be breaking changes before its final release.",
+#       "description": "",
 #       "properties": {
 #         "id": {
 #           "description": "the ID of the assignment override",
@@ -84,20 +84,19 @@
 #     }
 #
 class AssignmentOverridesController < ApplicationController
-  before_filter :require_group, :only => :group_alias
-  before_filter :require_section, :only => :section_alias
-  before_filter :require_course
-  before_filter :require_assignment, :except => [:batch_retrieve, :batch_update, :batch_create]
-  before_filter :require_assignment_edit, :only => [:create, :update, :destroy]
-  before_filter :require_all_assignments_edit, :only => [:batch_update, :batch_create]
-  before_filter :require_override, :only => [:show, :update, :destroy]
+  before_action :require_group, :only => :group_alias
+  before_action :require_section, :only => :section_alias
+  before_action :require_course
+  before_action :require_assignment, :except => [:batch_retrieve, :batch_update, :batch_create]
+  before_action :require_assignment_edit, :only => [:create, :update, :destroy]
+  before_action :require_all_assignments_edit, :only => [:batch_update, :batch_create]
+  before_action :require_override, :only => [:show, :update, :destroy]
 
   include Api::V1::AssignmentOverride
 
   # @API List assignment overrides
-  # @beta
   #
-  # Returns the list of overrides for this assignment that target
+  # Returns the paginated list of overrides for this assignment that target
   # sections/groups/students visible to the current user.
   #
   # @returns [AssignmentOverride]
@@ -107,7 +106,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Get a single assignment override
-  # @beta
   #
   # Returns details of the the override with the given id.
   #
@@ -117,7 +115,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Redirect to the assignment override for a group
-  # @beta
   #
   # Responds with a redirect to the override for the given group, if any
   # (404 otherwise).
@@ -131,7 +128,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Redirect to the assignment override for a section
-  # @beta
   #
   # Responds with a redirect to the override for the given section, if any
   # (404 otherwise).
@@ -145,7 +141,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Create an assignment override
-  # @beta
   #
   # @argument assignment_override[student_ids][] [Integer] The IDs of
   #   the override's target students. If present, the IDs must each identify a
@@ -212,7 +207,7 @@ class AssignmentOverridesController < ApplicationController
     data, errors = interpret_assignment_override_data(@assignment, params[:assignment_override])
     return bad_request(:errors => errors) if errors
 
-    if update_assignment_override(@override, data)
+    if update_assignment_override(@override, data, updating_user: @current_user)
       render :json => assignment_override_json(@override), :status => 201
     else
       bad_request(@override.errors)
@@ -220,7 +215,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Update an assignment override
-  # @beta
   #
   # @argument assignment_override[student_ids][] [Integer] The IDs of the
   #   override's target students. If present, the IDs must each identify a
@@ -269,7 +263,7 @@ class AssignmentOverridesController < ApplicationController
     data, errors = interpret_assignment_override_data(@assignment, params[:assignment_override], @override.set_type)
     return bad_request(:errors => errors) if errors
 
-    if update_assignment_override(@override, data)
+    if update_assignment_override(@override, data, updating_user: @current_user)
       render :json => assignment_override_json(@override)
     else
       bad_request(@override.errors)
@@ -277,7 +271,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Delete an assignment override
-  # @beta
   #
   # Deletes an override and returns its former details.
   #
@@ -298,7 +291,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Batch retrieve overrides in a course
-  # @beta
   #
   # Returns a list of specified overrides in this course, providing
   # they target sections/groups/students visible to the current user.
@@ -322,7 +314,7 @@ class AssignmentOverridesController < ApplicationController
       return bad_request(errors: [ 'no assignment_overrides values present' ])
     elsif !override_params.is_a? Array
       return bad_request(errors: [ 'must specify an array with entry format { id, assignment_id }' ])
-    elsif !override_params.all? { |o| o.is_a?(Hash) && o.key?('assignment_id') && o.key?('id') }
+    elsif !override_params.all? { |o| o.is_a?(ActionController::Parameters) && o.key?('assignment_id') && o.key?('id') }
       return bad_request(errors: [ 'must specify an array with entry format { id, assignment_id }' ])
     end
 
@@ -347,7 +339,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Batch create overrides in a course
-  # @beta
   #
   # Creates the specified overrides for each assignment.  Handles creation in a
   # transaction, so all records are created or none are.
@@ -383,7 +374,6 @@ class AssignmentOverridesController < ApplicationController
   end
 
   # @API Batch update overrides in a course
-  # @beta
   #
   # Updates a list of specified overrides for each assignment.  Handles overrides
   # in a transaction, so either all updates are applied or none.
@@ -468,7 +458,7 @@ class AssignmentOverridesController < ApplicationController
       is_update ? data['override'] : data['assignment'].assignment_overrides.build
     end
 
-    if update_assignment_overrides(overrides, all_data)
+    if update_assignment_overrides(overrides, all_data, updating_user: @current_user)
       render json: assignment_overrides_json(overrides, @current_user)
     else
       errors = overrides.map do |override|

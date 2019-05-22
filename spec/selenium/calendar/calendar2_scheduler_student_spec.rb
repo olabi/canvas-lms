@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/scheduler_common')
@@ -9,18 +26,22 @@ describe "scheduler" do
 
   context "as a student" do
 
-    before(:each) do
+    before(:once) do
       Account.default.tap do |a|
         a.settings[:show_scheduler]   = true
         a.settings[:agenda_view]      = true
         a.save!
       end
-      course_with_student_logged_in
+      course_with_student(:active_all => true)
+    end
+
+    before(:each) do
+      user_session(@student)
       make_full_screen
     end
 
     def reserve_appointment_manual(n, comment = nil)
-      ffj('.agenda-event__item .agenda-event__item-container')[n].click
+      all_agenda_items[n].click
       if comment
         # compiled/util/Popover sets focus on the close button twice
         # within the first 100ms, which can cause it to hijack
@@ -28,8 +49,8 @@ describe "scheduler" do
         sleep 0.1
         replace_content(f('#appointment-comment'), comment)
       end
-      f('.event-details .reserve_event_link').click
-      wait_for_ajax_requests
+      f('.reserve_event_link').click
+      wait_for_ajaximations
     end
 
     it "should let me reserve appointment groups for contexts I am in", :priority  => "1", test_id: 140195 do
@@ -41,15 +62,16 @@ describe "scheduler" do
 
       get "/calendar2"
       click_scheduler_link
-      wait_for_ajaximations
       click_appointment_link
-      wait_for_ajaximations
+
       reserve_appointment_manual(0, "my comments")
-      expect(f('.agenda-event__item .agenda-event__item-container')).to include_text "Reserved"
-      f('.agenda-event__item .agenda-event__item-container').click
+      expect(agenda_item).to include_text "Reserved"
+      agenda_item.click
       expect(f('.event-details-content')).to include_text "my comments"
 
       load_month_view
+      # navigate to the next month for end of month
+      f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
       f('.fc-event').click
       expect(f('.event-details-content')).to include_text "my comments"
     end
@@ -59,14 +81,39 @@ describe "scheduler" do
       @course.root_account.enable_feature! :better_scheduler
       create_appointment_group(:contexts => [my_course])
       get "/calendar2#view_name=week&view_start=#{(Date.today + 1.day).strftime}"
+      find_appointment_button.click
+      f('[role="dialog"][aria-label="Select Course"] button[type="submit"]').click
       wait_for_ajaximations
-      f('#FindAppointmentButton').click
-      f('.ReactModalPortal button[type="submit"]').click
-      f('.fc-event.scheduler-event').click
+      # wait for loading spinner to be gone
+      wait_for(method: nil, timeout: 2) { !f('#refresh_calendar_link').displayed? }
+      scheduler_event.click
       f('.reserve_event_link').click
+      # wait for loading spinner before wait for ajax
+      wait_for(method: nil, timeout: 2) { f('#refresh_calendar_link').displayed? }
       wait_for_ajaximations
-      f('#FindAppointmentButton').click
-      expect(f('.fc-event.scheduler-event')).to include_text 'new appointment group'
+      find_appointment_button.click
+      expect(scheduler_event).to include_text 'new appointment group'
+    end
+
+    it "reserves group appointment groups via Find Appointment Mode" do
+      @course.root_account.enable_feature! :better_scheduler
+      gc = @course.group_categories.create!(:name => "Blah Groups")
+      group = gc.groups.create! :name => 'Blah Group', :context => @course
+      group.add_user @student
+      create_appointment_group(:sub_context_codes => [gc.asset_string], :title => "Bleh Group Thing")
+      get "/calendar2#view_name=week&view_start=#{(Date.today + 1.day).strftime}"
+      find_appointment_button.click
+      f('[role="dialog"][aria-label="Select Course"] button[type="submit"]').click
+      wait_for_ajaximations
+      # wait for loading spinner to be gone
+      wait_for(method: nil, timeout: 2) { !f('#refresh_calendar_link').displayed? }
+      scheduler_event.click
+      f('.reserve_event_link').click
+      # wait for loading spinner before wait for ajax
+      wait_for(method: nil, timeout: 2) { f('#refresh_calendar_link').displayed? }
+      wait_for_ajaximations
+      find_appointment_button.click
+      expect(scheduler_event).to include_text 'Bleh Group Thing'
     end
 
     it "should allow me to replace existing reservation when at limit", priority: "1", test_id: 505291 do
@@ -81,16 +128,37 @@ describe "scheduler" do
       click_appointment_link
 
       reserve_appointment_manual(0)
-      expect(f('.agenda-event__item .agenda-event__item-container')).to include_text "Reserved"
+      expect(agenda_item).to include_text "Reserved"
 
       # try to reserve the second appointment
       reserve_appointment_manual(1)
       fj('.ui-button:contains(Reschedule)').click
       wait_for_ajax_requests
 
-      event1, event2 = ff('.agenda-event__item .agenda-event__item-container')
+      event1, event2 = all_agenda_items
       expect(event1).to include_text "Available"
       expect(event2).to include_text "Reserved"
+    end
+
+    it "does not allow me to reschedule a past appointment" do
+      ag = AppointmentGroup.create!(:contexts => [@course],
+             :title => "eh",
+             :max_appointments_per_participant => 1,
+             :new_appointments => [
+                 [2.hours.ago, 1.hour.ago],
+                 [1.hour.from_now, 2.hours.from_now],
+             ])
+      ag.publish!
+      ag.appointments.first.reserve_for(@student, @teacher)
+
+      get "/calendar2"
+      click_scheduler_link
+      click_appointment_link
+      reserve_appointment_manual(0)
+
+      thing = fj('.ui-dialog:visible')
+      expect(thing).to include_text 'Appointment limit reached'
+      expect(thing).not_to include_text 'Reschedule'
     end
 
     it "should not let me book too many appointments", priority: "1", test_id: 502964 do
@@ -107,7 +175,7 @@ describe "scheduler" do
 
       reserve_appointment_manual(0)
       reserve_appointment_manual(1)
-      e1, e2 = ff('.agenda-event__item .agenda-event__item-container')
+      e1, e2 = all_agenda_items
       expect(e1).to include_text "Reserved"
       expect(e2).to include_text "Reserved"
 
@@ -159,7 +227,7 @@ describe "scheduler" do
 
       # first slot full, but second available
       click_appointment_link
-      e1, e2 = ff('.agenda-event__item .agenda-event__item-container')
+      e1, e2 = all_agenda_items
       expect(e1).to include_text "Filled"
       expect(e2).to include_text "Available"
     end
@@ -172,7 +240,7 @@ describe "scheduler" do
       click_scheduler_link
       click_appointment_link
 
-      f('.agenda-event__item .agenda-event__item-container').click
+      agenda_item.click
       expect(f("#content")).not_to contain_css('#reservations')
     end
 
@@ -191,38 +259,26 @@ describe "scheduler" do
     end
 
     context "when un-reserving appointments" do
-      # Today at 8am
-      let(:now) { Time.zone.now.beginning_of_day + 8.hours }
-
-      around :each do |example|
-        Timecop.freeze(now, &example)
-      end
-
-      before do
+      before :once do
         create_appointment_group(
           max_appointments_per_participant: 1,
+          # if participant_visibility is 'private', the event_details popup resizes,
+          # causing fragile tests in Chrome
+          participant_visibility: 'protected',
           new_appointments: [
-            [
-              now.strftime("%Y-%m-%d 12:00:00"), # noon
-              now.strftime("%Y-%m-%d 13:00:00") # 1pm
-            ]
+            [ 30.minutes.from_now, 1.hour.from_now ]
           ]
         )
-        get "/calendar2"
-        click_scheduler_link
-        click_appointment_link
-
-        reserve_appointment_manual(0)
+        AppointmentGroup.last.appointments.first.reserve_for(@student, @teacher)
       end
 
       it "should let me do so from the month view", priority: "1", test_id: 140200 do
         load_month_view
 
-        f('.fc-event.scheduler-event').click
-        f('.unreserve_event_link').click
-        f('#delete_event_dialog~.ui-dialog-buttonpane .btn-primary').click
-
+        scheduler_event.click
+        move_to_click('.event-details .unreserve_event_link')
         wait_for_ajaximations
+        f('#delete_event_dialog~.ui-dialog-buttonpane .btn-primary').click
 
         expect(f("#content")).not_to contain_css('.fc-event.scheduler-event')
       end
@@ -230,11 +286,10 @@ describe "scheduler" do
       it "should let me do so from the week view", priority: "1", test_id: 502483 do
         load_week_view
 
-        f('.fc-event.scheduler-event').click
-        f('.unreserve_event_link').click
-        f('#delete_event_dialog~.ui-dialog-buttonpane .btn-primary').click
-
+        scheduler_event.click
+        move_to_click('.event-details .unreserve_event_link')
         wait_for_ajaximations
+        f('#delete_event_dialog~.ui-dialog-buttonpane .btn-primary').click
 
         expect(f("#content")).not_to contain_css('.fc-event.scheduler-event')
       end
@@ -242,23 +297,43 @@ describe "scheduler" do
       it "should let me do so from the agenda view", priority: "1", test_id: 502484 do
         load_agenda_view
 
-        f('.agenda-event__item-container').click
+        agenda_item.click
+        move_to_click('.event-details .unreserve_event_link')
         wait_for_ajaximations
-        f('.unreserve_event_link').click
         f('#delete_event_dialog~.ui-dialog-buttonpane .btn-primary').click
 
         expect(f("#content")).not_to contain_css('.agenda-event__item-container')
       end
 
       it "should let me do so from the scheduler", priority: "1", test_id: 502485 do
-        f('.agenda-event__item .agenda-event__item-container').click
+        get "/calendar2"
+        click_scheduler_link
+        click_appointment_link
+
+        agenda_item.click
         f('.unreserve_event_link').click
         f('#delete_event_dialog~.ui-dialog-buttonpane .btn-primary').click
 
         wait_for_ajaximations
 
-        expect(f('.agenda-event__item .agenda-event__item-container')).to include_text "Available"
+        expect(agenda_item).to include_text "Available"
       end
+    end
+
+    it "does not allow unreserving past appointments" do
+      create_appointment_group(
+        max_appointments_per_participant: 1,
+        new_appointments: [
+          # this can fail if run in the first 2 seconds of the month.
+          [ 2.seconds.ago, 1.second.ago ]
+        ]
+      )
+      AppointmentGroup.last.appointments.first.reserve_for(@student, @teacher)
+
+      load_month_view
+
+      scheduler_event.click
+      expect(f('.event-details')).not_to contain_css('.unreserve_event_link')
     end
   end
 end

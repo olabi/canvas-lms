@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +18,7 @@
 
 require_relative '../../spec_helper'
 require_relative '../../lti_spec_helper'
+require_relative '../../lti_1_3_spec_helper'
 require_dependency "lti/app_collator"
 
 module Lti
@@ -65,7 +67,8 @@ module Lti
                                    has_update: nil,
                                    enabled: true,
                                    tool_configuration: nil,
-                                   reregistration_url: nil
+                                   reregistration_url: nil,
+                                   lti_version: '2.0'
                                  })
 
       end
@@ -88,8 +91,22 @@ module Lti
                                     has_update: nil,
                                     enabled: true,
                                     tool_configuration: nil,
-                                    reregistration_url: nil
+                                    reregistration_url: nil,
+                                    lti_version: '1.1'
                                   })
+      end
+
+      context 'with 1.3 tool' do
+        it 'returns an external tool app definition' do
+          external_tool = new_valid_external_tool(account)
+          external_tool.use_1_3 = true
+          external_tool.save!
+          tools_collection = subject.bookmarked_collection.paginate(per_page: 100).to_a
+
+          definitions = subject.app_definitions(tools_collection)
+          expect(definitions.count).to eq 0
+          definition = definitions.first
+        end
       end
 
       it 'returns an external tool and a tool proxy' do
@@ -126,7 +143,7 @@ module Lti
         account.root_account.enable_feature!(:lti2_rereg)
         tool_proxy = create_tool_proxy
         tool_proxy.bindings.create(context: account)
-        ToolProxy.any_instance.stubs(:reregistration_message_handler).returns(true)
+        allow_any_instance_of(ToolProxy).to receive(:reregistration_message_handler).and_return(true)
 
         tools_collection = subject.bookmarked_collection.paginate(per_page: 100).to_a
 
@@ -157,7 +174,8 @@ module Lti
                                      has_update: false,
                                      enabled: true,
                                      tool_configuration: nil,
-                                     reregistration_url: nil
+                                     reregistration_url: nil,
+                                     lti_version: '2.0'
                                  })
       end
 
@@ -184,7 +202,8 @@ module Lti
                                      has_update: true,
                                      enabled: true,
                                      tool_configuration: nil,
-                                     reregistration_url: nil
+                                     reregistration_url: nil,
+                                     lti_version: '2.0'
                                  })
       end
 
@@ -201,5 +220,31 @@ module Lti
 
     end
 
+    context 'with hash of ToolConfigurations' do
+      subject { described_class.new(account).app_definitions(collection) }
+
+      include_context 'lti_1_3_spec_helper'
+
+      let(:dev_key) { DeveloperKey.create! account: account }
+      let(:tool_config) { dev_key.create_tool_configuration! settings: settings }
+      let(:collection) do
+        [{
+          installed_for_context: enabled,
+          config: tool_config,
+          installed_at_context_level: false
+        }]
+      end
+      let(:enabled) { true }
+
+      it { is_expected.to have(1).items }
+
+      it 'returns an installed_for_context tool' do
+        expect(subject.first[:installed_for_context]).to be true
+      end
+
+      it 'is not installed at current context level' do
+        expect(subject.first[:installed_at_context_level]).to eq false
+      end
+    end
   end
 end

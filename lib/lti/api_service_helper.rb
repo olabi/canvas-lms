@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,6 +20,7 @@
 # Likewise, all the methods added will be available for all controllers.
 
 require 'oauth'
+require 'oauth/request_proxy/action_controller_request'
 
 module Lti
   module ApiServiceHelper

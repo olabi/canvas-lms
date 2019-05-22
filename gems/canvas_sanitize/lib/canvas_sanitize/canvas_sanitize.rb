@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -80,7 +80,7 @@ module CanvasSanitize #:nodoc:
           'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7', 'h8',
           'del', 'ins', 'iframe', 'font',
           'colgroup', 'dd', 'div', 'dl', 'dt', 'em', 'figure', 'figcaption', 'i', 'img', 'li', 'ol', 'p', 'pre',
-          'q', 'small', 'source', 'span', 'strike', 'strong', 'sub', 'sup', 'table', 'tbody', 'td',
+          'q', 'small', 'source', 'span', 'strike', 'strong', 'sub', 'sup', 'abbr', 'table', 'tbody', 'td',
           'tfoot', 'th', 'thead', 'tr', 'u', 'ul', 'object', 'embed', 'param', 'video', 'track', 'audio',
           # MathML
           'annotation', 'annotation-xml', 'maction', 'maligngroup', 'malignmark', 'math',
@@ -88,7 +88,7 @@ module CanvasSanitize #:nodoc:
           'mmultiscripts', 'mn', 'mo', 'mover', 'mpadded', 'mphantom', 'mprescripts', 'mroot',
           'mrow', 'ms', 'mscarries', 'mscarry', 'msgroup', 'msline', 'mspace', 'msqrt', 'msrow',
           'mstack', 'mstyle', 'msub', 'msubsup', 'msup', 'mtable', 'mtd', 'mtext', 'mtr', 'munder',
-          'munderover', 'none', 'semantics'].freeze,
+          'munderover', 'none', 'semantics', 'mark'].freeze,
 
       :attributes => {
           :all => ['style',
@@ -141,8 +141,9 @@ module CanvasSanitize #:nodoc:
           'blockquote' => ['cite'].freeze,
           'col' => ['span', 'width'].freeze,
           'colgroup' => ['span', 'width'].freeze,
-          'img' => ['align', 'alt', 'height', 'src', 'width'].freeze,
+          'img' => ['align', 'alt', 'height', 'src', 'width', 'longdesc'].freeze,
           'iframe' => ['src', 'width', 'height', 'name', 'align', 'frameborder', 'scrolling',
+                       'allow', # TODO: remove explicit allow with domain whitelist account setting
                        'sandbox', 'allowfullscreen','webkitallowfullscreen','mozallowfullscreen'].freeze,
           'ol' => ['start', 'type'].freeze,
           'q' => ['cite'].freeze,
@@ -156,9 +157,9 @@ module CanvasSanitize #:nodoc:
           'source' => ['src', 'type'].freeze,
           'embed' => ['name', 'src', 'type', 'allowfullscreen', 'pluginspage', 'wmode',
                       'allowscriptaccess', 'width', 'height'].freeze,
-          'video' => ['name', 'src', 'allowfullscreen', 'muted', 'poster', 'width', 'height', 'controls'].freeze,
+          'video' => ['name', 'src', 'allowfullscreen', 'muted', 'poster', 'width', 'height', 'controls', 'playsinline'].freeze,
           'track' => ['default', 'kind', 'label', 'src', 'srclang'].freeze,
-          'audio' => ['name', 'src', 'muted'].freeze,
+          'audio' => ['name', 'src', 'muted', 'controls'].freeze,
           'font' => ['face', 'color', 'size'].freeze,
           # MathML
           'annotation' => ['href', 'xref', 'definitionURL', 'encoding', 'cd', 'name', 'src'].freeze,
@@ -259,7 +260,10 @@ module CanvasSanitize #:nodoc:
       }.freeze,
 
       :protocols => {
-          'a' => {'href' => ['ftp', 'http', 'https', 'mailto', :relative].freeze}.freeze,
+          'a' => {
+            'href' => ['ftp', 'http', 'https', 'mailto', :relative].freeze,
+            'data-url' => DEFAULT_PROTOCOLS
+          }.freeze,
           'blockquote' => {'cite' => DEFAULT_PROTOCOLS }.freeze,
           'img' => {'src' => DEFAULT_PROTOCOLS }.freeze,
           'q' => {'cite' => DEFAULT_PROTOCOLS }.freeze,
@@ -399,6 +403,7 @@ module CanvasSanitize #:nodoc:
     def fully_sanitize_fields
       fields_hash = self.class.fully_sanitize_fields_config || {}
       fields_hash.each do |field, config|
+        next unless self.attribute_changed?(field)
         config ||= Sanitize::Config::RESTRICTED
         config = Sanitize::Config::RESTRICTED if config.empty?
         # Doesn't try to sanitize nil

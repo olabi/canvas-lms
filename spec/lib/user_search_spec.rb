@@ -1,4 +1,20 @@
 # encoding: utf-8
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path( '../sharding_spec_helper' , File.dirname(__FILE__))
 
@@ -7,7 +23,7 @@ describe UserSearch do
   describe '.for_user_in_context' do
     let(:search_names) { ['Rose Tyler', 'Martha Jones', 'Rosemary Giver', 'Martha Stewart', 'Tyler Pickett', 'Jon Stewart', 'Stewart Little', 'Ĭńşŧřůćƭǜȑȩ Person'] }
     let(:course) { Course.create!(workflow_state: "available") }
-    let(:users) { UserSearch.for_user_in_context('Stewart', course, user).to_a }
+    let(:users) { UserSearch.for_user_in_context('Stewart', course, user, nil, sort: "username", order: "asc").to_a }
     let(:names) { users.map(&:name) }
     let(:user) { User.last }
     let(:student) { User.where(name: search_names.last).first }
@@ -67,10 +83,17 @@ describe UserSearch do
           expect(results.map(&:name)).to include('Tyler Teacher')
         end
 
+        it "sorts by name" do
+          expect(names.size).to eq 3
+          expect(names[0]).to eq "Stewart Little"
+          expect(names[1]).to eq "Jon Stewart"
+          expect(names[2]).to eq "Martha Stewart"
+        end
+
         describe 'filtering by role' do
           subject { names }
           describe 'to a single role' do
-            let(:users) { UserSearch.for_user_in_context('Tyler', course, user, nil, :enrollment_type => 'student' ).to_a }
+            let(:users) { UserSearch.for_user_in_context('Tyler', course, user, nil, :enrollment_type => 'student').to_a }
 
             it { is_expected.to include('Rose Tyler') }
             it { is_expected.to include('Tyler Pickett') }
@@ -98,7 +121,7 @@ describe UserSearch do
               ObserverEnrollment.create!(:user => ta, :course => course, :workflow_state => 'active')
               ta2 = User.create!(:name => 'Tyler Observer 2')
               ObserverEnrollment.create!(:user => ta2, :course => course, :workflow_state => 'active')
-              student.observers << ta2
+              add_linked_observer(student, ta2)
             end
 
             it { is_expected.not_to include('Tyler Observer 2') }
@@ -137,7 +160,7 @@ describe UserSearch do
           end
         end
 
-        describe 'searching on sis ids' do
+        describe 'searching on logins' do
           let(:pseudonym) { user.pseudonyms.build }
 
           before do
@@ -148,6 +171,30 @@ describe UserSearch do
 
           it 'will match against an sis id' do
             expect(UserSearch.for_user_in_context("SOME_SIS", course, user)).to eq [user]
+          end
+
+          it 'will not match against a sis id without :read_sis permission' do
+            RoleOverride.create!(context: Account.default, role: Role.get_built_in_role('TeacherEnrollment'),
+              permission: 'read_sis', enabled: false)
+            expect(UserSearch.for_user_in_context("SOME_SIS", course, user)).to eq []
+          end
+
+          it 'will match against an sis id and regular id' do
+            user2 = User.create(name: 'user two')
+            pseudonym.sis_user_id = user2.id.to_s
+            pseudonym.save!
+            course.enroll_user(user2)
+            expect(UserSearch.for_user_in_context(user2.id.to_s, course, user)).to eq [user, user2]
+          end
+
+          it 'will match against a login id' do
+            expect(UserSearch.for_user_in_context("UNIQUE_ID", course, user)).to eq [user]
+          end
+
+          it 'will not search login id without permission' do
+            RoleOverride.create!(context: Account.default, role: Role.get_built_in_role('TeacherEnrollment'),
+              permission: 'view_user_logins', enabled: false)
+            expect(UserSearch.for_user_in_context("UNIQUE_ID", course, user)).to eq []
           end
 
           it 'can match an SIS id and a user name in the same query' do
@@ -162,7 +209,8 @@ describe UserSearch do
         end
 
         describe 'searching on emails' do
-          let(:cc) { user.communication_channels.create!(path: 'the.giver@example.com') }
+          let(:user1) {user_with_pseudonym(user: user)}
+          let(:cc) {user1.communication_channels.create!(path: 'the.giver@example.com')}
 
           before do
             cc.confirm!
@@ -170,6 +218,12 @@ describe UserSearch do
 
           it 'matches against an email' do
             expect(UserSearch.for_user_in_context("the.giver", course, user)).to eq [user]
+          end
+
+          it 'requires :read_email_addresses permission' do
+            RoleOverride.create!(context: Account.default, role: Role.get_built_in_role('TeacherEnrollment'),
+              permission: 'read_email_addresses', enabled: false)
+            expect(UserSearch.for_user_in_context("the.giver", course, user)).to eq []
           end
 
           it 'can match an email and a name in the same query' do
@@ -188,8 +242,8 @@ describe UserSearch do
             expect(UserSearch.for_user_in_context("the.giver", course, user)).to eq []
           end
 
-          it 'matches unconfirmed channels' do
-            cc2 = user.communication_channels.create!(path: 'unconfirmed@example.com')
+          it 'matches unconfirmed channels', priority: 1, test_id: 3010726 do
+            user.communication_channels.create!(path: 'unconfirmed@example.com')
             expect(UserSearch.for_user_in_context("unconfirmed", course, user)).to eq [user]
           end
         end
@@ -197,6 +251,11 @@ describe UserSearch do
         describe 'searching by a DB ID' do
           it 'matches against the database id' do
             expect(UserSearch.for_user_in_context(user.id, course, user)).to eq [user]
+          end
+
+          it 'matches against a database id and a user simultaneously' do
+            other_user = student_in_course(course: course, name: user.id.to_s).user
+            expect(UserSearch.for_user_in_context(user.id, course, user)).to match_array [user, other_user]
           end
 
           describe "cross-shard users" do
@@ -258,8 +317,44 @@ describe UserSearch do
     end
   end
 
-
   describe '.scope_for' do
+
+    let(:search_names) do
+      ['Rose Tyler',
+       'Martha Jones',
+       'Rosemary Giver',
+       'Martha Stewart',
+       'Tyler Pickett',
+       'Jon Stewart',
+       'Stewart Little',
+       'Ĭńşŧřůćƭǜȑȩ Person']
+    end
+
+    let(:course) { Course.create!(workflow_state: "available") }
+    let(:users) { UserSearch.scope_for(course, user, sort: "username", order: "desc").to_a }
+    let(:names) { users.map(&:name) }
+    let(:user) { User.last }
+    let(:student) { User.where(name: search_names.last).first }
+
+    before do
+      search_names.each do |name|
+        student = User.create!(:name => name)
+        StudentEnrollment.create!(:user => student, :course => course, :workflow_state => 'active')
+      end
+    end
+
+    it 'sorts by name desc' do
+      expect(names.size).to eq 8
+      expect(names[0]).to eq "Rose Tyler"
+      expect(names[1]).to eq "Martha Stewart"
+      expect(names[2]).to eq "Jon Stewart"
+      expect(names[3]).to eq "Tyler Pickett"
+      expect(names[4]).to eq "Ĭńşŧřůćƭǜȑȩ Person"
+      expect(names[5]).to eq "Stewart Little"
+      expect(names[6]).to eq "Martha Jones"
+      expect(names[7]).to eq "Rosemary Giver"
+    end
+
     it 'raises an error if there is a bad enrollment type' do
       course = Course.create!
       student = User.create!

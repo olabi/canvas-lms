@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Importers
   class LinkResolver
     include LinkParser::Helpers
@@ -20,16 +37,16 @@ module Importers
     def resolve_link!(link)
       case link[:link_type]
       when :wiki_page
-        if linked_wiki_url = context.wiki.wiki_pages.where(migration_id: link[:migration_id]).limit(1).pluck(:url).first
-          link[:new_value] = "#{context_path}/pages/#{linked_wiki_url}"
+        if linked_wiki_url = context.wiki_pages.where(migration_id: link[:migration_id]).limit(1).pluck(:url).first
+          link[:new_value] = "#{context_path}/pages/#{linked_wiki_url}#{link[:query]}"
         end
       when :discussion_topic
         if linked_topic_id = context.discussion_topics.where(migration_id: link[:migration_id]).limit(1).pluck(:id).first
-          link[:new_value] = "#{context_path}/discussion_topics/#{linked_topic_id}"
+          link[:new_value] = "#{context_path}/discussion_topics/#{linked_topic_id}#{link[:query]}"
         end
       when :module_item
         if tag_id = context.context_module_tags.where(:migration_id => link[:migration_id]).limit(1).pluck(:id).first
-          link[:new_value] = "#{context_path}/modules/items/#{tag_id}"
+          link[:new_value] = "#{context_path}/modules/items/#{tag_id}#{link[:query]}"
         end
       when :object
         type = link[:type]
@@ -39,16 +56,17 @@ module Importers
         type = 'context_modules' if type == 'modules'
         type = 'pages' if type == 'wiki'
         if type == 'pages'
-          link[:new_value] = "#{context_path}/pages/#{migration_id}"
+          link[:new_value] = "#{context_path}/pages/#{migration_id}#{link[:query]}"
         elsif type == 'attachments'
           if att_id = context.attachments.where(migration_id: migration_id).limit(1).pluck(:id).first
             link[:new_value] = "#{context_path}/files/#{att_id}/preview"
           end
         elsif context.respond_to?(type) && context.send(type).respond_to?(:scope)
           scope = context.send(type).scope
-          if scope.table.engine.columns_hash['migration_id']
+          if scope.klass.columns_hash['migration_id']
             if object_id = scope.where(migration_id: migration_id).limit(1).pluck(:id).first
-              link[:new_value] = "#{context_path}/#{type_for_url}/#{object_id}"
+              query = resolve_module_item_query(context, link[:query])
+              link[:new_value] = "#{context_path}/#{type_for_url}/#{object_id}#{query}"
             end
           end
         end
@@ -77,9 +95,26 @@ module Importers
           link[:missing_url] = new_url
         end
         link[:new_value] = new_url
+      when :file_ref
+        file_id = context.attachments.where(migration_id: link[:migration_id]).limit(1).pluck(:id).first
+        if file_id
+          rest = link[:rest].presence || '/preview'
+          link[:new_value] = "#{context_path}/files/#{file_id}#{rest}"
+        end
       else
         raise "unrecognized link_type in unresolved link"
       end
+    end
+
+    def resolve_module_item_query(context, query)
+      return query unless query&.include?("module_item_id=")
+
+      original_param = query.sub("?", "").split("&").detect{|p| p.include?("module_item_id=")}
+      mig_id = original_param.split("=").last
+      tag = context.context_module_tags.where(:migration_id => mig_id).first
+      return query unless tag
+      new_param = "module_item_id=#{tag.id}"
+      query.sub(original_param, new_param)
     end
 
     def missing_relative_file_url(rel_path)
@@ -152,7 +187,8 @@ module Importers
 
     def resolve_media_comment_data(node, rel_path)
       if file = find_file_in_context(rel_path)
-        if media_id = ((file.media_object && file.media_object.media_id) || file.media_entry_id)
+        media_id = ((file.media_object && file.media_object.media_id) || file.media_entry_id)
+        if media_id && media_id != 'maybe'
           node['id'] = "media_comment_#{media_id}"
           return "/media_objects/#{media_id}"
         end

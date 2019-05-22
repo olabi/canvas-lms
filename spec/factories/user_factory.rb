@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,6 +21,7 @@ module Factories
     email = opts.delete(:email)
     @user = factory_with_protected_attributes(User, valid_user_attributes.merge(opts))
     @user.email = email if email # set e-mail after record creation
+    @user.enable_feature!(:new_user_tutorial_on_off) if opts[:new_user]
     @user
   end
 
@@ -62,6 +63,7 @@ module Factories
     end
     @user.update_attribute :workflow_state, opts[:user_state] if opts[:user_state]
     @cc = communication_channel(@user, opts) if opts[:active_cc]
+    @user.enable_feature!(:new_user_tutorial_on_off) if opts[:new_user]
     @user
   end
 
@@ -96,6 +98,16 @@ module Factories
     course_with_ta(opts)
   end
 
+  def observer_in_course(opts={})
+    opts[:course] = @course if @course && !opts[:course]
+    course_with_observer(opts)
+  end
+
+  def designer_in_course(opts={})
+    opts[:course] = @course if @course && !opts[:course]
+    course_with_designer(opts)
+  end
+
   def student_in_section(section, opts={})
     student = opts.fetch(:user) { user_factory }
     enrollment = section.course.enroll_user(student, 'StudentEnrollment', :section => section, :force_update => true)
@@ -119,7 +131,8 @@ module Factories
     teacher = opts.fetch(:user) { user_factory }
     limit_privileges_to_course_section = opts[:limit_privileges_to_course_section] || false
     enrollment = section.course.enroll_user(teacher, 'TeacherEnrollment', :section => section,
-      :force_update => true, :limit_privileges_to_course_section => limit_privileges_to_course_section)
+      :force_update => true, :limit_privileges_to_course_section => limit_privileges_to_course_section,
+      :allow_multiple_enrollments => opts[:allow_multiple_enrollments])
     teacher.save!
     enrollment.workflow_state = 'active'
     enrollment.save!
@@ -151,5 +164,9 @@ module Factories
     create_enrollments(course, user_data, options)
 
     user_data
+  end
+
+  def add_linked_observer(student, observer, root_account: nil)
+    UserObservationLink.create_or_restore(student: student, observer: observer, root_account: root_account || Account.default)
   end
 end

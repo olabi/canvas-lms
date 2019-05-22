@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,7 @@ describe 'CrocodocDocument' do
   end
 
   before :each do
-    Crocodoc::API.any_instance.stubs(:upload).returns 'uuid' => '1234567890'
+    allow_any_instance_of(Crocodoc::API).to receive(:upload).and_return 'uuid' => '1234567890'
   end
 
   context 'permissions_for_user' do
@@ -135,15 +135,15 @@ describe 'CrocodocDocument' do
     end
 
     context "#upload" do
-      it "raises exception on timeout cutofff" do
-        Canvas.stubs(:timeout_protection).raises Canvas::TimeoutCutoff.new(5)
+      it "raises exception on timeout cutoff" do
+        allow(Canvas).to receive(:timeout_protection).and_raise Canvas::TimeoutCutoff.new(5)
         @crocodoc.update_attribute(:uuid, nil)
 
         expect { @crocodoc.upload }.to raise_exception(Canvas::Crocodoc::CutoffError)
       end
 
-      it "raises exception on timeout cutofff" do
-        Canvas.stubs(:timeout_protection).raises Timeout::Error
+      it "raises exception on timeout" do
+        allow(Canvas).to receive(:timeout_protection).and_raise Timeout::Error
         @crocodoc.update_attribute(:uuid, nil)
 
         expect { @crocodoc.upload }.to raise_exception(Canvas::Crocodoc::TimeoutError)
@@ -155,7 +155,9 @@ describe 'CrocodocDocument' do
     it "should honor the batch size setting" do
       Setting.set('crocodoc_status_check_batch_size', 2)
       4.times { CrocodocDocument.create!(:process_state => "QUEUED") }
-      Crocodoc::API.any_instance.expects(:status).times(2).returns []
+      api = double
+      expect(api).to receive(:status).twice.and_return([])
+      allow(CrocodocDocument).to receive(:crocodoc_api).and_return(api)
       CrocodocDocument.update_process_states
     end
   end

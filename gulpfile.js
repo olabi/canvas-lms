@@ -1,57 +1,170 @@
+/*
+ * Copyright (C) 2018 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 const gulp = require('gulp')
 const gulpPlugins = require('gulp-load-plugins')()
+const merge = require('merge-stream')
+const rename = require('gulp-rename')
 
 const DIST = 'public/dist'
 
 const STUFF_TO_REV = [
-  'public/fonts/**/*',
+  'public/fonts/**/*.{eot,otf,svg,ttf,woff,woff2}',
   'public/images/**/*',
 
-  // These are things we javascript_include_tag(...) directly from rails
-  'public/javascripts/vendor/require.js',
-  'public/optimized/vendor/require.js',
-  'public/javascripts/vendor/ie11-polyfill.js',
-  'public/javascripts/vendor/lato-fontfaceobserver.js',
-
-  // But for all other javascript, we only load stuff using js_bundle.
-  // Meaning that we only include stuff in the "bundles" dir from rails.
-  // In prod, the 'optimized' versions of these bundles will include all their deps
-  'public/javascripts/compiled/bundles/**/*',
-  'public/optimized/compiled/bundles/**/*',
-  'public/javascripts/plugins/*/compiled/bundles/**/*',
-  'public/optimized/plugins/*/compiled/bundles/**/*',
-
-  // Special Cases:
-
   // These files have links in their css to images from their own dir
-  'public/javascripts/vendor/slickgrid/**/*',
-  'public/javascripts/symlink_to_node_modules/tinymce/skins/lightgray/**/*',
+  'public/javascripts/vendor/slickgrid/images/*',
 
-  // Include *everything* from plugins & client_apps
+  // Include *everything* from plugins
   // so we don't have to worry about their internals
-  'public/plugins/**/*',
-  'public/javascripts/client_apps**/*',
+  // TODO: do we need these if we are all-webpack?
+  // exclude .js here
+  'public/plugins/**/*.*',
 ]
 
+gulp.task('rev', () => {
+  const timezonefilesToIgnore = [
+    'loaded.js',
+    'locales.js',
+    'rfc822.js',
+    'synopsis.js',
+    'zones.js',
+    'de_DE.js',
+    'fr_FR.js',
+    'fr_CA.js',
+    'he_IL.js',
+    'pl_PL.js',
+    '**/index.js',
+  ].map(f => `!./node_modules/timezone/${f}`)
 
-gulp.task('rev', function(){
-  var stuffToRev = STUFF_TO_REV;
-  if(process.env.SKIP_JS_REV){
-    // just get fonts and images
-    stuffToRev = STUFF_TO_REV.slice(0,2)
-  }
-  gulp.src(stuffToRev, {
-    base: 'public', // tell it to use the 'public' folder as the base of all paths
-    follow: true // follow symlinks, so it picks up on images inside plugins and stuff
+  const timezoneFileGlobs = ['./node_modules/timezone/**/*.js'].concat(timezonefilesToIgnore)
+  const timezonesStream = gulp
+    .src(timezoneFileGlobs, {base: './node_modules'})
+    .pipe(gulpTimezonePlugin())
+
+  const customTimezoneStream = gulp
+    .src('./public/javascripts/custom_timezone_locales/*.js')
+    .pipe(rename(path => path.dirname = '/timezone'))
+    .pipe(gulpTimezonePlugin())
+
+  return makeIE11Polyfill().then((IE11PolyfillCode) => {
+
+    let stream = merge(
+      timezonesStream,
+      customTimezoneStream,
+      gulpPlugins.file('ie11-polyfill.js', IE11PolyfillCode, { src: true }),
+      gulp.src(STUFF_TO_REV, {
+        base: 'public', // tell it to use the 'public' folder as the base of all paths
+        follow: true // follow symlinks, so it picks up on images inside plugins and stuff
+      }),
+      gulp.src([
+        // on the mobile login screen, we don't load any of our webpack js bundles. but if they
+        // have a custom js file, we do load a raw copy of jquery for their custom js to use.
+        // See `include_account_js` in mobile_auth.html.erb
+        'node_modules/jquery/jquery.js',
+
+        'node_modules/tinymce/skins/lightgray/**/*',
+      ], {
+        base: '.'
+      })
+    ).pipe(gulpPlugins.rev())
+
+    if (process.env.NODE_ENV === 'production' || process.env.RAILS_ENV === 'production') {
+      const jsFilter = gulpPlugins.filter('**/*.js', {restore: true});
+      stream = stream.pipe(jsFilter)
+        .pipe(gulpPlugins.sourcemaps.init())
+        .pipe(gulpPlugins.uglify())
+        .pipe(gulpPlugins.sourcemaps.write('./maps'))
+        .pipe(jsFilter.restore)
+    }
+
+    return stream
+      .pipe(gulp.dest(DIST))
+      .pipe(gulpPlugins.rev.manifest())
+      .pipe(gulp.dest(DIST))
   })
-  .pipe(gulpPlugins.rev())
-  .pipe(gulp.dest(DIST))
-  .pipe(gulpPlugins.rev.manifest())
-  .pipe(gulp.dest(DIST))
 })
 
-gulp.task('watch', function(){
-  gulp.watch(STUFF_TO_REV, ['rev'])
-})
+gulp.task('watch', () => gulp.watch(STUFF_TO_REV, ['rev']))
 
 gulp.task('default', ['rev', 'watch'])
+
+
+function gulpTimezonePlugin () {
+  const through = require('through2')
+
+  const wrapTimezone = (code, timezoneName) =>
+`// this was autogenerated by gulpTimezonePlugin from the timezone source in node_modules
+(window.__PRELOADED_TIMEZONE_DATA__ || (window.__PRELOADED_TIMEZONE_DATA__ = {}))['${timezoneName}'] ${code.toString().replace('module.exports', '')}
+`
+
+  return through.obj((file, encoding, callback) => {
+    if (file.isNull()) return callback(null, file)
+    if (file.isBuffer()) {
+      const timezoneName = file.path
+        .replace(/.*\/timezone\//, '')
+        .replace(/\.js$/, '')
+      file.contents = new Buffer(wrapTimezone(file.contents, timezoneName))
+      return callback(null, file)
+    }
+  })
+}
+
+
+function makeIE11Polyfill () {
+  const coreJsBuilder = require('core-js-builder')
+
+  const FEATURES_TO_POLYFILL = [
+    'es.promise.finally',
+    'es6.array',
+    'es6.function',
+    'es6.map',
+    'es6.number',
+    'es6.number.is-integer',
+    'es6.object.assign',
+    'es6.object.is',
+    'es6.promise',
+    'es6.set',
+    'es6.string.code-point-at',
+    'es6.string.ends-with',
+    'es6.string.from-code-point',
+    'es6.string.includes',
+    'es6.string.iterator',
+    'es6.string.repeat',
+    'es6.string.starts-with',
+    'es6.symbol',
+    'es6.weak-set',
+    'es7.array.includes',
+    'es7.object.entries',
+    'es7.object.values',
+    'web.dom.iterable'
+  ]
+
+  return coreJsBuilder({
+    modules: FEATURES_TO_POLYFILL,
+    library: false,
+    umd: false
+  }).then(code =>
+`/*
+THIS FILE WAS AUTOGENERATED BY gulp in makeIE11Polyfill to polyfill the following features:
+${FEATURES_TO_POLYFILL}
+*/
+${code}`
+  )
+}
+

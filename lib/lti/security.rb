@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -115,6 +115,12 @@ module Lti
       valid
     end
 
-
+    def self.decoded_lti_assignment_id(secure_params)
+      return if secure_params.blank?
+      secure_params = Canvas::Security.decode_jwt(secure_params)
+      secure_params[:lti_assignment_id]
+    rescue Canvas::Security::InvalidToken
+      return nil
+    end
   end
 end

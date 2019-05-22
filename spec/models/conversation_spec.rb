@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -102,13 +102,28 @@ describe Conversation do
           expect(Conversation.initiate(users, true)).to eq conversation
         end
       end
+
+      it "should keep the counts from double-incrementing" do
+        @user1 = user_factory(:name => 'a')
+        @shard1.activate { @user2 = user_factory(:name => 'b') }
+        conversation = Conversation.initiate([@user1, @user2], false)
+        message1 = conversation.add_message(@user1, 'first message')
+        cp1 = conversation.conversation_participants.where(:user_id => @user1).first
+        cp2 = conversation.conversation_participants.where(:user_id => @user2).first
+        cs_cp = conversation.conversation_participants.shard(@shard1).where(:user_id => @user2).first
+        cp2.process_new_message([@user2, "reply1"], [@user1, @user2], [message1.id], [])
+        @shard1.activate do
+          cs_cp.process_new_message([@user1, "reply2"], [@user1, @user2], [message1.id], [])
+        end
+        [cp1, cp2, cs_cp].each{|p| expect(p.reload.message_count).to eq 3}
+      end
     end
   end
 
   context "adding participants" do
     it "should not add participants to private conversations" do
       root_convo = Conversation.initiate([sender, recipient], true)
-      expect{ root_convo.add_participants(sender, [user_factory]) }.to raise_error
+      expect{ root_convo.add_participants(sender, [user_factory]) }.to raise_error("can't add participants to a private conversation")
     end
 
     it "should add new participants to group conversations and give them all messages" do
@@ -172,7 +187,7 @@ describe Conversation do
         @shard1.activate do
           users << user_factory(:name => 'd')
           conversation.add_participants(users.first, [users.last])
-          expect(conversation.conversation_participants(:reload).size).to eq 4
+          expect(conversation.conversation_participants.reload.size).to eq 4
           expect(conversation.conversation_participants.all? { |cp| cp.shard == Shard.default }).to be_truthy
           expect(users.last.all_conversations.last.shard).to eq @shard1
           expect(conversation.participants(true).map(&:id)).to eq users.map(&:id)
@@ -180,7 +195,7 @@ describe Conversation do
         @shard2.activate do
           users << user_factory(:name => 'e')
           conversation.add_participants(users.first, users[-2..-1])
-          expect(conversation.conversation_participants(:reload).size).to eq 5
+          expect(conversation.conversation_participants.reload.size).to eq 5
           expect(conversation.conversation_participants.all? { |cp| cp.shard == Shard.default }).to be_truthy
           expect(users.last.all_conversations.last.shard).to eq @shard2
           expect(conversation.participants(true).map(&:id)).to eq users.map(&:id)
@@ -476,23 +491,27 @@ describe Conversation do
     end
 
     it "should set last_authored_at and visible_last_authored_at on deleted conversations even if update_for_sender=false" do
-      expected_times = [Time.now.utc - 1.hours, Time.now.utc].map{ |t| Time.parse(t.to_s) }
-      ConversationMessage.any_instance.expects(:current_time_from_proper_timezone).twice.returns(*expected_times)
+      expected_times = [Time.now.utc - 1.hours, Time.now.utc].map { |t| Time.at(t.to_i).utc }
 
-      rconvo = Conversation.initiate([sender, recipient], true)
-      message = rconvo.add_message(sender, 'test')
-      convo = sender.conversations.first
-      expect(convo.last_authored_at).to eql expected_times.first
-      expect(convo.visible_last_authored_at).to eql expected_times.first
+      convo = nil
+      Timecop.freeze(expected_times.first) do
+        rconvo = Conversation.initiate([sender, recipient], true)
+        message = rconvo.add_message(sender, 'test')
+        convo = sender.conversations.first
+        expect(convo.last_authored_at).to eql expected_times.first
+        expect(convo.visible_last_authored_at).to eql expected_times.first
 
-      convo.remove_messages(message)
-      expect(convo.last_authored_at).to eql expected_times.first
-      expect(convo.visible_last_authored_at).to be_nil
+        convo.remove_messages(message)
+        expect(convo.last_authored_at).to eql expected_times.first
+        expect(convo.visible_last_authored_at).to be_nil
+      end
 
-      convo.add_message('bulk message', :update_for_sender => false)
-      convo.reload
-      expect(convo.last_authored_at).to eql expected_times.last
-      expect(convo.visible_last_authored_at).to eql expected_times.last
+      Timecop.freeze(expected_times.last) do
+        convo.add_message('bulk message', :update_for_sender => false)
+        convo.reload
+        expect(convo.last_authored_at).to eql expected_times.last
+        expect(convo.visible_last_authored_at).to eql expected_times.last
+      end
     end
 
     it "should deliver the message to unsubscribed participants but not alert them" do
@@ -821,10 +840,6 @@ describe Conversation do
         ConversationMessageParticipant.update_all "tags = NULL"
 
         @conversation = Conversation.find(@conversation.id)
-        expect(@conversation.tags).to eql []
-        expect(@u1.conversations.first.tags).to eql []
-        expect(@u2.conversations.first.tags).to eql []
-        expect(@u3.conversations.first.tags).to eql []
       end
 
       it "should set the default tags when migrating" do
@@ -1014,7 +1029,7 @@ describe Conversation do
 
           conversation.add_message(u1, 'ohai')
           admin = account_admin_user(:account => @account, :active_all => true)
-          expect(u1.conversations.for_masquerading_user(admin).first).to be_present
+          expect(u1.conversations.for_masquerading_user(admin, u1).first).to be_present
         end
       end
     end

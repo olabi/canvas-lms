@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2016 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 $te-active-theme-bg: $ic-color-success;
 $te-hovered-theme-bg: darken($ic-bg-light-neutral, 7%);
 $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
@@ -23,7 +41,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
   height: 132px;
   position: relative;
   box-sizing: border-box;
-  padding: $ic-sp $ic-sp $ic-sp $ic-sp*4;
+  padding: direction-sides($ic-sp $ic-sp $ic-sp $ic-sp*4);
   display: flex;
   overflow: hidden;
   user-select: none;
@@ -44,7 +62,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
 .ic-ThemeCard-thumbnail__primary-content {
   box-sizing: border-box;
   flex: 0.66;
-  padding-right: $ic-sp*2;
+  padding-#{direction(right)}: $ic-sp*2;
 }
 
 .ic-ThemeCard-thumbnail__secondary-content {
@@ -55,7 +73,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
 .ic-ThemeCard-thumbnail__nav {
   height: 100%; width: $ic-sp*3;
   position: absolute;
-  top: 0; left: 0;
+  top: 0; #{direction(left)}: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -104,7 +122,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
     height: 3px; width: 34%;
     background: $ic-color-light;
     position: absolute;
-    bottom: 0; right: 0;
+    bottom: 0; #{direction(right)}: 0;
   }
 }
 
@@ -127,10 +145,10 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
 
 .ic-ThemeCard-fake-progressbar__inner {
   position: absolute;
-  top: 0; left: 0;
+  top: 0; #{direction(left)}: 0;
   width: 66%; height: 100%;
-  border-top-left-radius: $baseBorderRadius - 1;
-  border-bottom-left-radius: $baseBorderRadius - 1;
+  border-top-#{direction(left)}-radius: $baseBorderRadius - 1;
+  border-bottom-#{direction(left)}-radius: $baseBorderRadius - 1;
 }
 
 .ic-ThemeCard-fake-radio {
@@ -142,7 +160,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
     content: "";
     box-sizing: border-box;
     position: absolute;
-    right: 0; top: 50%;
+    #{direction(right)}: 0; top: 50%;
     margin-top: -1px;
     height: 2px; width: calc(100% - 24px);
     background: $ic-border-light;
@@ -165,7 +183,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
     content: "";
     box-sizing: border-box;
     position: absolute;
-    right: 0; top: 50%;
+    #{direction(right)}: 0; top: 50%;
     margin-top: -1px;
     height: 2px; width: calc(100% - 24px);
     background: $ic-border-light;
@@ -181,17 +199,17 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
   > i[class^=icon-] {
     color: $ic-color-light;
     position: absolute;
-    top: 2px; left: 3px;
+    top: 2px; #{direction(left)}: 3px;
     line-height: 8px;
   }
 }
 
 .ic-ThemeCard-name-button {
   box-sizing: border-box;
-  text-align: left;
+  text-align: direction(left);
   background: transparent;
   border: none;
-  color: $ic-link-color;
+  color: var(--ic-link-color);
   padding: 8px;
   display: block;
   max-width: 212px;
@@ -204,7 +222,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
   }
 
   &:focus {
-    outline: 1px solid $ic-link-color;
+    outline: 1px solid var(--ic-link-color);
     outline-offset: -1px;
   }
 }
@@ -220,21 +238,21 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
 .ic-ThemeCard-main__name {
   box-sizing: border-box;
   flex: 1;
-  padding-right: $ic-sp*1.5;
+  padding-#{direction(right)}: $ic-sp*1.5;
   min-width: 1px;
 }
 
 .ic-ThemeCard-main__actions {
   box-sizing: border-box;
   min-width: 1px;
-  padding-right: 4px;
+  padding-#{direction(right)}: 4px;
 }
 
 .ic-ThemeCard-status {
   padding: $ic-sp/2 $ic-sp;
   color: $ic-color-light;
   &.ic-ThemeCard-status--is-active-theme {
-    padding: $ic-sp $ic-sp 8px $ic-sp; // taking off 4px for bottom border
+    padding: direction-sides($ic-sp $ic-sp 8px $ic-sp); // taking off 4px for bottom border
     background: $ic-color-success;
   }
 }
@@ -242,7 +260,7 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
 .ic-ThemeCard-overlay {
   transition: all 0.2s ease-out;
   position: absolute;
-  top: 0; left: 0;
+  top: 0; #{direction(left)}: 0;
   z-index: 1;
   height: 100%; width: 100%;
   display: flex;
@@ -258,35 +276,4 @@ $te-light-on-dark-bg-text: darken($ic-color-light, 15%);
     border-color: rgba(black, 0.65);
     margin: 0 2px;
   }
-}
-
-.ic-ThemeCard-overlay__heading {
-  color: $ic-color-light;
-  margin: 0 0 $ic-sp;
-}
-
-.ic-ThemeCard-overlay-transition-enter {
-  opacity: 0;
-  transform: scale(0.5);
-}
-
-.ic-ThemeCard-overlay-transition-enter.ic-ThemeCard-overlay-transition-enter-active {
-  opacity: 1;
-  transform: scale(1);
-  transition-property: transform, opacity;
-  transition-duration: 0.2s;
-  transition-timing-function: ease-out;
-}
-
-.ic-ThemeCard-overlay-transition-leave {
-  opacity: 1;
-  transform: scale(1);
-  transition-property: transform, opacity;
-  transition-duration: 0.2s;
-  transition-timing-function: ease-in;
-}
-
-.ic-ThemeCard-overlay-transition-leave.ic-ThemeCard-overlay-transition-leave-active {
-  opacity: 0;
-  transform: scale(0.5);
 }

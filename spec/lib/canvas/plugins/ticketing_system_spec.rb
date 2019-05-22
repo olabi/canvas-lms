@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 require_dependency "canvas/plugins/ticketing_system"
 
@@ -5,7 +22,7 @@ module Canvas::Plugins
   describe TicketingSystem do
 
     describe ".is_selected?" do
-      let(:fake_settings){ stub(settings_for_plugin: {type: 'some_service'}) }
+      let(:fake_settings){ double(settings_for_plugin: {type: 'some_service'}) }
       it "is true if the provided plugin id is the byots selection" do
         expect(TicketingSystem.is_selected?("some_service", fake_settings)).to be(true)
       end
@@ -19,7 +36,7 @@ module Canvas::Plugins
       it "registers the given plugin with Canvas::Plugin using the TS tag" do
         id = "some_plugin_id"
         settings = {one: "two"}
-        Canvas::Plugin.expects(:register).with(id, TicketingSystem::PLUGIN_ID, settings)
+        expect(Canvas::Plugin).to receive(:register).with(id, TicketingSystem::PLUGIN_ID, settings)
         TicketingSystem.register_plugin(id, settings){|r| }
       end
 
@@ -37,7 +54,7 @@ module Canvas::Plugins
     describe ".get_settings" do
       it "returns the settings from Canvas::Plugin for that plugin id" do
         plugin_id = "some_plugin"
-        Canvas::Plugin.stubs(:find).with(plugin_id).returns(stub(settings: {"a" => "b"}))
+        allow(Canvas::Plugin).to receive(:find).with(plugin_id).and_return(double(settings: {"a" => "b"}))
         expect(TicketingSystem.get_settings(plugin_id)['a']).to eq('b')
       end
 

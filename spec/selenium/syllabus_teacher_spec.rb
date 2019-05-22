@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/public_courses_context')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/files_common')
@@ -35,16 +52,18 @@ describe "course syllabus" do
 
     it "should confirm existing assignments and dates are correct", priority:"1", test_id: 237016 do
       assignment_details = ff('td.name')
-      expect(assignment_details[0].text).to eq @assignment_1.title
-      expect(assignment_details[1].text).to eq @assignment_2.title
+      expect(assignment_details[0].text.strip).to eq @assignment_1.title
+      expect(assignment_details[1].text.strip).to eq @assignment_2.title
     end
 
     it "should edit the description", priority:"1", test_id: 237017 do
+      skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
       new_description = "new syllabus description"
-      f('.edit_syllabus_link').click
+      wait_for_new_page_load { f('.edit_syllabus_link').click }
       # check that the wiki sidebar is visible
       wait_for_ajaximations
-      expect(f('#editor_tabs .wiki-sidebar-header')).to include_text("Insert Content into the Page")
+      expect(f('#editor_tabs')).to include_text("Link to other content in the course.")
+
       edit_form = f('#edit_course_syllabus_form')
       wait_for_tiny(f('#edit_course_syllabus_form'))
       type_in_tiny('#course_syllabus_body', new_description)
@@ -70,6 +89,7 @@ describe "course syllabus" do
 
     describe "Accessibility" do
       it "should set focus to the Jump to Today link after clicking Edit the Description", priority:"2", test_id: 237019 do
+        skip('see CNVS-39931')
         f('.edit_syllabus_link').click
         check_element_has_focus(f('.jump_to_today_link'))
       end

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/helpers/rubrics_common')
 
 describe "teacher shared rubric specs" do
@@ -93,9 +110,13 @@ describe "course rubrics" do
       expect(f('tr.learning_outcome_criterion .criterion_description .description').text).to eq @outcome.title
       expect(ff('tr.learning_outcome_criterion td.rating .description').map(&:text)).to eq @outcome.data[:rubric_criterion][:ratings].map { |c| c[:description] }
       expect(ff('tr.learning_outcome_criterion td.rating .points').map(&:text)).to eq @outcome.data[:rubric_criterion][:ratings].map { |c| round_if_whole(c[:points]).to_s }
+      # important to check this both before and after submit, thanks to the super janky
+      # way edit_rubric.js and the .erb template work
+      expect(f('tr.learning_outcome_criterion .outcome_sr_content')).to have_attribute('aria-hidden', 'false')
       submit_form('#edit_rubric_form')
       wait_for_ajaximations
       rubric = Rubric.order(:id).last
+      expect(f('tr.learning_outcome_criterion .outcome_sr_content')).to have_attribute('aria-hidden', 'false')
       expect(rubric.data.first[:ratings].map { |r| r[:description] }).to eq @outcome.data[:rubric_criterion][:ratings].map { |c| c[:description] }
       expect(rubric.data.first[:ratings].map { |r| r[:points] }).to eq @outcome.data[:rubric_criterion][:ratings].map { |c| c[:points] }
     end
@@ -126,6 +147,7 @@ describe "course rubrics" do
       f('.add_rubric_link').click
       expect(fj('.rubric_grading:hidden')).not_to be_nil
     end
+
   end
 
   it "should display free-form comments to the student" do
@@ -134,7 +156,7 @@ describe "course rubrics" do
     course_with_student(:course => @course, :active_all => true)
     @course.offer!
     @association = @rubric.associate_with(@assignment, @course, :purpose => 'grading', :use_for_grading => true)
-    comment = "Hi, please see www.example.com.\n\nThanks."
+    comment = "Hi, please see www.example.com"
     @assessment = @association.assess({
                                           :user => @student,
                                           :assessor => @teacher,
@@ -151,15 +173,13 @@ describe "course rubrics" do
 
     get "/courses/#{@course.id}/grades"
     f('.toggle_rubric_assessments_link').click
-    wait_for_ajaximations
-    expect(f('.rubric .criterion .custom_rating_comments').text).to eq comment
-    expect(f('.rubric .criterion .custom_rating_comments a')).to have_attribute('href', 'http://www.example.com/')
+    expect(f('.rubric-freeform')).to include_text comment
+    expect(f('.rubric-freeform a')).to have_attribute('href', 'http://www.example.com/')
 
     get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
     f('.assess_submission_link').click
-    wait_for_ajaximations
-    expect(f('.rubric .criterion .custom_rating_comments').text).to eq comment
-    expect(f('.rubric .criterion .custom_rating_comments a')).to have_attribute('href', 'http://www.example.com/')
+    expect(f('.rubric-freeform')).to include_text comment
+    expect(f('.rubric-freeform a')).to have_attribute('href', 'http://www.example.com/')
   end
 
   it "should highlight a criterion level if score is 0" do
@@ -183,7 +203,7 @@ describe "course rubrics" do
     get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
     f('.assess_submission_link').click
     wait_for_ajaximations
-    expect(f('table .ratings tbody td:nth-child(3)')).to have_class('original_selected')
+    expect(ff('.rubric-criterion:nth-of-type(1) .rating-tier').third).to have_class('selected')
   end
 
   it "should not highlight a criterion level if score is nil" do
@@ -207,6 +227,8 @@ describe "course rubrics" do
     get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
     f('.assess_submission_link').click
     wait_for_ajaximations
-    expect(f('table .ratings tbody td:nth-child(3)')).not_to have_class('original_selected')
+    ff('.rubric-criterion:nth-of-type(1) .rating-tier').each do |criterion|
+      expect(criterion).not_to have_class('selected')
+    end
   end
 end

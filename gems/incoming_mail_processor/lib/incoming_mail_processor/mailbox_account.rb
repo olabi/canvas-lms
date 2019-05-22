@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ module IncomingMailProcessor
     attr_accessor :protocol, :config, :address, :error_folder
 
     class << self
-      attr_accessor :default_outgoing_email
+      attr_accessor :default_outgoing_email, :reply_to_enabled
     end
 
 
@@ -37,7 +37,7 @@ module IncomingMailProcessor
     end
 
     def escaped_address
-      CanvasStatsd::Statsd.escape(address) unless address.nil?
+      InstStatsd::Statsd.escape(address) unless address.nil?
     end
   end
 end

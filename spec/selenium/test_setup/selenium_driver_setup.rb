@@ -1,5 +1,24 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require "fileutils"
+require 'chromedriver-helper'
 require_relative "common_helper_methods/custom_alert_actions"
+require_relative 'common_helper_methods/custom_screen_actions'
 
 # WebDriver uses port 7054 (the "locking port") as a mutex to ensure
 # that we don't launch two Firefox instances at the same time. Each
@@ -17,16 +36,26 @@ Selenium::WebDriver::Firefox::Launcher::SOCKET_LOCK_TIMEOUT = 90
 
 module SeleniumDriverSetup
   CONFIG = ConfigFile.load("selenium") || {}.freeze
-  SECONDS_UNTIL_GIVING_UP = 20
-  MAX_SERVER_START_TIME = 15
+  SECONDS_UNTIL_GIVING_UP = 10
+  MAX_SERVER_START_TIME = 5
 
-  # Number of recent specs to show in failure pages
-  RECENT_SPEC_RUNS_LIMIT = 500
-  # Number of identical failures in a row before we abort this worker
-  RECENT_SPEC_FAILURE_LIMIT = 10
-  # Number of failures to record
-  MAX_FAILURES_TO_RECORD = 20
-  IMPLICIT_WAIT_TIMEOUT = 15
+  TIMEOUTS = {
+    # nothing should wait by default
+    implicit_wait: 0,
+    # except finding elements
+    finder: CONFIG[:finder_timeout_seconds] || 5,
+    script: CONFIG[:script_timeout_seconds] || 5
+  }.freeze
+
+  # If you have some really slow UI, you can temporarily override
+  # the various TIMEOUTs above. use this sparingly -- fix the UI
+  # instead :P
+  def with_timeouts(timeouts)
+    SeleniumDriverSetup.set_timeouts(timeouts)
+    yield
+  ensure
+    SeleniumDriverSetup.set_timeouts(TIMEOUTS.slice(*timeouts.keys))
+  end
 
   def driver
     SeleniumDriverSetup.driver
@@ -42,17 +71,16 @@ module SeleniumDriverSetup
 
   # prevents subsequent specs from failing because tooltips are showing etc.
   def move_mouse_to_known_position
-    driver.mouse.move_to(f("body"), 0, 0) if driver.ready_for_interaction
+    driver.action.move_to(f("body"), 0, 0) if driver.ready_for_interaction
   end
 
   class ServerStartupError < RuntimeError; end
 
   class << self
+    include CustomScreenActions
     include CustomAlertActions
     extend Forwardable
 
-    attr_writer :number_of_failures,
-                :recent_spec_runs
     attr_accessor :browser_log,
                   :browser_process,
                   :headless,
@@ -65,12 +93,19 @@ module SeleniumDriverSetup
       @driver = nil
     end
 
+    def saucelabs_test_run?
+      SeleniumDriverSetup::CONFIG[:remote_url].present? &&
+        SeleniumDriverSetup::CONFIG[:remote_url].downcase.include?("saucelabs")
+    end
+
     def run
       begin
         [
           Thread.new { start_webserver },
           Thread.new { start_driver }
         ].each(&:join)
+      rescue Selenium::WebDriver::Error::WebDriverError
+        driver.quit if saucelabs_test_run?
       rescue StandardError
         puts "selenium startup failed: #{$ERROR_INFO}"
         puts "exiting :'("
@@ -118,13 +153,29 @@ module SeleniumDriverSetup
 
       focus_viewport if run_headless?
 
-      @driver.manage.timeouts.implicit_wait = 0 # nothing should wait by default
-      SeleniumExtensions::FinderWaiting.timeout = IMPLICIT_WAIT_TIMEOUT # except finding elements
-      @driver.manage.timeouts.script_timeout = 60
+      set_timeouts(TIMEOUTS)
 
       puts "Browser: #{browser_name} - #{browser_version}"
 
       @driver
+    end
+
+    def timeouts
+      @timeouts ||= {}
+    end
+
+    def set_timeouts(timeouts)
+      self.timeouts.merge!(timeouts)
+      timeouts.each do |key, value|
+        case key
+        when :implicit_wait
+          @driver.manage.timeouts.implicit_wait = value
+        when :finder
+          SeleniumExtensions::FinderWaiting.timeout = value
+        when :script
+          @driver.manage.timeouts.script_timeout = value
+        end
+      end
     end
 
     def webdriver_failure_proc
@@ -145,6 +196,8 @@ module SeleniumDriverSetup
           chrome_driver
         when :internet_explorer
           ie_driver
+        when :edge
+          edge_driver
         when :safari
           safari_driver
         else
@@ -170,15 +223,7 @@ module SeleniumDriverSetup
     end
 
     def run_headless?
-      ENV.key?("TEST_ENV_NUMBER")
-    end
-
-    def capture_screenshots?
-      ENV["CAPTURE_SCREENSHOTS"]
-    end
-
-    def capture_video?
-      capture_screenshots? && run_headless?
+      ENV.key?("TEST_ENV_NUMBER") && !saucelabs_test_run?
     end
 
     HEADLESS_DEFAULTS = {
@@ -236,9 +281,14 @@ module SeleniumDriverSetup
       selenium_remote_driver
     end
 
+    def edge_driver
+      puts "using Edge driver"
+      selenium_remote_driver
+    end
+
     def safari_driver
       puts "using safari driver"
-      selenium_remote_driver
+      selenium_url ? selenium_remote_driver : ruby_safari_driver
     end
 
     def firefox_driver
@@ -280,34 +330,61 @@ module SeleniumDriverSetup
 
     def ruby_chrome_driver
       puts "Thread: provisioning local chrome driver"
-      Selenium::WebDriver.for :chrome, switches: %w[--disable-impl-side-painting]
+      Chromedriver.set_version "2.38"
+      chrome_options = Selenium::WebDriver::Chrome::Options.new
+      chrome_options.add_argument('--disable-impl-side-painting')
+
+      # put `auto_open_devtools: true` in your selenium.yml if you want to have
+      # the chrome dev tools open by default by selenium
+      if CONFIG[:auto_open_devtools]
+        chrome_options.add_argument('--auto-open-devtools-for-tabs')
+      end
+
+      Selenium::WebDriver.for :chrome, options: chrome_options
+    end
+
+    def ruby_safari_driver
+      puts "Thread: provisioning local safari driver"
+      Selenium::WebDriver.for :safari
     end
 
     def selenium_remote_driver
       puts "Thread: provisioning remote #{browser} driver"
-      Selenium::WebDriver.for(
+      driver = Selenium::WebDriver.for(
         :remote,
         :url => selenium_url,
         :desired_capabilities => desired_capabilities
       )
+
+      driver.file_detector = lambda do |args|
+        # args => ["/path/to/file"]
+        str = args.first.to_s
+        str if File.exist?(str)
+      end
+
+      driver
     end
 
     def desired_capabilities
       caps = Selenium::WebDriver::Remote::Capabilities.send(browser)
       caps.version = CONFIG[:version] unless CONFIG[:version].nil?
       caps.platform = CONFIG[:platform] unless CONFIG[:platform].nil?
+      caps['name'] = "#{CONFIG[:platform]} - #{CONFIG[:browser]}-#{CONFIG[:version]}" unless CONFIG[:platform].nil?
       caps["tunnel-identifier"] = CONFIG[:tunnel_id] unless CONFIG[:tunnel_id].nil?
+      caps['selenium-version'] = "3.4.0"
       caps[:unexpectedAlertBehaviour] = 'ignore'
+      caps[:elementScrollBehavior] = 1
+      caps['screen-resolution'] = "1280x1024"
       caps
     end
 
     def selenium_url
       case browser
       when :firefox
-        CONFIG[:remote_url_firefox]
+        CONFIG[:remote_url_firefox] || CONFIG[:remote_url]
       when :chrome
-        CONFIG[:remote_url_chrome]
-      when :internet_explorer, :safari
+        CONFIG[:remote_url_chrome] || CONFIG[:remote_url]
+      when :internet_explorer, :safari, :edge
         CONFIG[:remote_url]
       else
         raise "unsupported browser #{browser}"
@@ -348,145 +425,10 @@ module SeleniumDriverSetup
             .instance_variable_get(:@capabilities)
     end
 
-    def recent_spec_runs
-      @recent_spec_runs ||= []
-    end
-
-    def number_of_failures
-      @number_of_failures ||= 0
-    end
-
-    def note_recent_spec_run(example, exception)
-      recent_spec_runs << {
-        location: example.metadata[:location],
-        exception: exception,
-        pending: example.pending
-      }
-      self.recent_spec_runs = recent_spec_runs.last(RECENT_SPEC_RUNS_LIMIT)
-
-      if ENV["ABORT_ON_CONSISTENT_BADNESS"]
-        recent_errors = recent_spec_runs.last(RECENT_SPEC_FAILURE_LIMIT).
-          map { |run| run[:exception] && run[:exception].to_s }.compact
-        if recent_errors.size >= RECENT_SPEC_FAILURE_LIMIT && recent_errors.uniq.size == 1
-          $stderr.puts "ERROR: got the same failure #{RECENT_SPEC_FAILURE_LIMIT} times in a row, aborting"
-          RSpec.world.wants_to_quit = true
-        end
-      end
-    end
-
-    def error_template
-      @error_template ||= begin
-        layout_path = Rails.root.join("spec/selenium/test_setup/selenium_error.html.erb")
-        ActionView::Template::Handlers::Erubis.new(File.read(layout_path))
-      end
-    end
-
-    def start_capturing_video
-      headless.video.start_capture if capture_video?
-    end
-
     def js_errors
-      js_errors = close_modal_if_present do
+      close_modal_if_present do
         driver.execute_script("return window.JSErrorCollector_errors && window.JSErrorCollector_errors.pump()") || []
       end
-
-      # ignore "mutating the [[Prototype]] of an object" js errors
-      mutating_prototype_error = "mutating the [[Prototype]] of an object"
-      js_errors.reject! do |error|
-        error["errorMessage"].start_with? mutating_prototype_error
-      end
-
-      js_errors
-    end
-
-    def errors_path
-      @errors_path ||= begin
-        errors_path = Rails.root.join("log/seleniumfailures")
-        FileUtils.mkdir_p(errors_path)
-        errors_path
-      end
-    end
-
-    def include_recordings?
-      number_of_failures <= MAX_FAILURES_TO_RECORD
-    end
-
-    def capture_screenshot(base_name)
-      return unless capture_screenshots? && include_recordings?
-
-      screenshot_name = base_name + ".png"
-      driver.save_screenshot(errors_path.join(screenshot_name))
-      screenshot_name
-    end
-
-    def capture_video(base_name)
-      return unless capture_video?
-
-      if include_recordings?
-        screen_capture_name = base_name + ".mp4"
-        headless.video.stop_and_save(errors_path.join(screen_capture_name))
-        screen_capture_name
-      else
-        headless.video.stop_and_discard
-        nil
-      end
-    end
-
-    def prepare_error_data(example, exception, log_messages)
-      self.number_of_failures += 1 if exception
-      summary_name = example.metadata[:location].sub(/\A[.\/]+/, "").gsub(/\//, ":")
-      headless.video.stop_and_discard if capture_video? && !exception
-
-      {
-        meta: example.metadata,
-        summary_name: summary_name,
-        exception: exception,
-        log_messages: log_messages,
-        js_errors: js_errors,
-        screenshot_name: exception && capture_screenshot(summary_name),
-        screen_capture_name: exception && capture_video(summary_name)
-      }
-    end
-
-    def log_spec_errors(data)
-      puts data[:meta][:location]
-
-      # always send js errors to stdout, even if the spec passed. we have to
-      # empty the JSErrorCollector anyway, so we might as well show it.
-      log_js_errors data[:js_errors]
-
-      return unless data[:exception] && (capture_screenshots? || capture_video?)
-
-      if include_recordings?
-        puts "  Screenshot: #{errors_path.join(data[:screenshot_name])}" if capture_screenshots?
-        puts "  Screen capture: #{errors_path.join(data[:screen_capture_name])}" if capture_video?
-      else
-        puts "  Screenshot skipped because we had more than #{MAX_FAILURES_TO_RECORD} failures" if capture_screenshots?
-        puts "  Screen capture skipped because we had more than #{MAX_FAILURES_TO_RECORD} failures" if capture_video?
-      end
-    end
-
-    def log_js_errors(errors)
-      errors.each do |error|
-        puts "  JS Error: #{error['errorMessage']} (#{error['sourceName']}:#{error['lineNumber']})"
-      end
-    end
-
-    def create_spec_error_page(data)
-      log_message_formatter = EscapeCode::HtmlFormatter.new(data[:log_messages].join("\n"))
-
-      # make a nice little html file for jenkins
-      File.open(errors_path.join(data[:summary_name] + ".html"), "w") do |file|
-        output_buffer = nil # Erubis wants this local var
-        file.write error_template.result(binding)
-      end
-    end
-
-    def record_errors(example, exception, log_messages)
-      error_data = prepare_error_data(example, exception, log_messages)
-
-      log_spec_errors error_data if error_data[:exception] || error_data[:js_errors].present?
-      create_spec_error_page error_data if error_data[:exception]
     end
 
     def app_host_and_port
@@ -528,12 +470,19 @@ module SeleniumDriverSetup
       end.to_app
     end
 
+    ASSET_PATH = %r{\A/(dist|fonts|images|javascripts)/.*\.[a-z0-9]+\z}
+    def asset_request?(url)
+      url =~ ASSET_PATH
+    end
+
     def spec_safe_rack_app
       app = base_rack_app
 
       lambda do |env|
         nope = [503, {}, [""]]
         return nope unless allow_requests?
+
+        return app.call(env) if asset_request?(env["REQUEST_URI"])
 
         # wrap request in a mutex so we can ensure it doesn't span spec
         # boundaries (see clear_requests!). we also use this mutex to
@@ -559,11 +508,14 @@ module SeleniumDriverSetup
       app = spec_safe_rack_app
 
       lambda do |env|
-        log_request = env["REQUEST_URI"] !~ %r{/(javascripts|dist)}
+        # make legit asset 404s return more quickly
+        asset_request = asset_request?(env["REQUEST_URI"])
+        return [404, {}, [""]] if asset_request && !File.exist?("public/#{env["REQUEST_URI"]}")
+
         req = "#{env['REQUEST_METHOD']} #{env['REQUEST_URI']}"
-        Rails.logger.info "STARTING REQUEST #{req}" if log_request
+        Rails.logger.info "STARTING REQUEST #{req}" unless asset_request
         result = app.call(env)
-        Rails.logger.info "FINISHED REQUEST #{req}: #{result[0]}" if log_request
+        Rails.logger.info "FINISHED REQUEST #{req}: #{result[0]}" unless asset_request
         result
       end
     end
@@ -591,8 +543,8 @@ module SeleniumDriverSetup
     end
 
     def start_in_process_thin_server
-      require File.expand_path(File.dirname(__FILE__) + '/servers/thin_server')
-      self.server = SpecFriendlyThinServer
+      require_relative "spec_friendly_web_server"
+      self.server = SpecFriendlyWebServer
       server.run(rack_app, port: server_port)
     end
   end

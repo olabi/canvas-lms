@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,14 +28,14 @@ describe "course" do
     course_factory(active_all: true)
     @course.update_attribute(:is_public, true)
     get "/courses/#{@course.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
   end
 
   it "should load syllabus on public course with no user logged in" do
     course_factory(active_all: true)
     @course.update_attribute(:is_public, true)
     get "/courses/#{@course.id}/assignments/syllabus"
-    expect(response).to be_success
+    expect(response).to be_successful
   end
 
   it "should show the migration-in-progress notice" do
@@ -48,15 +48,13 @@ describe "course" do
 
       migration.update_attribute(:workflow_state, 'importing')
       get "/courses/#{@course.id}"
-      expect(response).to be_success
-      body = Nokogiri::HTML(response.body)
-      expect(body.css('div.import-in-progress-notice')).not_to be_empty
+      expect(response).to be_successful
+      expect(controller.js_env[:CONTENT_NOTICES].map { |cn| cn[:tag] }).to include :import_in_progress
 
       migration.update_attribute(:workflow_state, 'imported')
       get "/courses/#{@course.id}"
-      expect(response).to be_success
-      body = Nokogiri::HTML(response.body)
-      expect(body.css('div.import-in-progress-notice')).to be_empty
+      expect(response).to be_successful
+      expect((controller.js_env[:CONTENT_NOTICES] || []).map { |cn| cn[:tag] }).not_to include :import_in_progress
     end
   end
 
@@ -71,9 +69,8 @@ describe "course" do
 
       migration.update_attribute(:workflow_state, 'importing')
       get "/courses/#{@course.id}"
-      expect(response).to be_success
-      body = Nokogiri::HTML(response.body)
-      expect(body.css('div.import-in-progress-notice')).to be_empty
+      expect(response).to be_successful
+      expect((controller.js_env[:CONTENT_NOTICES] || []).map { |cn| cn[:tag] }).not_to include :import_in_progress
     end
   end
 
@@ -89,6 +86,23 @@ describe "course" do
     expect(course_rows.size).to eq 3
     expect(course_rows[1].to_s).to include 'A nickname or something'
     expect(course_rows[2].to_s).to include 'Course 1'
+  end
+
+  it "should not show links to unpublished courses in course index" do
+    course_with_student(:course_name => "Course 1")
+    c1 = @course
+    @student.enrollments.first.update_attribute(:workflow_state, "active") # force active, like with sis
+    course_with_student(:user => @student, :active_all => true, :course_name => "Course 2")
+    c2 = @course
+    user_session(@student)
+    get "/courses"
+    doc = Nokogiri::HTML(response.body)
+    course_rows = doc.css('#my_courses_table tr')
+    expect(course_rows.size).to eq 3
+    expect(course_rows[1].to_s).to include 'Course 1'
+    expect(course_rows[1].to_s).to_not include("href=\"/courses/#{c1.id}\"") # unpublished
+    expect(course_rows[2].to_s).to include 'Course 2'
+    expect(course_rows[2].to_s).to include("href=\"/courses/#{c2.id}\"") # published
   end
 
   it "should not show students' nicknames to admins on the student's account profile page" do

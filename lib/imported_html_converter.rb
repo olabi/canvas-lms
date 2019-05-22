@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,7 @@ class ImportedHtmlConverter
   include HtmlTextHelper
 
   CONTAINER_TYPES = ['div', 'p', 'body']
-  LINK_ATTRS = ['rel', 'href', 'src', 'data', 'value']
+  LINK_ATTRS = ['rel', 'href', 'src', 'data', 'value', 'longdesc']
 
   attr_reader :link_parser, :link_resolver, :link_replacer
 
@@ -47,7 +47,7 @@ class ImportedHtmlConverter
     return "" unless node
     if opts[:remove_outer_nodes_if_one_child]
       while node.children.size == 1 && node.child.child
-        break unless CONTAINER_TYPES.member? node.child.name
+        break unless CONTAINER_TYPES.member?(node.child.name) && node.child.attributes.blank?
         node = node.child
       end
     end

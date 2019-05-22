@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 describe Quizzes::QuizSubmissionsController do
@@ -40,19 +57,19 @@ describe Quizzes::QuizSubmissionsController do
 
   def record_answer_1
     post "/courses/#{@course.id}/quizzes/#{@quiz.id}/submissions/#{@qs.id}/record_answer",
-         :question_1 => 'blah', :last_question_id => 1, :validation_token => @qs.validation_token
+         params: {:question_1 => 'blah', :last_question_id => 1, :validation_token => @qs.validation_token}
     expect(response).to be_redirect
   end
 
   def backup_answer_1
     put  "/courses/#{@course.id}/quizzes/#{@quiz.id}/submissions/backup",
-         :question_1 => 'blah_overridden', :validation_token => @qs.validation_token
-    expect(response).to be_success
+         params: {:question_1 => 'blah_overridden', :validation_token => @qs.validation_token}
+    expect(response).to be_successful
   end
 
   def record_answer_2
     post "/courses/#{@course.id}/quizzes/#{@quiz.id}/submissions/#{@qs.id}/record_answer",
-         :question_2 => 'M&Ms', :last_question_id => 2, :validation_token => @qs.validation_token
+         params: {:question_2 => 'M&Ms', :last_question_id => 2, :validation_token => @qs.validation_token}
     expect(response).to be_redirect
   end
 
@@ -72,16 +89,16 @@ describe Quizzes::QuizSubmissionsController do
 
     it "should redirect back to take quiz if the user loses connection" do
       get "/courses/#{@course.id}/quizzes/#{@quiz.id}/submissions/#{@qs.id}/record_answer",
-         :question_1 => 'blah', :last_question_id => 1, :validation_token => @qs.validation_token
+         params: {:question_1 => 'blah', :last_question_id => 1, :validation_token => @qs.validation_token}
       expect(response).to be_redirect
     end
   end
 
   def submit_quiz
-    Canvas::LiveEvents.expects(:quiz_submitted).with(@qs)
+    expect(Canvas::LiveEvents).to receive(:quiz_submitted).with(@qs)
 
     post "/courses/#{@course.id}/quizzes/#{@quiz.id}/submissions/",
-         :question_1 => 'password', :attempt => 1, :validation_token => @qs.validation_token
+         params: {:question_1 => 'password', :attempt => 1, :validation_token => @qs.validation_token}
     expect(response).to be_redirect
   end
 

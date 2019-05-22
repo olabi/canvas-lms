@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -125,8 +125,8 @@ class ContentMigrationsController < ApplicationController
   include Api::V1::ContentMigration
   include Api::V1::ExternalTools
 
-  before_filter :require_context
-  before_filter :require_auth
+  before_action :require_context
+  before_action :require_auth
 
   # @API List content migrations
   #
@@ -143,7 +143,8 @@ class ContentMigrationsController < ApplicationController
 
     Folder.root_folders(@context) # ensure course root folder exists so file imports can run
 
-    @migrations = Api.paginate(@context.content_migrations.order("id DESC"), self, api_v1_course_content_migration_list_url(@context))
+    scope = @context.content_migrations.where(child_subscription_id: nil).order('id DESC')
+    @migrations = Api.paginate(scope, self, api_v1_course_content_migration_list_url(@context))
     @migrations.each{|mig| mig.check_for_pre_processing_timeout }
     content_migration_json_hash = content_migrations_json(@migrations, @current_user, session)
 
@@ -170,7 +171,13 @@ class ContentMigrationsController < ApplicationController
       js_env :CONTENT_MIGRATIONS => content_migration_json_hash
       js_env(:OLD_START_DATE => datetime_string(@context.start_at, :verbose))
       js_env(:OLD_END_DATE => datetime_string(@context.conclude_at, :verbose))
-      js_env(:SHOW_SELECT => @current_user.manageable_courses.count <= 100)
+      course_count = Shard.with_each_shard(@current_user.in_region_associated_shards) { @current_user.manageable_courses.count }.sum
+      js_env(:SHOW_SELECT => course_count <= 100)
+      js_env(:CONTENT_MIGRATIONS_EXPIRE_DAYS => ContentMigration.expire_days)
+      js_env(:QUIZZES_NEXT_CONFIGURED_ROOT => @context.root_account.feature_allowed?(:quizzes_next) &&
+             @context.root_account.feature_enabled?(:import_to_quizzes_next))
+      js_env(:QUIZZES_NEXT_ENABLED => @context.feature_enabled?(:quizzes_next) && @context.quiz_lti_tool.present?)
+      set_tutorial_js_env
     end
   end
 
@@ -187,7 +194,7 @@ class ContentMigrationsController < ApplicationController
   def show
     @content_migration = @context.content_migrations.find(params[:id])
     @content_migration.check_for_pre_processing_timeout
-    render :json => content_migration_json(@content_migration, @current_user, session)
+    render :json => content_migration_json(@content_migration, @current_user, session, nil, params[:include])
   end
 
   def migration_plugin_supported?(plugin)
@@ -284,6 +291,16 @@ class ContentMigrationsController < ApplicationController
   #   Whether to remove dates in the copied course. Cannot be used
   #   in conjunction with *shift_dates*.
   #
+  # @argument selective_import [Boolean]
+  #   If set, perform a selective import instead of importing all content.
+  #   The migration will identify the contents of the package and then stop
+  #   in the +waiting_for_select+ workflow state. At this point, use the
+  #   {api:ContentMigrationsController#content_list List items endpoint}
+  #   to enumerate the contents of the package, identifying the copy
+  #   parameters for the desired content. Then call the
+  #   {api:ContentMigrationsController#update Update endpoint} and provide these
+  #   copy parameters to start the import.
+  #
   # @example_request
   #
   #   curl 'https://<canvas>/api/v1/courses/<course_id>/content_migrations' \
@@ -338,12 +355,12 @@ class ContentMigrationsController < ApplicationController
 
   # @API Update a content migration
   #
-  # Update a content migration. Takes same arguments as create except that you
+  # Update a content migration. Takes same arguments as {api:ContentMigrationsController#create create} except that you
   # can't change the migration type. However, changing most settings after the
   # migration process has started will not do anything. Generally updating the
-  # content migration will be used when there is a file upload problem. If the
-  # first upload has a problem you can supply new _pre_attachment_ values to
-  # start the process again.
+  # content migration will be used when there is a file upload problem, or when
+  # importing content selectively. If the first upload has a problem you can
+  # supply new _pre_attachment_ values to start the process again.
   #
   # @returns ContentMigration
   def update
@@ -381,58 +398,71 @@ class ContentMigrationsController < ApplicationController
     render :json => json
   end
 
-  # @note Leaving undocumented for now because format is expected to change
-  # Get list of items in the migration for selective import of content
+  # @API List items for selective import
   #
-  # If no type is sent you will get a list of the top-level sections in the content
-  # It will look something like this:
-  # [
-  #   {
+  # Enumerates the content available for selective import in a tree structure. Each node provides
+  # a +property+ copy argument that can be supplied to the {api:ContentMigrationsController#update Update endpoint}
+  # to selectively copy the content associated with that tree node and its children. Each node may also
+  # provide a +sub_items_url+ or an array of +sub_items+ which you can use to obtain copy parameters
+  # for a subset of the resources in a given node.
+  #
+  # If no +type+ is sent you will get a list of the top-level sections in the content. It will look something like this:
+  #
+  #   [{
   #     "type": "course_settings",
   #     "property": "copy[all_course_settings]",
   #     "title": "Course Settings"
   #   },
   #   {
-  #     "type": "syllabus_body",
-  #     "property": "copy[all_syllabus_body]",
-  #     "title": "Syllabus Body"
-  #   },
-  #   {
   #     "type": "context_modules",
   #     "property": "copy[all_context_modules]",
   #     "title": "Modules",
-  #     "count": 1
+  #     "count": 5,
+  #     "sub_items_url": "http://example.com/api/v1/courses/22/content_migrations/77/selective_data?type=context_modules"
   #   },
   #   {
-  #     "type": "discussion_topics",
-  #     "property": "copy[all_discussion_topics]",
-  #     "title": "Discussion Topics",
-  #     "count": 1
-  #   },
-  #   {
-  #     "type": "wiki_pages",
-  #     "property": "copy[all_wiki_pages]",
-  #     "title": "Wiki Pages",
-  #     "count": 1
-  #   },
-  #   {
-  #     "type": "attachments",
-  #     "property": "copy[all_attachments]",
-  #     "title": "Files",
-  #     "count": 1
-  #   }
-  # ]
+  #     "type": "assignments",
+  #     "property": "copy[all_assignments]",
+  #     "title": "Assignments",
+  #     "count": 2,
+  #     "sub_items_url": "http://localhost:3000/api/v1/courses/22/content_migrations/77/selective_data?type=assignments"
+  #   }]
   #
-  # If there is no count for an item that means there are no sub-items and you
-  # shouldn't try to fetch them
+  # When a +type+ is provided, nodes may be further divided via +sub_items+. For example, using +type=assignments+
+  # results in a node for each assignment group and a sub_item for each assignment, like this:
   #
-  # @argument type [Optional, String] Return list of specified type
+  #   [{
+  #     "type": "assignment_groups",
+  #     "title": "An Assignment Group",
+  #     "property": "copy[assignment_groups][id_i855cf145e5acc7435e1bf1c6e2126e5f]",
+  #     "sub_items": [{
+  #         "type": "assignments",
+  #         "title": "Assignment 1",
+  #         "property": "copy[assignments][id_i2102a7fa93b29226774949298626719d]"
+  #     }, {
+  #         "type": "assignments",
+  #         "title": "Assignment 2",
+  #         "property": "copy[assignments][id_i310cba275dc3f4aa8a3306bbbe380979]"
+  #     }]
+  #   }]
+  #
+  #
+  # To import the items corresponding to a particular tree node, use the +property+ as a parameter to the
+  # {api:ContentMigrationsController#update Update endpoint} and assign a value of 1, for example:
+  #
+  #   copy[assignments][id_i310cba275dc3f4aa8a3306bbbe380979]=1
+  #
+  # You can include multiple copy parameters to selectively import multiple items or groups of items.
+  #
+  # @argument type ["context_modules"|"assignments"|"quizzes"|"assessment_question_banks"|"d"iscussion_topics"|"wiki_pages"|"context_external_tools"|"tool_profiles"|"announcements"|"calendar_events"|"rubrics"|"groups"|"learning_outcomes"|"attachments"]
+  #   The type of content to enumerate.
   #
   # @returns list of content items
   def content_list
     @content_migration = @context.content_migrations.find(params[:id])
     base_url = api_v1_course_content_migration_selective_data_url(@context, @content_migration)
-    formatter = Canvas::Migration::Helpers::SelectiveContentFormatter.new(@content_migration, base_url)
+    formatter = Canvas::Migration::Helpers::SelectiveContentFormatter.new(@content_migration, base_url,
+      global_identifiers: @content_migration.use_global_identifiers?)
 
     unless formatter.valid_type?(params[:type])
       return render :json => {:message => "unsupported migration type"}, :status => :bad_request
@@ -458,7 +488,7 @@ class ContentMigrationsController < ApplicationController
 
   def update_migration
     @content_migration.update_migration_settings(params[:settings]) if params[:settings]
-    date_shift_params = params[:date_shift_options] ? params[:date_shift_options].to_hash.with_indifferent_access : {}
+    date_shift_params = params[:date_shift_options] ? params[:date_shift_options].to_unsafe_h : {}
     @content_migration.set_date_shift_options(date_shift_params)
 
     params[:selective_import] = false if @plugin.settings && @plugin.settings[:no_selective_import]
@@ -471,7 +501,8 @@ class ContentMigrationsController < ApplicationController
         params[:do_not_run] = true
       end
     elsif params[:copy]
-      copy_options = ContentMigration.process_copy_params(params[:copy].to_hash.with_indifferent_access)
+      copy_options = ContentMigration.process_copy_params(params[:copy]&.to_unsafe_h,
+        global_identifiers: @content_migration.use_global_identifiers?)
       @content_migration.migration_settings[:migration_ids_to_import] ||= {}
       @content_migration.migration_settings[:migration_ids_to_import][:copy] = copy_options
       @content_migration.copy_options = copy_options
@@ -500,5 +531,4 @@ class ContentMigrationsController < ApplicationController
       render :json => @content_migration.errors, :status => :bad_request
     end
   end
-
 end

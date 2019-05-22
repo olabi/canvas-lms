@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/assignment_overrides.rb'
 
@@ -12,7 +29,7 @@ describe "assignment groups" do
     let(:lock_at) { Time.zone.now + 4.days }
 
     before(:each) do
-      ConditionalRelease::Service.stubs(:active_rules).returns([])
+      allow(ConditionalRelease::Service).to receive(:active_rules).and_return([])
       make_full_screen
       course_with_teacher_logged_in
     end
@@ -64,8 +81,8 @@ describe "assignment groups" do
     end
 
     it "should allow setting overrides", priority: "1", test_id: 216349 do
-      ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
-      ConditionalRelease::Service.stubs(:jwt_for).returns(:jwt)
+      allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(true)
+      allow(ConditionalRelease::Service).to receive(:jwt_for).and_return(:jwt)
 
       default_section = @course.course_sections.first
       other_section = @course.course_sections.create!(:name => "other section")
@@ -90,7 +107,9 @@ describe "assignment groups" do
       last_due_at_element.
         send_keys(format_date_for_view(other_section_due, :medium))
 
-      update_assignment!
+      # `return_to` is not set, so no redirect happens
+      wait_for_new_page_load{ submit_form('#edit_assignment_form') }
+
       overrides = assign.reload.assignment_overrides
       expect(overrides.count).to eq 3
       default_override = overrides.detect{ |o| o.set_id == default_section.id }
@@ -142,8 +161,7 @@ describe "assignment groups" do
       first_lock_at_element.clear
       last_due_at_element.
         send_keys(format_date_for_view(due_date, :medium))
-      submit_form('#edit_assignment_form')
-      wait_for_ajaximations
+      wait_for_new_page_load{ submit_form('#edit_assignment_form') }
       overrides = assign.reload.assignment_overrides
       section_override = overrides.detect{ |o| o.set_id == section1.id }
       expect(section_override.due_at.to_date)

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,8 +20,8 @@ define [
   'jquery'
   'underscore'
   'Backbone'
-  'compiled/views/collaborations/CollaborationView'
-  'compiled/views/collaborations/CollaborationFormView'
+  './CollaborationView'
+  './CollaborationFormView'
 ], ($, {each, reject}, {View}, CollaborationView, CollaborationFormView) ->
   class CollaborationsPage extends View
     events:

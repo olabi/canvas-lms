@@ -23,6 +23,7 @@ for authentication and authorization of the Canvas API.
   - [GET login/oauth2/auth](file.oauth_endpoints.html#get-login-oauth2-auth)
   - [POST login/oauth2/token](file.oauth_endpoints.html#post-login-oauth2-token)
   - [DELETE login/oauth2/token](file.oauth_endpoints.html#delete-login-oauth2-token)
+  - [GET login/session_token](file.oauth_endpoints.html#get-login-session-token)
 
 <a name="storing-access-tokens"></a>
 ## [Storing Tokens](#storing-access-tokens)
@@ -108,7 +109,7 @@ developer key based on the launch parameters (eg. custom_canvas_api_domain) sent
 launch.
 
 For [open source Canvas users](https://github.com/instructure/canvas-lms/wiki),
-you can [generate a client ID](https://community.canvaslms.com/docs/DOC-5141) 
+you can [generate a client ID](https://community.canvaslms.com/docs/DOC-5141)
 and secret in the Site Admin account of your Canvas install.
 
 <a name="oauth2-flow-1"></a>
@@ -118,7 +119,7 @@ and secret in the Site Admin account of your Canvas install.
 A basic request looks like:
 
 <div class="method_details">
-<h3 class="endpoint">GET https://&lt;canvas-install-url&gt;/login/oauth2/auth?client_id=XXX&response_type=code&redirect_uri=https://example.com/oauth_complete&state=YYY</h3>
+<h3 class="endpoint">GET https://&lt;canvas-install-url&gt;/login/oauth2/auth?client_id=XXX&response_type=code&state=YYY&redirect_uri=https://example.com/oauth_complete</h3>
 </div>
 
 See [GET login/oauth2/auth](file.oauth_endpoints.html#get-login-oauth2-auth) for details.
@@ -145,10 +146,6 @@ response together.
 If the user doesn't accept the request for access, or if another error
 occurs, Canvas redirects back to your request\_uri with an `error`
 parameter, rather than a `code` parameter, in the query string.
-
-If the user doesn't accept the request for access, or if another error
-occurs, Canvas will add an `error`
-parameter, rather than a `code` parameter, to the query string.
 
 <div class="method_details">
 <h3 class="endpoint">http://www.example.com/oauth2response?error=access_denied</h3>
@@ -212,6 +209,10 @@ with the following parameters:
     <tr>
       <td class="mono">code</td>
       <td><span class="label">code from canvas</span></td>
+    </tr>
+    <tr>
+      <td class="mono">replace_tokens</td>
+      <td>(optional) If this option is provided, existing access tokens issued for this developer key/secret will be destroyed and replaced with the new token that is returned from this request</td>
     </tr>
   </tbody>
 </table>

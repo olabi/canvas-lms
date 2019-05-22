@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -74,27 +91,34 @@ module Importers
 
     def run
       return unless options.importable?
-      # not seeing where this is used, so I'm commenting it out for now
-      # options[:skip_replies] = true unless options.importable_entries?
       [:migration_id, :title, :discussion_type, :position, :pinned,
-       :require_initial_post, :allow_rating, :only_graders_can_rate, :sort_by_rating].each do |attr|
+       :require_initial_post, :allow_rating, :only_graders_can_rate,
+       :sort_by_rating].each do |attr|
+        next if options[attr].nil? && item.class.columns_hash[attr.to_s].type == :boolean
         item.send("#{attr}=", options[attr])
       end
 
       type = item.is_a?(Announcement) ? :announcement : :discussion_topic
+      item.locked = options[:locked] if !options[:locked].nil? && type == :announcement
       if options.message
         item.message = migration.convert_html(options.message, type, options[:migration_id], :message)
       else
         item.message = I18n.t('#discussion_topic.empty_message', 'No message')
       end
 
-      item.posted_at       = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(options[:posted_at])
       item.delayed_post_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(options.delayed_post_at)
-      item.lock_at         = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(options[:lock_at])
+      if options[:assignment]
+        options[:assignment][:lock_at] ||= options[:lock_at]
+      else
+        item.lock_at         = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(options[:lock_at])
+      end
+      item.todo_date       = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(options[:todo_date])
       item.last_reply_at   = nil if item.new_record?
 
       if options[:workflow_state].present?
-        item.workflow_state = options[:workflow_state] if (options[:workflow_state] != 'unpublished') || item.new_record? || item.deleted?
+        if (options[:workflow_state] != 'unpublished') || item.new_record? || item.deleted? || migration.for_master_course_import?
+          item.workflow_state = options[:workflow_state]
+        end
       elsif item.should_not_post_yet
         item.workflow_state = 'post_delayed'
       else
@@ -146,7 +170,7 @@ module Importers
     class DiscussionTopicOptions
       attr_reader :options
 
-      BOOLEAN_KEYS = [:pinned, :require_initial_post]
+      BOOLEAN_KEYS = [:pinned, :require_initial_post, :locked]
 
       def initialize(options = {})
         @options = options.with_indifferent_access

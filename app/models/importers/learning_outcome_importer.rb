@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -27,6 +44,7 @@ module Importers
       context = migration.context
       hash = hash.with_indifferent_access
       outcome = nil
+      previously_imported = false
       if !item && hash[:external_identifier]
         unless migration.cross_institution?
           if hash[:is_global_outcome]
@@ -44,6 +62,14 @@ module Importers
 
         if !outcome
           migration.add_warning(t(:no_context_found, %{The external Learning Outcome couldn't be found for "%{title}", creating a copy.}, :title => hash[:title]))
+        end
+      end
+
+      if hash[:migration_id].present? && (migration.canvas_import? || migration.for_course_copy?)
+        previous_outcome = migration.find_imported_migration_item(LearningOutcome, hash[:migration_id])
+        if previous_outcome
+          previously_imported = true
+          outcome = previous_outcome
         end
       end
 
@@ -65,6 +91,7 @@ module Importers
             where(migration_clause(hash[:migration_id])).first if hash[:migration_id]
           item ||= context.created_learning_outcomes.temp_record
           item.context = context
+          item.mark_as_importing!(migration)
         end
         item.migration_id = hash[:migration_id]
         item.vendor_guid = hash[:vendor_guid]
@@ -96,10 +123,14 @@ module Importers
         item = outcome
       end
 
+      # don't add a deleted outcome to an outcome group, or align it with an assignment
+      # (blueprint migration will not undelete outcomes deleted downstream)
+      return item if item.deleted?
+
       log = hash[:learning_outcome_group] || context.root_outcome_group
       log.add_outcome(item)
 
-      if hash[:alignments]
+      if hash[:alignments] && !previously_imported
         alignments = hash[:alignments].sort_by{|a| a[:position].to_i}
         alignments.each do |alignment|
           next unless alignment[:content_type] && alignment[:content_id]

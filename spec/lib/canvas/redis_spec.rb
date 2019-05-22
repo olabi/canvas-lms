@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,6 +20,11 @@ require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 if Canvas.redis_enabled?
 describe "Canvas::Redis" do
+  it "doesn't marshall" do
+    Canvas.redis.set('test', 1)
+    expect(Canvas.redis.get('test')).to eq '1'
+  end
+
   describe "locking" do
     it "should succeed if the lock isn't taken" do
       expect(Canvas::Redis.lock('test1')).to eq true
@@ -56,47 +61,49 @@ describe "Canvas::Redis" do
     end
 
     it "should protect against errnos" do
-      Redis::Client.any_instance.expects(:write).raises(Errno::ETIMEDOUT).once
+      expect(Canvas.redis._client).to receive(:write).and_raise(Errno::ETIMEDOUT).once
       expect(Canvas.redis.set('blah', 'blah')).to eq nil
     end
 
     it "should protect against max # of client errors" do
-      Redis::Client.any_instance.expects(:write).raises(Redis::CommandError.new("ERR max number of clients reached")).once
+      expect(Canvas.redis._client).to receive(:write).and_raise(Redis::CommandError.new("ERR max number of clients reached")).once
       expect(Canvas.redis.set('blah', 'blah')).to eq nil
     end
 
     it "should pass through other command errors" do
-      CanvasStatsd::Statsd.expects(:increment).never
+      expect(InstStatsd::Statsd).to receive(:increment).never
 
-      Redis::Client.any_instance.expects(:write).raises(Redis::CommandError.new("NOSCRIPT No matching script. Please use EVAL.")).once
+      expect(Canvas.redis._client).to receive(:write).and_raise(Redis::CommandError.new("NOSCRIPT No matching script. Please use EVAL.")).once
       expect { Canvas.redis.evalsha('xxx') }.to raise_error(Redis::CommandError)
 
-      Redis::Client.any_instance.expects(:write).raises(Redis::CommandError.new("ERR no such key")).once
+      expect(Canvas.redis._client).to receive(:write).and_raise(Redis::CommandError.new("ERR no such key")).once
       expect { Canvas.redis.get('no-such-key') }.to raise_error(Redis::CommandError)
     end
 
     describe "redis failure" do
+      let(:cache) { ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234']) }
+
       before do
-        Redis::Client.any_instance.expects(:ensure_connected).raises(Redis::TimeoutError).once
+        allow(cache.data._client).to receive(:ensure_connected).and_raise(Redis::TimeoutError)
       end
 
       it "should fail if not ignore_redis_failures" do
         Setting.set('ignore_redis_failures', 'false')
         expect {
-          enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) {
+          enable_cache(cache) {
             expect(Rails.cache.read('blah')).to eq nil
           }
         }.to raise_error(Redis::TimeoutError)
       end
 
       it "should not fail cache.read" do
-        enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) do
+        enable_cache(cache) do
           expect(Rails.cache.read('blah')).to eq nil
         end
       end
 
       it "should not call redis again after an error" do
-        enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) do
+        enable_cache(cache) do
           expect(Rails.cache.read('blah')).to eq nil
           # call again, the .once means that if it hits Redis::Client again it'll fail
           expect(Rails.cache.read('blah')).to eq nil
@@ -104,13 +111,13 @@ describe "Canvas::Redis" do
       end
 
       it "should not fail cache.write" do
-        enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) do
+        enable_cache(cache) do
           expect(Rails.cache.write('blah', 'someval')).to eq nil
         end
       end
 
       it "should not fail cache.delete" do
-        enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) do
+        enable_cache(cache) do
           expect(Rails.cache.delete('blah')).to eq 0
         end
       end
@@ -122,22 +129,20 @@ describe "Canvas::Redis" do
       end
 
       it "should not fail cache.exist?" do
-        enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) do
+        enable_cache(cache) do
           expect(Rails.cache.exist?('blah')).to be_falsey
         end
       end
 
       it "should not fail cache.delete_matched" do
-        enable_cache(ActiveSupport::Cache::RedisStore.new(['redis://localhost:1234'])) do
+        enable_cache(cache) do
           expect(Rails.cache.delete_matched('blah')).to eq false
         end
       end
 
       it "should fail separate servers separately" do
-        Redis::Client.any_instance.unstub(:ensure_connected)
-
         cache = ActiveSupport::Cache::RedisStore.new([Canvas.redis.id, 'redis://nonexistent:1234/0'])
-        client = cache.instance_variable_get(:@data)
+        client = cache.data
         key2 = 2
         while client.node_for('1') == client.node_for(key2.to_s)
           key2 += 1
@@ -145,7 +150,7 @@ describe "Canvas::Redis" do
         key2 = key2.to_s
         expect(client.node_for('1')).not_to eq client.node_for(key2)
         expect(client.nodes.last.id).to eq 'redis://nonexistent:1234/0'
-        client.nodes.last.client.expects(:ensure_connected).raises(Redis::TimeoutError).once
+        expect(client.nodes.last._client).to receive(:ensure_connected).and_raise(Redis::TimeoutError).once
 
         cache.write('1', true, :use_new_rails => false)
         cache.write(key2, true, :use_new_rails => false)
@@ -157,15 +162,26 @@ describe "Canvas::Redis" do
       end
 
       it "should not fail raw redis commands" do
+        expect(Canvas.redis._client).to receive(:ensure_connected).and_raise(Redis::TimeoutError).once
         expect(Canvas.redis.setnx('my_key', 5)).to eq nil
       end
+
+      it "distinguishes between failure and not exists for set nx" do
+        Canvas.redis.del('my_key')
+        expect(Canvas.redis.set('my_key', 5, nx: true)).to eq true
+        expect(Canvas.redis.set('my_key', 5, nx: true)).to eq false
+        expect(Canvas.redis._client).to receive(:ensure_connected).and_raise(Redis::TimeoutError).once
+        expect(Canvas.redis.set('my_key', 5, nx: true)).to eq nil
+      end
+
     end
   end
 
-  describe "logging" do
+  describe "json logging" do
     let(:key) { 'mykey' }
     let(:key2) { 'mykey2' }
     let(:val) { 'myvalue' }
+    before { allow(Canvas::Redis).to receive(:log_style).and_return('json') }
 
     def json_logline(get = :shift)
       # drop the non-json logging at the start of the line
@@ -227,14 +243,14 @@ describe "Canvas::Redis" do
             end
             outer_message = json_logline(:pop)
             expect(outer_message["command"]).to eq("set")
-            expect(outer_message["key"]).to eq(key)
+            expect(outer_message["key"]).to be_ends_with(key)
             expect(outer_message["request_time_ms"]).to be_a(Float)
             # 3000 (3s) == 2s outer fetch + 1s inner fetch
             expect(outer_message["generate_time_ms"]).to be_within(500).of(3000)
 
             inner_message = json_logline(:pop)
             expect(inner_message["command"]).to eq("set")
-            expect(inner_message["key"]).to eq(key2)
+            expect(inner_message["key"]).to be_ends_with(key2)
             expect(inner_message["request_time_ms"]).to be_a(Float)
             expect(inner_message["generate_time_ms"]).to be_within(500).of(1000)
           end
@@ -253,6 +269,24 @@ describe "Canvas::Redis" do
           expect(message["response_size"]).to eq(0)
         end
       end
+    end
+  end
+
+  it "should log compactly by default on the redis request" do
+    # cache to avoid capturing a log line for db lookup
+    Canvas::Redis.log_style
+    Rails.logger.capture_messages do
+      Canvas.redis.set('mykey', 'myvalue')
+      msg = Rails.logger.captured_messages.first
+      expect(msg).to match(/Redis \(\d+\.\d+ms\) set mykey \[.*\]/)
+    end
+  end
+
+  it "should allow disabling redis logging" do
+    allow(Canvas::Redis).to receive(:log_style).and_return('off')
+    Rails.logger.capture_messages do
+      Canvas.redis.set('mykey', 'myvalue')
+      expect(Rails.logger.captured_messages).to be_empty
     end
   end
 

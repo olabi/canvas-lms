@@ -1,4 +1,21 @@
-﻿require File.expand_path(File.dirname(__FILE__) + '/helpers/context_modules_common')
+﻿#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+require File.expand_path(File.dirname(__FILE__) + '/helpers/context_modules_common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/public_courses_context')
 
 describe "context modules" do
@@ -17,7 +34,7 @@ describe "context modules" do
     end
 
      it 'should add an unpublished page to a module', priority: "1", test_id: 126709 do
-      @unpub_page = @course.wiki.wiki_pages.create!(title: 'Unpublished Page')
+      @unpub_page = @course.wiki_pages.create!(title: 'Unpublished Page')
       @unpub_page.workflow_state = 'unpublished'
       @unpub_page.save!
       @mod.add_item(type: 'wiki_page', id: @unpub_page.id)
@@ -27,7 +44,7 @@ describe "context modules" do
      end
 
     it 'should add a published page to a module', priority: "1", test_id: 126710 do
-      @pub_page = @course.wiki.wiki_pages.create!(title: 'Published Page')
+      @pub_page = @course.wiki_pages.create!(title: 'Published Page')
       @mod.add_item(type: 'wiki_page', id: @pub_page.id)
       go_to_modules
       verify_module_title('Published Page')
@@ -52,19 +69,11 @@ describe "context modules" do
       expect(f('span.publish-icon.published.publish-icon-published')).to be_displayed
     end
 
-    it 'edits available/until dates on a quiz in a module', priority: "2", test_id: 126722 do
-      available_from = 2.days.from_now
-      available_until = 4.days.from_now
-      @pub_quiz = Quizzes::Quiz.create!(context: @course, title: 'Published Quiz')
+    it 'shows due date on a quiz in a module', priority: "2" do
+      @pub_quiz = Quizzes::Quiz.create!(context: @course, title: 'Published Quiz', due_at: 2.days.from_now)
       @mod.add_item(type: 'quiz', id: @pub_quiz.id)
       go_to_modules
-      fln('Published Quiz').click
-      f('.quiz-edit-button').click
-      f(".date_field[data-date-type='unlock_at']").send_keys(format_date_for_view(available_from))
-      f(".date_field[data-date-type='lock_at']").send_keys(format_date_for_view(available_until))
-      expect_new_page_load { f('.form-actions button[type=submit]').click }
-      go_to_modules
-      expect(f('.due_date_display').text).to eq date_string(available_until, :no_words)
+      expect(f('.due_date_display').text).to eq date_string(@pub_quiz.due_at, :no_words)
     end
 
     it 'should add an unpublished assignment to a module', priority: "1", test_id: 126724 do
@@ -140,28 +149,29 @@ describe "context modules" do
       expect(f('.points_possible_display')).to include_text "10 pts"
     end
 
-    it 'edits due date on a ungraded discussion in a module', priority: "2", test_id: 126717 do
+    it 'shows the due date on an graded discussion in a module', priority: "2", test_id: 126717 do
       due_at = 3.days.from_now
-      @pub_ungraded_discussion = @course.discussion_topics.create!(title: 'Non-graded Published Discussion')
-      @mod.add_item(type: 'discussion_topic', id: @pub_ungraded_discussion.id)
-      go_to_modules
-      fln('Non-graded Published Discussion').click
-      f('.edit-btn').click
-      make_full_screen
-      wait_for_ajaximations
-      f('input[type=checkbox][name="assignment[set_assignment]"]').click
-      expect(f('.DueDateInput')).to be_displayed
-      f(".date_field[data-date-type='due_at']").send_keys(format_date_for_view(due_at))
-      expect_new_page_load { f('.form-actions button[type=submit]').click }
+      @assignment = @course.assignments.create!(name: "assignemnt", due_at: due_at)
+      @discussion = @course.discussion_topics.create!(title: 'Graded Discussion', assignment: @assignment)
+      @mod.add_item(type: 'discussion_topic', id: @discussion.id)
       go_to_modules
       expect(f('.due_date_display').text).to eq date_string(due_at, :no_words)
+    end
+
+    it 'shows the todo date on an ungraded discussion in a module ', priority: "1" do
+      todo_date = 1.day.from_now
+      @pub_ungraded_discussion = @course.discussion_topics.create!(title: 'Non-graded Published Discussion', todo_date: todo_date)
+      @mod.add_item(type: 'discussion_topic', id: @pub_ungraded_discussion.id)
+      go_to_modules
+      verify_module_title('Non-graded Published Discussion')
+      expect(f('.due_date_display').text).to eq date_string(todo_date, :no_words)
     end
 
     it 'edits available/until dates on a ungraded discussion in a module', priority: "2", test_id: 126718 do
       available_from = 2.days.from_now
       available_until = 4.days.from_now
-      @pub_ungraded_discussion = @course.discussion_topics.create!(title: 'Non-graded Published Discussion')
-      @mod.add_item(type: 'discussion_topic', id: @pub_ungraded_discussion.id)
+      @discussion = @course.discussion_topics.create!(title: 'Non-graded Published Discussion')
+      @mod.add_item(type: 'discussion_topic', id: @discussion.id)
       go_to_modules
       fln('Non-graded Published Discussion').click
       f('.edit-btn').click
@@ -170,6 +180,21 @@ describe "context modules" do
       expect_new_page_load { f('.form-actions button[type=submit]').click }
       go_to_modules
       expect(f('.context_module_item')).not_to include_text(available_from.to_s)
+    end
+
+    it 'should publish assignment on publish module', priority: "2", test_id: 126719 do
+      @unpub_assignment = Assignment.create!(context: @course, title: 'some assignment in a module')
+      @unpub_assignment.workflow_state = 'unpublished'
+      @unpub_assignment.save!
+      @mod.add_item(type: 'assignment', id: @unpub_assignment.id)
+      @mod.workflow_state = 'unpublished'
+      @mod.save!
+      go_to_modules
+      verify_module_title('some assignment in a module')
+      expect(ff('span.publish-icon.unpublished.publish-icon-publish > i.icon-unpublish').length).to eq(2)
+      ff('.icon-unpublish')[0].click
+      wait_for_ajax_requests
+      expect(ff('span.publish-icon.unpublished.publish-icon-published > i.icon-publish').length).to eq(2)
     end
   end
 
@@ -205,7 +230,7 @@ describe "context modules" do
     end
 
     it 'edit content page module item inline', priority: "2", test_id: 132491 do
-      @edit_page = @course.wiki.wiki_pages.create!(title: 'EditMe Page')
+      @edit_page = @course.wiki_pages.create!(title: 'EditMe Page')
       @mod.add_item(type: 'wiki_page', id: @edit_page.id)
       go_to_modules
       verify_edit_item_form
@@ -229,6 +254,30 @@ describe "context modules" do
       go_to_modules
       add_new_external_item('External URL', 'www.google.com', 'Google')
       verify_edit_item_form
+    end
+
+    it 'editing external URL module item inline w/ load in new tab should use the right title' do
+      go_to_modules
+
+      f('.add_module_item_link').click
+      wait_for_ajaximations
+      select_module_item('#add_module_item_select', 'External URL')
+      wait_for_ajaximations
+      url_input = fj('input[name="url"]:visible')
+      title_input = fj('input[name="title"]:visible')
+      replace_content(url_input, 'http://www.google.com')
+      title = 'Goooogle'
+      replace_content(title_input, title)
+      fj('input[name="new_tab"]:visible').click
+
+      fj('.add_item_button.ui-button').click
+      wait_for_ajaximations
+      go_to_modules
+      f('.context_module_item .al-trigger').click
+      wait_for_ajaximations
+      f('.edit_item_link').click
+      wait_for_ajaximations
+      expect(get_value('#content_tag_title')).to eq title
     end
   end
 

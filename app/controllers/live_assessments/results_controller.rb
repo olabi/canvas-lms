@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,6 @@
 
 module LiveAssessments
   # @API LiveAssessments
-  # @beta
   # Manage live assessment results
   #
   # @model Result
@@ -74,12 +73,11 @@ module LiveAssessments
   class ResultsController < ApplicationController
     include ::Filters::LiveAssessments
 
-    before_filter :require_user
-    before_filter :require_context
-    before_filter :require_assessment
+    before_action :require_user
+    before_action :require_context
+    before_action :require_assessment
 
     # @API Create live assessment results
-    # @beta
     #
     # Creates live assessment results and adds them to a live assessment
     #
@@ -135,9 +133,8 @@ module LiveAssessments
     end
 
     # @API List live assessment results
-    # @beta
     #
-    # Returns a list of live assessment results
+    # Returns a paginated list of live assessment results
     #
     # @argument user_id [Integer]
     #   If set, restrict results to those for this user

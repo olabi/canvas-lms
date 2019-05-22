@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,22 +16,9 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
-
 require 'nokogiri'
 
-RSpec::configure do |c|
-  # rspec-rails 3 will no longer automatically infer an example group's spec type
-  # from the file location. You can explicitly opt-in to the feature using this
-  # config option.
-  # To explicitly tag specs without using automatic inference, set the `:type`
-  # metadata manually:
-  #
-  #     describe ThingsController, :type => :controller do
-  #       # Equivalent to being in spec/controllers
-  #     end
-  c.infer_spec_type_from_file_location!
-end
+require_relative '../spec_helper'
 
 class HashWithDupCheck < Hash
   def []=(k,v)
@@ -52,23 +39,6 @@ def api_call(method, path, params, body_params = {}, headers = {}, opts = {})
   raw_api_call(method, path, params, body_params, headers, opts)
   if opts[:expected_status]
     assert_status(opts[:expected_status])
-  else
-    unless response.success?
-      error_message = response.body
-      begin
-        json = JSON.parse(response.body)
-        error_report_id = json['error_report_id']
-        error_report = ErrorReport.find_by(id: error_report_id) if error_report_id
-        if error_report
-          error_message << "\n"
-          error_message << error_report.message
-          error_message << "\n"
-          error_message << error_report.backtrace
-        end
-      rescue JSON::ParserError
-      end
-    end
-    expect(response).to be_success, error_message
   end
 
   if response.headers['Link']
@@ -76,14 +46,9 @@ def api_call(method, path, params, body_params = {}, headers = {}, opts = {})
     Api.parse_pagination_links(response.headers['Link'])
   end
 
-  if jsonapi_call?(headers) && method == :delete
-    assert_status(204)
-    return
-  end
-
   case params[:format]
-  when 'json'
-    expect(response.header[content_type_key]).to eq 'application/json; charset=utf-8'
+  when 'json', :json
+    raise "got non-json" unless response.header[content_type_key] == 'application/json; charset=utf-8'
 
     body = response.body
     if body.respond_to?(:call)
@@ -112,14 +77,16 @@ def api_call_as_user(user, method, path, params, body_params = {}, headers = {},
   headers['Authorization'] = "Bearer #{token}"
   account = opts[:domain_root_account] || Account.default
   user.pseudonyms.reload
-  account.pseudonyms.create!(:unique_id => "#{user.id}@example.com", :user => user) unless user.find_pseudonym_for_account(account, true)
-  Pseudonym.any_instance.stubs(:works_for_account?).returns(true)
+  p = SisPseudonym.for(user, account, type: :implicit, require_sis: false)
+  p ||= account.pseudonyms.create!(:unique_id => "#{user.id}@example.com", :user => user)
+  allow_any_instantiation_of(p).to receive(:works_for_account?).and_return(true)
   api_call(method, path, params, body_params, headers, opts)
 end
 
 $spec_api_tokens = {}
 
 def access_token_for_user(user)
+  enable_developer_key_account_binding!(DeveloperKey.default)
   token = $spec_api_tokens[user]
   unless token
     token = $spec_api_tokens[user] = user.access_tokens.create!(:purpose => "test").full_token
@@ -133,7 +100,7 @@ def raw_api_call(method, path, params, body_params = {}, headers = {}, opts = {}
   enable_forgery_protection do
     route_params = params_from_with_nesting(method, path)
     route_params.each do |key, value|
-      expect(params[key].to_s).to eq(value.to_s), lambda{ "Expected value of params[\'#{key}\'] to equal #{value}, actual: #{params[key]}"}
+      raise "Expected value of params[\'#{key}\'] to equal #{value}, actual: #{params[key]}" unless params[key].to_s == value.to_s
     end
     if @use_basic_auth
       user_session(@user)
@@ -143,12 +110,13 @@ def raw_api_call(method, path, params, body_params = {}, headers = {}, opts = {}
         token = access_token_for_user(@user)
         headers['HTTP_AUTHORIZATION'] = "Bearer #{token}"
         account = opts[:domain_root_account] || Account.default
-        Pseudonym.any_instance.stubs(:works_for_account?).returns(true)
-        account.pseudonyms.create!(:unique_id => "#{@user.id}@example.com", :user => @user) unless @user.all_active_pseudonyms(:reload) && @user.find_pseudonym_for_account(account, true)
+        p = @user.all_active_pseudonyms(:reload) && SisPseudonym.for(@user, account, type: :implicit, require_sis: false)
+        p ||= account.pseudonyms.create!(:unique_id => "#{@user.id}@example.com", :user => @user)
+        allow_any_instantiation_of(p).to receive(:works_for_account?).and_return(true)
       end
     end
-    LoadAccount.stubs(:default_domain_root_account).returns(opts[:domain_root_account]) if opts.has_key?(:domain_root_account)
-    __send__(method, path, params.reject { |k,v| route_params.keys.include?(k.to_sym) }.merge(body_params), headers)
+    allow(LoadAccount).to receive(:default_domain_root_account).and_return(opts[:domain_root_account]) if opts.has_key?(:domain_root_account)
+    __send__(method, path, headers: headers, params: params.reject { |k,v| route_params.keys.include?(k.to_sym) }.merge(body_params))
   end
 end
 
@@ -288,4 +256,8 @@ def assert_jsonapi_compliance(json, primary_set, associations = [])
   if associations.any?
     expect(json['meta']['primaryCollection']).to eq primary_set
   end
+end
+
+def redirect_params
+  Rack::Utils.parse_nested_query(URI(response.headers['Location']).query)
 end

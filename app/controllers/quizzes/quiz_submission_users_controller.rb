@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,7 +17,6 @@
 #
 module Quizzes
   # @API Quiz Submission User List
-  # @beta
   #
   # List of users who have or haven't submitted for a quiz.
   #
@@ -82,7 +82,7 @@ module Quizzes
   #     }
   class QuizSubmissionUsersController < ::ApplicationController
     include ::Filters::Quizzes
-    before_filter :require_context, :require_quiz
+    before_action :require_context, :require_quiz
 
     def index
       return unless user_has_teacher_level_access?
@@ -92,6 +92,7 @@ module Quizzes
       if includes.include? 'quiz_submissions'
         quiz_submissions = QuizSubmission.where(user_id: @users.to_a, quiz_id: @quiz).index_by(&:user_id)
       end
+      UserPastLtiId.manual_preload_past_lti_ids(@users, @context) if ['uuid', 'lti_id'].any? { |id| includes.include? id }
       users_json = Canvas::APIArraySerializer.new(@users, {
         quiz: @quiz,
         root: :users,
@@ -113,7 +114,6 @@ module Quizzes
     end
 
     # @API Send a message to unsubmitted or submitted users for the quiz
-    # @beta
     #
     # @argument conversations [QuizUserConversation] - Body and recipients to send the message to.
     #

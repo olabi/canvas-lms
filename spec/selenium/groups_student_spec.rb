@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/groups_common')
 
@@ -9,7 +26,6 @@ describe "student groups" do
   let(:group_category_name){ 'cat1' }
 
   describe "as a student" do
-
 
     before(:each) do
       course_with_student_logged_in(:active_all => true)
@@ -29,9 +45,7 @@ describe "student groups" do
 
       f('#edit_group').click
       set_value f('#group_name'), "new group name"
-      f('#ui-id-2').find_element(:css, 'button[type=submit]').click
-      wait_for_ajaximations
-
+      expect_new_page_load {f('#ui-id-2').find_element(:css, 'button[type=submit]').click}
       expect(g1.reload.name).to include("new group name")
     end
 
@@ -54,7 +68,7 @@ describe "student groups" do
 
     describe "new student group" do
       before(:each) do
-        seed_students(5)
+        seed_students(2)
         get "/courses/#{@course.id}/groups"
         f(".icon-plus").click
         wait_for_ajaximations
@@ -67,15 +81,13 @@ describe "student groups" do
       end
 
       it "should show students in the course", priority: "1", test_id: 180675 do
-        expected_student_list = ["Test Student 1", "Test Student 2", "Test Student 3",
-                                 "Test Student 4", "Test Student 5"]
+        expected_student_list = ["Test Student 1", "Test Student 2"]
         student_list = ff(".checkbox")
         expect(student_list).to have_size(expected_student_list.size) # there should be no teachers in the list
 
         # check the list of students for expected names
-        student_list.each_with_index do |student, index|
-          expect(student).to include_text(expected_student_list[index].to_s)
-        end
+        expect(student_list[0].text).to eq "Test Student 1"
+        expect(student_list[1].text).to eq "Test Student 2"
       end
 
       it "should be titled what the user types in", priority: "1", test_id: 180676 do
@@ -154,7 +166,7 @@ describe "student groups" do
         expect(f('.unassigned-students')).to include_text("#{@students[0].name}")
         # Fourth student should remain group leader
         expect(fj(".group[data-id=\"#{@testgroup[0].id}\"] ." \
-      "group-user:contains(\"#{@students[3].name}\") .group-leader")).to be_displayed
+      ".group-leader:contains(\"#{@students[3].name}\")")).to be_displayed
       end
     end
 
@@ -170,11 +182,6 @@ describe "student groups" do
         f(".student-group-join a").click
 
         expect(f(".student-group-students")).to include_text("0 students")
-      end
-
-      it "leaving the group should change the dialog to join", priority:"2", test_id: 180683 do
-        f(".student-group-join a").click
-
         expect(f(".student-group-join a")).to include_text("JOIN")
       end
 

@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
+require File.expand_path(File.dirname(__FILE__) + '/../../sharding_spec_helper')
 
 describe ContentMigrationsController, type: :request do
   before :once do
@@ -122,6 +123,24 @@ describe ContentMigrationsController, type: :request do
         expect(json.first['id']).to eq @migration.id
       end
     end
+
+    it "should not return attachments for expired import" do
+      ContentMigration.where(id: @migration.id).update_all(created_at: 405.days.ago)
+
+      json = api_call(:get, @migration_url, @params)
+      expect(json[0]['attachment']).to be_nil
+    end
+
+    it "should not return a blank page when master_course_import migrations exist" do
+      template = MasterCourses::MasterTemplate.set_as_master_course(Course.create!)
+      sub = template.add_child_course!(@course)
+      mm = @course.content_migrations.create migration_type: 'master_course_import', child_subscription_id: sub.id
+      mm.migration_settings[:hide_from_index] = true
+      mm.save!
+      json = api_call(:get, @migration_url + "?per_page=1", @params.merge(per_page: '1'))
+      expect(json.length).to eq 1
+      expect(json.first['id']).to eq @migration.id
+    end
   end
 
   describe 'show' do
@@ -205,6 +224,20 @@ describe ContentMigrationsController, type: :request do
       expect(@migration.migration_issues.first.description).to eq "The file upload process timed out."
     end
 
+    context "Site Admin" do
+      it "should contain additional auditing information for site admins" do
+        course_with_teacher_logged_in(:course => @course, :active_all => true, :user => site_admin_user)
+        json = api_call(:get, @migration_url, @params)
+        expect(json['audit_info']).not_to be_falsey
+      end
+
+      it "should not contain additional auditing information if not site admin" do
+        course_with_teacher_logged_in(:course => @course, :active_all => true, :user => user_with_pseudonym)
+        json = api_call(:get, @migration_url, @params)
+        expect(json['audit_info']).to be_falsey
+      end
+    end
+
     context "User" do
       before do
         @migration = @user.content_migrations.create
@@ -273,8 +306,8 @@ describe ContentMigrationsController, type: :request do
 
       @post_params.delete :pre_attachment
       p = Canvas::Plugin.new("hi")
-      p.stubs(:default_settings).returns({'worker' => 'CCWorker', 'valid_contexts' => ['Course']}.with_indifferent_access)
-      Canvas::Plugin.stubs(:find).returns(p)
+      allow(p).to receive(:default_settings).and_return({'worker' => 'CCWorker', 'valid_contexts' => ['Course']}.with_indifferent_access)
+      allow(Canvas::Plugin).to receive(:find).and_return(p)
       json = api_call(:post, @migration_url, @params, @post_params)
       expect(json["workflow_state"]).to eq 'running'
       migration = ContentMigration.find json['id']
@@ -285,8 +318,8 @@ describe ContentMigrationsController, type: :request do
     it "should not queue a migration if do_not_run flag is set" do
       @post_params.delete :pre_attachment
       p = Canvas::Plugin.new("hi")
-      p.stubs(:default_settings).returns({'worker' => 'CCWorker', 'valid_contexts' => ['Course']}.with_indifferent_access)
-      Canvas::Plugin.stubs(:find).returns(p)
+      allow(p).to receive(:default_settings).and_return({'worker' => 'CCWorker', 'valid_contexts' => ['Course']}.with_indifferent_access)
+      allow(Canvas::Plugin).to receive(:find).and_return(p)
       json = api_call(:post, @migration_url, @params, @post_params.merge(:do_not_run => true))
       expect(json["workflow_state"]).to eq 'pre_processing'
       migration = ContentMigration.find json['id']
@@ -332,6 +365,23 @@ describe ContentMigrationsController, type: :request do
                       @params.merge(:migration_type => 'course_copy_importer', :settings => {'source_course_id' => 'sis_course_id:booga'}))
       migration = ContentMigration.find json['id']
       expect(migration.migration_settings[:source_course_id]).to eql @course.id
+    end
+
+    context "sharding" do
+      specs_require_sharding
+
+      it "can queue a cross-shard course for course copy" do
+        @shard1.activate do
+          @other_account = Account.create
+          @copy_from = @other_account.courses.create!
+          @copy_from.enroll_user(@user, "TeacherEnrollment", :enrollment_state => "active")
+        end
+        json = api_call(:post, @migration_url + "?settings[source_course_id]=#{@copy_from.global_id}&migration_type=course_copy_importer",
+          @params.merge(:migration_type => 'course_copy_importer', :settings => {'source_course_id' => @copy_from.global_id.to_s}))
+
+        migration = ContentMigration.find json['id']
+        expect(migration.source_course).to eq @copy_from
+      end
     end
 
     context "migration file upload" do
@@ -559,7 +609,7 @@ describe ContentMigrationsController, type: :request do
   describe 'migration_systems' do
     it "should return the migrators" do
       p = Canvas::Plugin.find('common_cartridge_importer')
-      Canvas::Plugin.stubs(:all_for_tag).returns([p])
+      allow(Canvas::Plugin).to receive(:all_for_tag).and_return([p])
       json = api_call(:get, "/api/v1/courses/#{@course.id}/content_migrations/migrators",
                       {:controller=>"content_migrations", :action=>"available_migrators", :format=>"json", :course_id=>@course.id.to_param})
       expect(json).to eq [{
@@ -571,7 +621,7 @@ describe ContentMigrationsController, type: :request do
     end
 
     it "should filter by context type" do
-      Canvas::Plugin.stubs(:all_for_tag).returns([Canvas::Plugin.find('common_cartridge_importer'),
+      allow(Canvas::Plugin).to receive(:all_for_tag).and_return([Canvas::Plugin.find('common_cartridge_importer'),
                                                   Canvas::Plugin.find('zip_file_importer')])
       json = api_call(:get, "/api/v1/users/#{@user.id}/content_migrations/migrators",
                       {:controller=>"content_migrations", :action=>"available_migrators", :format=>"json", :user_id=>@user.to_param})
@@ -594,9 +644,10 @@ describe ContentMigrationsController, type: :request do
       @dt1 = @course.discussion_topics.create!(:message => "hi", :title => "discussion title")
       @cm = @course.context_modules.create!(:name => "some module")
       @att = Attachment.create!(:filename => 'first.txt', :uploaded_data => StringIO.new('ohai'), :folder => Folder.unfiled_folder(@course), :context => @course)
-      @wiki = @course.wiki.wiki_pages.create!(:title => "wiki", :body => "ohai")
+      @wiki = @course.wiki_pages.create!(:title => "wiki", :body => "ohai")
       @migration.migration_type = 'course_copy_importer'
       @migration.migration_settings[:source_course_id] = @course.id
+      @migration.source_course = @course
       @migration.save!
     end
 
@@ -606,7 +657,7 @@ describe ContentMigrationsController, type: :request do
                       {"type"=>"syllabus_body", "property"=>"copy[all_syllabus_body]", "title"=>"Syllabus Body"},
                       {"type"=>"context_modules", "property"=>"copy[all_context_modules]", "title"=>"Modules", "count"=>1, "sub_items_url"=>"http://www.example.com/api/v1/courses/#{@orig_course.id}/content_migrations/#{@migration.id}/selective_data?type=context_modules"},
                       {"type"=>"discussion_topics", "property"=>"copy[all_discussion_topics]", "title"=>"Discussion Topics", "count"=>1, "sub_items_url"=>"http://www.example.com/api/v1/courses/#{@orig_course.id}/content_migrations/#{@migration.id}/selective_data?type=discussion_topics"},
-                      {"type"=>"wiki_pages", "property"=>"copy[all_wiki_pages]", "title"=>"Wiki Pages", "count"=>1, "sub_items_url"=>"http://www.example.com/api/v1/courses/#{@orig_course.id}/content_migrations/#{@migration.id}/selective_data?type=wiki_pages"},
+                      {"type"=>"wiki_pages", "property"=>"copy[all_wiki_pages]", "title"=>"Pages", "count"=>1, "sub_items_url"=>"http://www.example.com/api/v1/courses/#{@orig_course.id}/content_migrations/#{@migration.id}/selective_data?type=wiki_pages"},
                       {"type"=>"attachments", "property"=>"copy[all_attachments]", "title"=>"Files", "count"=>1, "sub_items_url"=>"http://www.example.com/api/v1/courses/#{@orig_course.id}/content_migrations/#{@migration.id}/selective_data?type=attachments"}]
     end
 
@@ -616,7 +667,21 @@ describe ContentMigrationsController, type: :request do
       expect(json.first["type"]).to eq 'context_modules'
       expect(json.first["title"]).to eq @cm.name
     end
+
+    it "should return global identifiers if available" do
+      json = api_call(:get, @migration_url + '?type=discussion_topics', @params.merge({type: 'discussion_topics'}))
+      key = CC::CCHelper.create_key(@dt1, global: true)
+      expect(json.first["migration_id"]).to eq key
+      expect(json.first["property"]).to include key
+    end
+
+    it "should return local identifiers if needed" do
+      prev_export = @course.content_exports.create!(:export_type => ContentExport::COURSE_COPY)
+      prev_export.update_attribute(:global_identifiers, false)
+      json = api_call(:get, @migration_url + '?type=discussion_topics', @params.merge({type: 'discussion_topics'}))
+      key = CC::CCHelper.create_key(@dt1, global: false)
+      expect(json.first["migration_id"]).to eq key
+      expect(json.first["property"]).to include key
+    end
   end
-
-
 end

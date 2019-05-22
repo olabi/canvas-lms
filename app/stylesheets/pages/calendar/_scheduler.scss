@@ -1,10 +1,28 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 .scheduler-content {
   padding: 1em;
   background-color: $bodyBackground;
   border: 1px solid $ic-border-light;
-  margin-left: 0px;
+  margin-#{direction(left)}: 0px;
   h3, .h3 {
     margin-top: 0px;
   }
@@ -48,10 +66,10 @@
     margin-bottom: 0;
   }
   .alert {
-    float: right;
+    float: direction(right);
     width: auto;
     padding: 4px 10px;
-    margin-right: 5px;
+    margin-#{direction(right)}: 5px;
     a {
       text-decoration: underline;
     }
@@ -132,7 +150,7 @@
     width: $date_column_width - 80;
   }
   .time_field {
-    text-align: right;
+    text-align: direction(right);
     width: $time_column_width - 30;
   }
   .error {
@@ -202,19 +220,28 @@
   overflow-y: auto;
   label {
     margin-bottom: 0;
+    width: 170px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
 .ag_sections {
   @include reset_list;
-  padding-left: 35px;
+  padding-#{direction(left)}: 35px;
+  li {
+    label {
+      width: 150px;
+    }
+  }
 }
 
 .ag_sections_toggle {
   display: block;
   width: 16px;
   height: 16px;
-  float: left;
+  float: direction(left);
   background-image: url(/images/jqueryui/icon_sprite.png);
   background-position: (-16px) -80px;
   border: none;
@@ -226,25 +253,25 @@
 }
 
 .ag_contexts_done {
-  float: right;
-  margin: 5px 5px 0 0;
+  float: direction(right);
+  margin: direction-sides(5px 5px 0 0);
 }
 
 .delete-block-link {
   display: block;
-  float: right;
+  float: direction(right);
   color: black;
   line-height: 28px;
 }
 
 .left-column-wrapper {
   width: 250px;
-  float: left;
+  float: direction(left);
 }
 
 .right-column-wrapper {
   width: 325px;
-  float: left;
+  float: direction(left);
 }
 
 .details-wrapper {
@@ -256,7 +283,7 @@
     vertical-align: baseline;
   }
   .split-link {
-    margin-right: 3px;
+    margin-#{direction(right)}: 3px;
   }
 }
 
@@ -313,9 +340,9 @@
     li {
       overflow: hidden;
       white-space: nowrap;
-      float: left;
-      margin: 1px 2px 1px 4px;
-      padding: 0 14px 0 11px;
+      float: direction(left);
+      margin: direction-sides(1px 2px 1px 4px);
+      padding: direction-sides(0 14px 0 11px);
       color: #000;
       background-color: #dee7fa;
       border: 1px solid #a5bcf0;

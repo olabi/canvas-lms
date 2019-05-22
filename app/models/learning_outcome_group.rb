@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,12 +19,16 @@
 class LearningOutcomeGroup < ActiveRecord::Base
   include Workflow
   include OutcomeAttributes
+  include MasterCourses::Restrictor
+  restrict_columns :state, [:workflow_state]
+
   belongs_to :learning_outcome_group
   has_many :child_outcome_groups, :class_name => 'LearningOutcomeGroup', :foreign_key => "learning_outcome_group_id"
   has_many :child_outcome_links, -> { where(tag_type: 'learning_outcome_association', content_type: 'LearningOutcome') }, class_name: 'ContentTag', as: :associated_asset
   belongs_to :context, polymorphic: [:account, :course]
 
   before_save :infer_defaults
+  validates :vendor_guid, length: { maximum: maximum_string_length, allow_nil: true }
   validates_length_of :description, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
   validates_length_of :title, :maximum => maximum_string_length, :allow_nil => true, :allow_blank => true
   validates_presence_of :title, :workflow_state
@@ -46,18 +50,27 @@ class LearningOutcomeGroup < ActiveRecord::Base
     [learning_outcome_group_id]
   end
 
+  def touch_parent_group
+    return if self.skip_parent_group_touch
+    self.touch
+    self.learning_outcome_group.touch_parent_group if self.learning_outcome_group
+  end
+
   # adds a new link to an outcome to this group. does nothing if a link already
   # exists (an outcome can be linked into a context multiple times by multiple
   # groups, but only once per group).
-  def add_outcome(outcome)
+  def add_outcome(outcome, skip_touch: false)
     # no-op if the outcome is already linked under this group
     outcome_link = child_outcome_links.active.where(content_id: outcome).first
     return outcome_link if outcome_link
 
     # create new link and in this group
+    touch_parent_group
     child_outcome_links.create(
-      :content => outcome,
-      :context => self.context || self)
+      content: outcome,
+      context: self.context || self,
+      skip_touch: skip_touch
+    )
   end
 
   # copies an existing outcome group, form this context or another, into this
@@ -69,26 +82,33 @@ class LearningOutcomeGroup < ActiveRecord::Base
   # commit!
   def add_outcome_group(original, opts={})
     # copy group into this group
-    copy = child_outcome_groups.build
-    copy.title = original.title
-    copy.description = original.description
-    copy.vendor_guid = original.vendor_guid
-    copy.context = self.context
-    copy.save!
+    transaction do
+      copy = child_outcome_groups.build
+      copy.title = original.title
+      copy.description = original.description
+      copy.vendor_guid = original.vendor_guid
+      copy.context = self.context
+      copy.skip_parent_group_touch = true
+      copy.save!
 
-    # copy the group contents
-    original.child_outcome_groups.active.each do |group|
-      next if opts[:only] && opts[:only][group.asset_string] != "1"
-      copy.add_outcome_group(group, opts)
+      # copy the group contents
+      copy_opts = opts.reverse_merge(skip_touch: true)
+      original.child_outcome_groups.active.each do |group|
+        next if opts[:only] && opts[:only][group.asset_string] != "1"
+        copy.add_outcome_group(group, copy_opts)
+      end
+
+      original.child_outcome_links.active.each do |link|
+        next if opts[:only] && opts[:only][link.asset_string] != "1"
+        copy.add_outcome(link.content, skip_touch: true)
+      end
+
+      self.context&.touch unless opts[:skip_touch]
+      touch_parent_group
+
+      # done
+      copy
     end
-
-    original.child_outcome_links.active.each do |link|
-      next if opts[:only] && opts[:only][link.asset_string] != "1"
-      copy.add_outcome(link.content)
-    end
-
-    # done
-    copy
   end
 
   # moves an existing outcome link from the same context to be under this
@@ -101,6 +121,7 @@ class LearningOutcomeGroup < ActiveRecord::Base
     # change the parent
     outcome_link.associated_asset = self
     outcome_link.save!
+    touch_parent_group
     outcome_link
   end
 
@@ -120,7 +141,7 @@ class LearningOutcomeGroup < ActiveRecord::Base
     group
   end
 
-  attr_accessor :skip_tag_touch
+  attr_accessor :skip_tag_touch, :skip_parent_group_touch
   alias_method :destroy_permanently!, :destroy
   def destroy
     transaction do
@@ -155,11 +176,13 @@ class LearningOutcomeGroup < ActiveRecord::Base
     # do this in a transaction, so parallel calls don't create multiple roots
     # TODO: clean up contexts that already have multiple root outcome groups
     transaction do
-      group = scope.active.root.first
+      group = scope.active.root.take
       if !group && force
         group = scope.build :title => context.try(:name) || 'ROOT'
         group.building_default = true
-        group.save!
+        Shackles.activate(:master) do
+          group.save!
+        end
       end
       group
     end
@@ -179,7 +202,7 @@ class LearningOutcomeGroup < ActiveRecord::Base
 
   def infer_defaults
     self.context ||= self.parent_outcome_group && self.parent_outcome_group.context
-    if self.context && !self.context.learning_outcome_groups.empty? && !building_default
+    if self.context && self.context.learning_outcome_groups.exists? && !building_default
       default = self.context.root_outcome_group
       self.learning_outcome_group_id ||= default.id unless self == default
     end

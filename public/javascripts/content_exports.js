@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,17 +12,16 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!content_exports',
-  'jquery' /* $ */,
-  'str/htmlEscape',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_forms' /* formSubmit */,
-  'jqueryui/progressbar' /* /\.progressbar/ */
-], function(I18n, $, htmlEscape) {
+
+import I18n from 'i18n!content_exports'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import './jquery.ajaxJSON'
+import './jquery.instructure_forms' /* formSubmit */
+import 'jqueryui/progressbar'
 
 $(document).ready(function(event) {
   var state = 'nothing';
@@ -67,9 +66,9 @@ $(document).ready(function(event) {
           $exporter_form.hide();
           $(".export_progress").progressbar('option', 'value', 100);
           $(".progress_message").text(I18n.t("Your content has been exported."));
-          $("#export_files").append('<p>' + htmlEscape(I18n.t('labels.new_export', "New Export:")) + ' <a href="' + htmlEscape(content_export.download_url) + '">' + htmlEscape(I18n.t('links.download_plain', "Click here to download")) + '</a> </p>')
+          $("#export_files").append('<p><a href="' + htmlEscape(content_export.download_url) + '">' +  htmlEscape(I18n.t("New Export")) + '</a></p>')
         } else if(content_export.workflow_state == 'failed') {
-          code = "content_export_" + content_export.id;
+          var code = "content_export_" + content_export.id;
           $(".progress_bar_holder").hide();
           $exporter_form.hide();
           var message = I18n.t('errors.error', "There was an error exporting your content.  Please notify your system administrator and give them the following export identifier: \"%{code}\"", {code: code});
@@ -136,5 +135,4 @@ $(document).ready(function(event) {
   }
   check_if_exporting();
 
-});
 });

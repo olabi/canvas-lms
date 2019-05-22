@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -36,11 +36,11 @@ describe ContentParticipationCount do
     it "should count current unread objects correctly" do
       ["Submission"].each do |type|
         cpc = ContentParticipationCount.create_or_update(:context => @course, :user => @teacher, :content_type => type)
-        cpc.expects(:refresh_unread_count).never
+        expect(cpc).to receive(:refresh_unread_count).never
         expect(cpc.unread_count).to eq 0
 
         cpc = ContentParticipationCount.create_or_update(:context => @course, :user => @student, :content_type => type)
-        cpc.expects(:refresh_unread_count).never
+        expect(cpc).to receive(:refresh_unread_count).never
         expect(cpc.unread_count).to eq 1
       end
     end
@@ -49,7 +49,7 @@ describe ContentParticipationCount do
       cpc = ContentParticipationCount.create_or_update(:context => @course, :user => @student, :content_type => "Submission")
       ContentParticipationCount.create_or_update(:context => @course, :user => @student, :content_type => "Submission", :offset => -1)
       cpc.reload
-      cpc.expects(:refresh_unread_count).never
+      expect(cpc).to receive(:refresh_unread_count).never
       expect(cpc.unread_count).to eq 0
     end
 
@@ -96,7 +96,7 @@ describe ContentParticipationCount do
     it "should not refresh if just created" do
       ["Submission"].each do |type|
         cpc = ContentParticipationCount.create_or_update(:context => @course, :user => @teacher, :content_type => type)
-        cpc.expects(:refresh_unread_count).never
+        expect(cpc).to receive(:refresh_unread_count).never
         expect(cpc.unread_count).to eq 0
       end
     end
@@ -104,11 +104,15 @@ describe ContentParticipationCount do
     it "should refresh if data could be stale" do
       ["Submission"].each do |type|
         cpc = ContentParticipationCount.create_or_update(:context => @course, :user => @teacher, :content_type => type)
-        cpc.expects(:refresh_unread_count).never
+        allowed = false
+        expect(cpc).to receive(:refresh_unread_count).and_wrap_original do |original|
+          raise "not allowed" unless allowed
+          original.call
+        end
         expect(cpc.unread_count).to eq 0
         ContentParticipationCount.where(:id => cpc).update_all(:updated_at => Time.now.utc - 1.day)
         cpc.reload
-        cpc.expects(:refresh_unread_count)
+        allowed = true
         expect(cpc.unread_count).to eq 0
       end
     end
@@ -137,6 +141,12 @@ describe ContentParticipationCount do
       expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
     end
 
+    it "should be read if a graded assignment is set to ungraded for some reason" do
+      @submission = @assignment.grade_student(@student, grade: 3, grader: @teacher).first
+      @assignment.update_attribute(:submission_types, "not_graded")
+      expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
+    end
+
     it "should be unread after submission is graded" do
       @assignment.submit_homework(@student)
       @submission = @assignment.grade_student(@student, grade: 3, grader: @teacher).first
@@ -146,6 +156,30 @@ describe ContentParticipationCount do
     it "should be unread after submission is commented on by teacher" do
       @submission = @assignment.update_submission(@student, { :commenter => @teacher, :comment => "good!" }).first
       expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 1
+    end
+
+    it "ignores draft comments" do
+      @submission = @assignment.update_submission(
+        @student,
+        {
+          commenter: @teacher,
+          comment: "good!",
+          draft_comment: true
+        }
+      ).first
+      expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
+    end
+
+    it "ignores hidden comments" do
+      @submission = @assignment.update_submission(
+        @student,
+        {
+          commenter: @teacher,
+          comment: "good!",
+          hidden: true
+        }
+      ).first
+      expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
     end
 
     it "should be read after viewing the submission comment" do

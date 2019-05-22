@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Login::Shared
   def reset_session_for_login
     reset_session_saving_keys(:return_to,
@@ -18,7 +35,7 @@ module Login::Shared
     setup_live_events_context
     # TODO: Only send this if the current_pseudonym's root account matches the current root
     # account?
-    Canvas::LiveEvents.logged_in(session)
+    Canvas::LiveEvents.logged_in(session, user, pseudonym)
 
     otp_passed ||= user.validate_otp_secret_key_remember_me_cookie(cookies['canvas_otp_remember_me'], request.remote_ip)
     unless otp_passed
@@ -29,6 +46,10 @@ module Login::Shared
         return redirect_to otp_login_url
       end
     end
+
+    # ensure the next page rendered includes an instfs pixel to log them in
+    # there
+    session.delete(:shown_instfs_pixel)
 
     if pseudonym.account_id != (@real_domain_root_account || @domain_root_account).id
       flash[:notice] = t("You are logged in at %{institution1} using your credentials from %{institution2}",
@@ -88,15 +109,12 @@ module Login::Shared
     true
   end
 
-  def check_sa_delegated_cookie
-    if cookies['canvas_sa_delegated']
-      @real_domain_root_account = @domain_root_account
-      @domain_root_account = Account.site_admin
-    end
-  end
-
   include PseudonymSessionsController
   def remember_me_cookie_domain
     otp_remember_me_cookie_domain
+  end
+
+  def delegated_auth_redirect_uri(uri)
+    uri
   end
 end

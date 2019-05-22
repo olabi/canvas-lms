@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../helpers/outcome_common'
 
 describe "outcomes" do
@@ -36,6 +53,7 @@ describe "outcomes" do
       end
 
       it "should delete a learning outcome", priority: "1", test_id: 250536 do
+        skip_if_safari(:alert)
         should_delete_a_learning_outcome
       end
 
@@ -120,6 +138,7 @@ describe "outcomes" do
         end
 
         it "should delete an outcome group", priority: "2", test_id: 250553 do
+          skip_if_safari(:alert)
           should_delete_an_outcome_group
         end
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Users
   class CreationNotifyPolicy
     def initialize(can_manage_users, opts={})
@@ -27,11 +44,7 @@ module Users
     attr_reader :is_manager
 
     def send_self_registration_email(user, pseudonym)
-      if user.pre_registered?
-        pseudonym.send_confirmation!
-      elsif !user.registered?
-        pseudonym.send_registration_notification!
-      end
+      pseudonym.send_confirmation!
     end
 
     def send_confirmation_email(user, pseudonym)

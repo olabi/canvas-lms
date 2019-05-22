@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 # @API ePub Exports
-# @beta
 #
 # API for exporting courses as an ePub
 #
@@ -94,9 +93,9 @@
 class EpubExportsController < ApplicationController
   include Api::V1::EpubExport
 
-  before_filter :require_user
-  before_filter :require_context, :only => [:create]
-  before_filter :check_feature_enabled
+  before_action :require_user
+  before_action :require_context, :only => [:create]
+  before_action :check_feature_enabled
 
   def check_feature_enabled
     if !@domain_root_account.feature_allowed?(:epub_export) ||
@@ -113,8 +112,8 @@ class EpubExportsController < ApplicationController
 
   # @API List courses with their latest ePub export
   #
-  # Lists all courses a user is actively participating in,
-  # and the latest ePub export associated with the user & course.
+  # A paginated list of all courses a user is actively participating in, and
+  # the latest ePub export associated with the user & course.
   #
   # @returns [CourseEpubExport]
   def index

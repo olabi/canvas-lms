@@ -1,22 +1,40 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
   'i18n!registration'
-  'compiled/fn/preventDefault'
-  'compiled/registration/registrationErrors'
+  '../fn/preventDefault'
+  '../registration/registrationErrors'
   'jst/registration/teacherDialog'
   'jst/registration/studentDialog'
   'jst/registration/parentDialog'
+  'jst/registration/newParentDialog'
   'jst/registration/samlDialog'
-  'compiled/util/addPrivacyLinkToDialog'
+  '../util/addPrivacyLinkToDialog'
   'str/htmlEscape'
-  'compiled/jquery/validate'
+  '../jquery/validate'
   'jquery.instructure_forms'
   'jquery.instructure_date_and_time'
-], ($, _, I18n, preventDefault, registrationErrors, teacherDialog, studentDialog, parentDialog, samlDialog, addPrivacyLinkToDialog, htmlEscape) ->
+], ($, _, I18n, preventDefault, registrationErrors, teacherDialog, studentDialog, parentDialog, newParentDialog, samlDialog, addPrivacyLinkToDialog, htmlEscape) ->
 
   $nodes = {}
-  templates = {teacherDialog, studentDialog, parentDialog, samlDialog}
+  templates = {teacherDialog, studentDialog, parentDialog, newParentDialog, samlDialog}
 
   # we do this in coffee because of this hbs 1.3 bug:
   # https://github.com/wycats/handlebars.js/issues/748
@@ -53,8 +71,8 @@ define [
       errorFormatter: registrationErrors
       success: (data) =>
         # they should now be authenticated (either registered or pre_registered)
-        if data.redirect
-          window.location = data.redirect
+        if data.destination
+          window.location = data.destination
         else if data.course
           window.location = "/courses/#{data.course.course.id}?registration_success=1"
         else
@@ -65,12 +83,13 @@ define [
           $("input[name='#{htmlEscape data.error.input_name}']").
           next('.error_message').
           text(htmlEscape error_msg)
-          $.screenReaderFlashMessage(error_message)
+          $.screenReaderFlashMessage(error_msg)
 
     $node.dialog
       resizable: false
       title: title
-      width: 550
+      width: Math.min(screen.width, 550)
+      height: if screen.height > 750 then 'auto' else screen.height
       open: ->
         $(this).find('a').eq(0).blur()
         $(this).find(':input').eq(0).focus()

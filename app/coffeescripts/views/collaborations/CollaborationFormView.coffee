@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,7 @@
 define [
   'i18n!collaborations'
   'Backbone'
-  'compiled/views/collaborations/CollaboratorPickerView'
+  './CollaboratorPickerView'
 ], (I18n, {View}, CollaboratorPickerView) ->
 
   class CollaborationFormView extends View

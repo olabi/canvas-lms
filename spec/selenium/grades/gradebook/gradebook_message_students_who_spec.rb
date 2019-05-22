@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../helpers/gradebook_common'
 require_relative '../../helpers/groups_common'
 
@@ -27,7 +44,7 @@ describe "gradebook - message students who" do
 
   it "should only send messages to students who have not submitted and have not been graded" do
     # student 1 submitted but not graded yet
-    @third_submission = @third_assignment.submit_homework(@student_1, :body => ' student 1 submission assignment 4')
+    @third_submission = @third_assignment.submit_homework(@student_1, body: ' student 1 submission assignment 4')
     @third_submission.save!
 
     # student 2 graded without submission (turned in paper by hand)
@@ -69,13 +86,13 @@ describe "gradebook - message students who" do
 
   it "should have a Have not been graded option" do
     # student 2 has submitted assignment 3, but it hasn't been graded
-    submission = @third_assignment.submit_homework(@student_2, :body => 'student 2 submission assignment 3')
+    submission = @third_assignment.submit_homework(@student_2, body: 'student 2 submission assignment 3')
     submission.save!
 
     get "/courses/#{@course.id}/gradebook"
     # set grade for first student, 3rd assignment
     # l4 because the the first two columns are part of the same grid
-    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .l4', 0)
+    edit_grade('#gradebook_grid .container_1 .slick-row:nth-child(1) .b4', 0)
     open_assignment_options(2)
 
     # expect dialog to show 1 more student with the "Haven't been graded" option

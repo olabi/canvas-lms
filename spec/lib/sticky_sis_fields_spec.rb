@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,12 +19,18 @@
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe StickySisFields do
+  def create_abstract_course
+    AbstractCourse.process_as_sis do
+      AbstractCourse.create!(:name => "1",
+        :short_name => "2",
+        :account => Account.default,
+        :root_account => Account.default,
+        :enrollment_term => Account.default.default_enrollment_term)
+    end
+  end
+
   it 'should set sis stickiness for changed fields' do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "3"
     ac.sis_source_id = "4"
@@ -71,11 +77,7 @@ describe StickySisFields do
   end
 
   it 'should set sis stickiness for changed fields without reloading' do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "3"
     ac.sis_source_id = "4"
@@ -113,11 +115,7 @@ describe StickySisFields do
   end
 
   it 'should set sis stickiness for changed fields with new models' do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "3"
     ac.sis_source_id = "4"
@@ -165,11 +163,7 @@ describe StickySisFields do
 
   context 'clear_sis_stickiness' do
     it 'should clear out fields that are in the saved list' do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.name = "ac name"
       ac.save!
@@ -183,11 +177,7 @@ describe StickySisFields do
     end
 
     it 'should clear out fields that are in the stuck list' do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.add_sis_stickiness(:name)
       expect(ac.stuck_sis_fields).to eq [:name].to_set
@@ -199,11 +189,7 @@ describe StickySisFields do
     end
 
     it 'should ignore fields that already unstuck' do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.name = "ac name"
       ac.save!
@@ -226,11 +212,7 @@ describe StickySisFields do
 
   context 'add_sis_stickiness' do
     it 'should ignore fields that are in the saved list' do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.name = "ac name"
       ac.save!
@@ -244,11 +226,7 @@ describe StickySisFields do
     end
 
     it 'should ignore fields that are in the stuck list' do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.add_sis_stickiness(:name)
       expect(ac.stuck_sis_fields).to eq [:name].to_set
@@ -260,11 +238,7 @@ describe StickySisFields do
     end
 
     it 'should add fields that are in the unstuck list' do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.name = "ac name"
       ac.save!
@@ -280,11 +254,7 @@ describe StickySisFields do
     end
 
     it "should add fields that aren't anywhere yet" do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.add_sis_stickiness(:name)
       expect(ac.stuck_sis_fields).to eq [:name].to_set
@@ -294,30 +264,29 @@ describe StickySisFields do
     end
   end
 
-  it "should only write to the database when there's a change" do
-    skip('mocking :write_attribute causes infinite loop with rspec-mocks + ruby 2.3.1') if RUBY_VERSION == "2.3.1"
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+  it "doesn't write to the database when there's not a change" do
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     expect(ac).to receive(:write_attribute).with(:stuck_sis_fields, anything).never
     ac.save!
     ac.add_sis_stickiness(:name)
     ac.clear_sis_stickiness(:name)
     ac.save!
+  end
+
+  it "writes to the database when there's a change" do
+    ac = create_abstract_course
     ac.add_sis_stickiness(:name)
-    expect(ac).to receive(:write_attribute).with(:stuck_sis_fields, 'name').once
+    expect(ac).to receive(:write_attribute).with(:workflow_state, 'active').ordered
+    expect(ac).to receive(:write_attribute).with('root_account_id', Account.default.id).ordered
+    expect(ac).to receive(:write_attribute).with('account_id', Account.default.id).ordered
+    expect(ac).to receive(:write_attribute).with('enrollment_term_id', Account.default.default_enrollment_term.id).ordered
+    expect(ac).to receive(:write_attribute).with(:stuck_sis_fields, 'name').ordered
     ac.save!
   end
 
   it "should always return an empty list and not run callbacks when just overriding" do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "ac name"
     ac.save!
@@ -335,11 +304,7 @@ describe StickySisFields do
   end
 
   it "should always return an empty list and run callbacks when overriding and adding" do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "ac name"
     ac.save!
@@ -357,11 +322,7 @@ describe StickySisFields do
   end
 
   it "should always return an empty list and run callbacks when overriding and clearing" do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "ac name"
     ac.save!
@@ -379,11 +340,7 @@ describe StickySisFields do
   end
 
   it "should allow setting via stuck_sis_fields=" do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     ac.stuck_sis_fields = [:name]
     expect(ac.stuck_sis_fields).to eq [:name].to_set
     ac.save!
@@ -408,11 +365,7 @@ describe StickySisFields do
 
   context "clear_sis_stickiness option" do
     it "should clear out the saved list" do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       ac.stuck_sis_fields = [:name]
       expect(ac.stuck_sis_fields).to eq [:name].to_set
       ac.save!
@@ -425,11 +378,7 @@ describe StickySisFields do
     end
 
     it "should clear out the work lists and cache" do
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       ac.add_sis_stickiness :name
       ac.save!
       ac.stuck_sis_fields = [:short_name]
@@ -449,11 +398,7 @@ describe StickySisFields do
   it "should only process changed fields marked as sticky" do
     old_sticky_sis_fields = AbstractCourse.sticky_sis_fields
     begin
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       expect(ac.stuck_sis_fields).to eq [].to_set
       ac.save!
       ac.reload
@@ -483,11 +428,7 @@ describe StickySisFields do
   it "should leave fields (that may be invalid) in the db alone if untouched" do
     old_sticky_sis_fields = AbstractCourse.sticky_sis_fields
     begin
-      ac = AbstractCourse.create!(:name => "1",
-                                  :short_name => "2",
-                                  :account => Account.default,
-                                  :root_account => Account.default,
-                                  :enrollment_term => Account.default.default_enrollment_term)
+      ac = create_abstract_course
       AbstractCourse.are_sis_sticky :name, :short_name, :sis_source_id
       expect(AbstractCourse.sticky_sis_fields).to eq [:name, :short_name, :sis_source_id].to_set
       expect(ac.stuck_sis_fields).to eq [].to_set
@@ -514,11 +455,7 @@ describe StickySisFields do
   end
 
   it "should allow removing changed fields" do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.name = "name 2"
     expect(ac.stuck_sis_fields).to eq [:name].to_set
@@ -530,11 +467,7 @@ describe StickySisFields do
   end
 
   it "should allow removing changed and added fields" do
-    ac = AbstractCourse.create!(:name => "1",
-                                :short_name => "2",
-                                :account => Account.default,
-                                :root_account => Account.default,
-                                :enrollment_term => Account.default.default_enrollment_term)
+    ac = create_abstract_course
     expect(ac.stuck_sis_fields).to eq [].to_set
     ac.add_sis_stickiness :name
     expect(ac.stuck_sis_fields).to eq [:name].to_set
@@ -553,15 +486,15 @@ describe StickySisFields do
       begin
         AbstractCourse.sis_stickiness_options = {}
         AbstractCourse.process_as_sis do
-          expect(AbstractCourse.sis_stickiness_options).to eq({:override_sis_stickiness => nil, :clear_sis_stickiness => nil})
+          expect(AbstractCourse.sis_stickiness_options).to eq({})
           AbstractCourse.process_as_sis :override_sis_stickiness => true do
-            expect(AbstractCourse.sis_stickiness_options).to eq({:override_sis_stickiness => true, :clear_sis_stickiness => nil})
+            expect(AbstractCourse.sis_stickiness_options).to eq({:override_sis_stickiness => true})
             AbstractCourse.process_as_sis :clear_sis_stickiness => true do
-              expect(AbstractCourse.sis_stickiness_options).to eq({:clear_sis_stickiness => true, :override_sis_stickiness => nil})
+              expect(AbstractCourse.sis_stickiness_options).to eq({:clear_sis_stickiness => true})
             end
-            expect(AbstractCourse.sis_stickiness_options).to eq({:override_sis_stickiness => true, :clear_sis_stickiness => nil})
+            expect(AbstractCourse.sis_stickiness_options).to eq({:override_sis_stickiness => true})
           end
-          expect(AbstractCourse.sis_stickiness_options).to eq({:override_sis_stickiness => nil, :clear_sis_stickiness => nil})
+          expect(AbstractCourse.sis_stickiness_options).to eq({})
         end
         expect(AbstractCourse.sis_stickiness_options).to eq({})
       ensure

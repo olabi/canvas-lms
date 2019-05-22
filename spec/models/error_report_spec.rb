@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,8 @@ describe ErrorReport do
       message << 255.chr
       message << "llo"
       data = { extra: { message: message } }
-      described_class.log_exception_from_canvas_errors('my error', data)
+      expect { described_class.log_exception_from_canvas_errors('my error', data) }.
+        to_not raise_error
     end
 
     it "uses an empty hash as a default for errors with no extra data" do
@@ -40,12 +41,29 @@ describe ErrorReport do
       expect(report.category).to eq(e.class.name)
     end
 
+    it "should ignore category 404" do
+      count = ErrorReport.count
+      ErrorReport.log_error('404', {})
+      expect(ErrorReport.count).to eq(count)
+    end
 
     it "ignores error classes that it's configured to overlook" do
       class ErrorReportSpecException < StandardError; end
       described_class.configure_to_ignore(["ErrorReportSpecException"])
       report = described_class.log_exception_from_canvas_errors(ErrorReportSpecException.new, {})
       expect(report).to be_nil
+    end
+
+    it "should plug together with Canvas::Errors::Info to log the user" do
+      req = instance_double("request", request_method_symbol: "GET", format: "html")
+      allow(Canvas::Errors::Info).to receive(:useful_http_env_stuff_from_request).
+        and_return({})
+      allow(Canvas::Errors::Info).to receive(:useful_http_headers).and_return({})
+      user = instance_double("User", global_id: 5)
+      err = Exception.new("error")
+      info = Canvas::Errors::Info.new(req, Account.default, user, {})
+      report = described_class.log_exception_from_canvas_errors(err, info.to_h)
+      expect(report.user_id).to eq 5
     end
   end
 
@@ -79,7 +97,7 @@ describe ErrorReport do
       :request_parameters => { "client_secret" => "xoxo" }
     }
     mock_attrs[:url] = mock_attrs[:env]["REQUEST_URI"]
-    req = mock(mock_attrs)
+    req = double(mock_attrs)
     report = described_class.new
     report.assign_data(Canvas::Errors::Info.useful_http_env_stuff_from_request(req))
     expect(report.data["QUERY_STRING"]).to eq "?access_token=[FILTERED]&pseudonym[password]=[FILTERED]"
@@ -98,5 +116,31 @@ describe ErrorReport do
     report.assign_data(id: 1)
     expect(report.id).to be_nil
     expect(report.data["id"]).to eq 1
+  end
+
+  describe "#safe_url?" do
+    it "allows a 'normal' URL" do
+      report = described_class.new
+      report.url = "https://canvas.instructure.com/courses/1?enrollment_uuid=abc"
+      expect(report.safe_url?).to eq true
+    end
+
+    it "sanitizes javascript" do
+      report = described_class.new
+      report.url = "javascript:window.close()"
+      expect(report.safe_url?).to eq false
+    end
+
+    it "sanitizes ftp" do
+      report = described_class.new
+      report.url = "ftp://badserver.com/somewhere"
+      expect(report.safe_url?).to eq false
+    end
+
+    it "sanitizes something that's not a URI at all" do
+      report = described_class.new
+      report.url = "<bogus>"
+      expect(report.safe_url?).to eq false
+    end
   end
 end

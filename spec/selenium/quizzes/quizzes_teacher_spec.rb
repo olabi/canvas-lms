@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 require_relative '../helpers/assignment_overrides'
@@ -60,7 +77,8 @@ describe "quizzes" do
     end
 
     it "should create a new question group", priority: "1", test_id: 210060 do
-      get "/courses/#{@course.id}/quizzes/new"
+      get "/courses/#{@course.id}/quizzes"
+      click_new_quiz_button
 
       click_questions_tab
       f('.add_question_group_link').click
@@ -74,7 +92,8 @@ describe "quizzes" do
     it "should update a question group", priority: "1", test_id: 210061
 
     it "should not let you exceed the question limit", priority: "2", test_id: 210062 do
-      get "/courses/#{@course.id}/quizzes/new"
+      get "/courses/#{@course.id}/quizzes"
+      click_new_quiz_button
 
       click_questions_tab
       f('.add_question_group_link').click
@@ -94,6 +113,7 @@ describe "quizzes" do
       expect(pick_count_field).to have_attribute(:value, "1")
 
       click_new_question_button # 1 total, ok
+      wait_for_ajaximations
       group_form.find_element(:css, '.edit_group_link').click
       pick_count.call('999') # 1000 total, ok
 
@@ -107,7 +127,8 @@ describe "quizzes" do
 
     describe "insufficient count warnings" do
       it "should show a warning for groups picking too many questions", priority: "2", test_id: 539340 do
-        get "/courses/#{@course.id}/quizzes/new"
+        get "/courses/#{@course.id}/quizzes"
+        click_new_quiz_button
         click_questions_tab
         f('.add_question_group_link').click
         submit_form('.quiz_group_form')
@@ -146,7 +167,8 @@ describe "quizzes" do
         bank = @course.assessment_question_banks.create!
         assessment_question_model(bank: bank)
 
-        get "/courses/#{@course.id}/quizzes/new"
+        get "/courses/#{@course.id}/quizzes"
+        click_new_quiz_button
         click_questions_tab
         f('.add_question_group_link').click
 
@@ -229,6 +251,7 @@ describe "quizzes" do
     end
 
     it "should indicate when it was last saved", priority: "1", test_id: 210065 do
+      skip_if_safari(:alert)
       user_session(@student)
       take_quiz do
         indicator = f('#last_saved_indicator')
@@ -245,6 +268,7 @@ describe "quizzes" do
     end
 
     it "should validate numerical input data", priority: "1", test_id: 210066 do
+      skip_if_safari(:alert)
       @quiz = quiz_with_new_questions do |bank, quiz|
         aq = bank.assessment_questions.create!
         quiz.quiz_questions.create!(:question_data => {:name => "numerical", 'question_type' => 'numerical_question', 'answers' => [], :points_possible => 1}, :assessment_question => aq)
@@ -267,7 +291,7 @@ describe "quizzes" do
         expect(error_displayed?).to be_falsey
         driver.execute_script('$(".numerical_question_input").change()')
         wait_for_ajaximations
-        expect(input).to have_attribute(:value, "1.0000")
+        expect(input).to have_attribute(:value, "1")
       end
       user_session(@user)
     end

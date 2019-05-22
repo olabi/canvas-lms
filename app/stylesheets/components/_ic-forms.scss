@@ -1,4 +1,22 @@
 /*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
 @styleguide Forms
 
 ## Basic inputs and labels
@@ -1187,12 +1205,13 @@ $ic-Input-border: lighten($ic-color-dark, 65);
 
 $ic-Input-standard-height: 38px;
 
-@mixin ic-input-variant($border-color: $ic-Input-border, $color: $ic-brand-primary) {
+@mixin ic-input-variant($border-color, $color, $outline-color: rgba($color, 0.2)) {
   border-color: $border-color;
   &:focus {
-    border-color: lighten($color, 10%);
     border-color: $color;
-    @if $use_high_contrast == false { outline-color: rgba($color, 0.2); }
+    @if not $use_high_contrast {
+      outline-color: $outline-color;
+    }
   }
 }
 
@@ -1235,7 +1254,7 @@ input[type="tel"], input[type="color"], .uneditable-input {
     // Remove the webkit gloss in iOS
     -webkit-appearance: none;
 
-    @include ic-input-variant;
+    @include ic-input-variant($ic-Input-border, var(--ic-brand-primary), var(--ic-brand-primary-lightened-15));
 
     @if $use_high_contrast {
       outline-style: dotted;
@@ -1285,7 +1304,7 @@ input[type="tel"], input[type="color"], .uneditable-input {
 
 // special styles for select
 select.ic-Input, input[type="file"].ic-Input {
-  padding: 0 0 0 $ic-sp;
+  padding: direction-sides(0 0 0 $ic-sp);
 }
 
 // special styles for textarea
@@ -1296,7 +1315,7 @@ textarea.ic-Input {
 
 // We removed -webkit-appearance from anything with the
 // .ic-Input class, to give us more styling control.
-// This makes the select's caret disappear in IE Edge and Webkit.
+// This makes the select's caret disappear.
 // So we add it back in with these hacks.
 
 @mixin add-arrow-for-webkit-and-ie-edge($bg-position-x) {
@@ -1305,11 +1324,11 @@ textarea.ic-Input {
   background-repeat: no-repeat;
   background-size: 10px 5.667px;
   background-position: $bg-position-x 50%;
-  padding: 0 $ic-sp*2 0 $ic-sp;
+  padding: direction-sides(0 $ic-sp*2 0 $ic-sp);
 }
 
-// webkit hack
-select.ic-Input:not(*:root) {
+// non-Edge hack
+select.ic-Input {
   @include add-arrow-for-webkit-and-ie-edge( calc(100% - #{$ic-sp - 4}) );
 }
 
@@ -1330,17 +1349,17 @@ select.ic-Input:not(*:root) {
       .ic-Form-actions {
         margin-top: 0;
         border: none;
-        padding: 0 0 0 $ic-sp;
+        padding: direction-sides(0 0 0 $ic-sp);
         background: transparent;
       }
       .ic-Form-control:not(.ic-Form-control--checkbox):not(.ic-Form-control--radio),
       .ic-Checkbox-group {
         flex: 1;
         margin: 0 $ic-sp/2;
-        &:first-child { margin-left: 0; }
-        &:last-child { margin-right: 0; }
+        &:first-child { margin-#{direction(left)}: 0; }
+        &:last-child { margin-#{direction(right)}: 0; }
 
-        .ic-Form-message { margin-left: 0; }
+        .ic-Form-message { margin-#{direction(left)}: 0; }
       }
 
     }
@@ -1358,7 +1377,7 @@ select.ic-Input:not(*:root) {
           > .ic-Label {
             margin-bottom: 0;
             flex: 0 0 $ic-horizontal-form-offset;
-            padding-right: $ic-sp*2;
+            padding-#{direction(right)}: $ic-sp*2;
           }
 
           > .ic-Input,
@@ -1368,16 +1387,16 @@ select.ic-Input:not(*:root) {
 
           > .ic-Form-message {
             display: block;
-            margin-left: 0;
+            margin-#{direction(left)}: 0;
             width: 100%;
             .ic-Form-message__Layout {
-              margin-left: $ic-horizontal-form-offset + $ic-sp;
+              margin-#{direction(left)}: $ic-horizontal-form-offset + $ic-sp;
               display: inline-flex;
             }
           }
 
           > .ic-Form-help-text {
-            padding-left: $ic-horizontal-form-offset;
+            padding-#{direction(left)}: $ic-horizontal-form-offset;
           }
         }
 
@@ -1392,12 +1411,12 @@ select.ic-Input:not(*:root) {
 
       > .ic-Fieldset--radio-checkbox {
         position: relative;
-        padding-left: $ic-horizontal-form-offset;
+        padding-#{direction(left)}: $ic-horizontal-form-offset;
         min-height: 30px;
 
         > .ic-Legend {
           position: absolute;
-          top: 5px; left: 0;
+          top: 5px; #{direction(left)}: 0;
           width: $ic-horizontal-form-offset - ($ic-sp * 2);
           margin-bottom: 0;
         }
@@ -1415,12 +1434,12 @@ select.ic-Input:not(*:root) {
 
       > .ic-Form-control:not(.ic-Form-control--checkbox):not(.ic-Form-control--radio) {
         .ic-Form-help-text {
-          padding-left: $ic-horizontal-form-offset + $ic-sp*2;
+          padding-#{direction(left)}: $ic-horizontal-form-offset + $ic-sp*2;
         }
       }
 
       > .ic-Fieldset--radio-checkbox {
-        padding-left: $ic-horizontal-form-offset + $ic-sp*2;
+        padding-#{direction(left)}: $ic-horizontal-form-offset + $ic-sp*2;
 
         .ic-Legend {
           width: $ic-horizontal-form-offset;
@@ -1437,7 +1456,7 @@ select.ic-Input:not(*:root) {
     background: $color;
     &:before {
       background: darken($color, 5%);
-      border-right: 1px solid darken($color, 12%);
+      border-#{direction(right)}: 1px solid darken($color, 12%);
     }
     &:after { border-bottom-color: darken($color, 5%); }
   }
@@ -1445,7 +1464,7 @@ select.ic-Input:not(*:root) {
 
 .ic-Form-message {
   display: inline-block;
-  margin-left: $ic-sp;
+  margin-#{direction(left)}: $ic-sp;
   position: relative;
   z-index: 1;
   transition: all 0.2s $ic-transition;
@@ -1458,17 +1477,17 @@ select.ic-Input:not(*:root) {
 // Make error message styles work with ic-Super-toggle
 .ic-Form-group:not(.ic-Form-group--horizontal) [class^="ic-Super-toggle--"] + .ic-Form-message {
   display: block;
-  margin-left: 0;
+  margin-#{direction(left)}: 0;
   .ic-Form-message__Layout { display: inline-flex; }
 }
 
-.ic-Input-group + .ic-Form-message { margin-left: 0; }
+.ic-Input-group + .ic-Form-message { margin-#{direction(left)}: 0; }
 
 .ic-Form-message__Layout {
   position: relative;
   display: flex;
   align-items: center;
-  padding: ($ic-sp - 4) ($ic-sp - 4) ($ic-sp - 4) 0;
+  padding: direction-sides(($ic-sp - 4) ($ic-sp - 4) ($ic-sp - 4) 0);
   @include fontSize($ic-font-size--xsmall);
   line-height: 1.2;
   color: $ic-color-light;
@@ -1480,12 +1499,12 @@ select.ic-Input:not(*:root) {
     width: 32px;
     height: 100%;
     position: absolute;
-    left: 0; top: 0;
+    #{direction(left)}: 0; top: 0;
     box-sizing: border-box;
   }
 
   &:after {
-    bottom: 100%; left: 16px;
+    bottom: 100%; #{direction(left)}: 16px;
     border: solid transparent;
     content: "";
     height: 0; width: 0;
@@ -1493,7 +1512,7 @@ select.ic-Input:not(*:root) {
     pointer-events: none;
     border-color: rgba(white, 0);
     border-width: $ic-sp/2;
-    margin-left: -($ic-sp/2);
+    margin-#{direction(left)}: -($ic-sp/2);
     box-sizing: border-box;
   }
 
@@ -1511,7 +1530,7 @@ select.ic-Input:not(*:root) {
     width: 32px; height: auto;
     flex: 0 0 32px;
     line-height: 1;
-    margin-right: $ic-sp - 4;
+    margin-#{direction(right)}: $ic-sp - 4;
     box-sizing: border-box;
     display: flex;
     justify-content: center;
@@ -1541,7 +1560,7 @@ form.ic-Form-group { margin: 0; }
     .ic-Form-message__Layout:after { display: none; }
 
     &.ic-Form-control--checkbox,
-    .ic-Radio { padding-right: $ic-sp*1.5; }
+    .ic-Radio { padding-#{direction(right)}: $ic-sp*1.5; }
   }
 
   &.ic-Form-control--has-error {
@@ -1575,8 +1594,8 @@ form.ic-Form-group { margin: 0; }
     > .ic-Input-group {
       margin: 0 $ic-sp/3;
       flex: 1;
-      &:first-child { margin-left: 0; }
-      &:last-child { margin-right: 0; }
+      &:first-child { margin-#{direction(left)}: 0; }
+      &:last-child { margin-#{direction(right)}: 0; }
     }
   }
 }
@@ -1596,7 +1615,7 @@ form.ic-Form-group { margin: 0; }
   margin-top: $ic-sp;
   border: 1px solid $ic-border-light;
   padding: $ic-sp;
-  text-align: right;
+  text-align: direction(right);
   background: darken($ic-color-light, 3%);
   white-space: nowrap;
 }
@@ -1648,7 +1667,7 @@ form.ic-Form-group { margin: 0; }
     margin: 0;
     position: relative;
     z-index: 1;
-    padding: $ic-sp/3 0 $ic-sp/3 $ic-radio-checkbox-left-offset;
+    padding: direction-sides($ic-sp/3 0 $ic-sp/3 $ic-radio-checkbox-left-offset);
     font-weight: normal;
     display: inline-block;
 
@@ -1660,31 +1679,31 @@ form.ic-Form-group { margin: 0; }
       width: 16px; height: 16px;
       border: 1px solid $ic-Input-border;
       position: absolute;
-      top: 5px; left: 0;
+      top: 5px; #{direction(left)}: 0;
       background: $ic-color-light;
     }
 
   }
 
-  ~ .ic-Form-message { margin-left: $ic-radio-checkbox-left-offset; }
+  ~ .ic-Form-message { margin-#{direction(left)}: $ic-radio-checkbox-left-offset; }
 
   input[type="radio"] {
     opacity: 0;
     position: absolute;
-    top: 0; left: 0;
+    top: 0; #{direction(left)}: 0;
 
     // overwrite Bootstrap
     ~ .ic-Label { vertical-align: baseline; }
 
     &:not([disabled]):hover {
-      ~ .ic-Label:before { border-color: $ic-brand-primary; }
+      ~ .ic-Label:before { border-color: var(--ic-brand-primary); }
     }
 
     &:checked {
       ~ .ic-Label:before {
-        border-color: $ic-brand-primary;
+        border-color: var(--ic-brand-primary);
         box-shadow: inset 0 0 0 3px $ic-color-light;
-        background: $ic-brand-primary;
+        background: var(--ic-brand-primary);
       }
     }
 
@@ -1692,8 +1711,8 @@ form.ic-Form-group { margin: 0; }
       ~ .ic-Label {
         @include high-contrast-focus;
         &:before {
-          box-shadow: inset 0 0 0 2px rgba($ic-brand-primary, 0.3), inset 0 0 0 4px $ic-color-light;
-          background: $ic-brand-primary;
+          box-shadow: inset 0 0 0 2px var(--ic-brand-primary-lightened-15), inset 0 0 0 4px $ic-color-light;
+          background: var(--ic-brand-primary);
         }
       }
     }
@@ -1736,8 +1755,8 @@ form.ic-Form-group { margin: 0; }
     input[type="radio"] {
       &:checked {
         ~ .ic-Label {
-          border-color: $ic-brand-primary;
-          color: $ic-brand-primary;
+          border-color: var(--ic-brand-primary);
+          color: var(--ic-brand-primary);
         }
       }
       &:focus {
@@ -1749,7 +1768,7 @@ form.ic-Form-group { margin: 0; }
           }
           @else {
             box-shadow:
-              inset 0 0 0 3px rgba($ic-brand-primary, 0.3);
+              inset 0 0 0 3px var(--ic-brand-primary-lightened-15);
           }
 
         }
@@ -1765,7 +1784,7 @@ form.ic-Form-group { margin: 0; }
       display: flex;
       flex-wrap: wrap;
       .ic-Form-control.ic-Form-control--checkbox {
-        margin-right: $ic-sp*1.5;
+        margin-#{direction(right)}: $ic-sp*1.5;
       }
       .ic-Form-message { display: block; }
     }
@@ -1787,7 +1806,7 @@ form.ic-Form-group { margin: 0; }
     margin-bottom: 0;
     position: relative;
     z-index: 1;
-    padding: $ic-sp/3 0 $ic-sp/3 $ic-radio-checkbox-left-offset;
+    padding: direction-sides($ic-sp/3 0 $ic-sp/3 $ic-radio-checkbox-left-offset);
     font-weight: normal;
     display: inline-block;
 
@@ -1796,7 +1815,7 @@ form.ic-Form-group { margin: 0; }
       transition: border-color 0.2s ease-out, outline-offset 0.2s ease-out, outline-color 0.2s ease-out;
       box-sizing: border-box;
       position: absolute;
-      top: 5px; left: 0;
+      top: 5px; #{direction(left)}: 0;
       width: 16px; height: 16px;
       border-radius: $baseBorderRadius;
       background: url("/images/forms/ic-checkbox-bg.svg") no-repeat center bottom $ic-color-light;
@@ -1808,7 +1827,7 @@ form.ic-Form-group { margin: 0; }
   }
 
   .ic-Form-message {
-    margin-left: $ic-radio-checkbox-left-offset;
+    margin-#{direction(left)}: $ic-radio-checkbox-left-offset;
     vertical-align: middle;
   }
 
@@ -1816,19 +1835,19 @@ form.ic-Form-group { margin: 0; }
     margin: 0;
     opacity: 0;
     position: absolute;
-    top: 0; left: 0;
+    top: 0; #{direction(left)}: 0;
 
     &:not([disabled]):hover {
-      ~ .ic-Label:before { border-color: $ic-brand-primary; }
+      ~ .ic-Label:before { border-color: var(--ic-brand-primary); }
     }
 
     &:focus {
       ~ .ic-Label {
         @include high-contrast-focus;
         &:before {
-          border-color: $ic-brand-primary;
+          border-color: var(--ic-brand-primary);
           outline-offset: -3px;
-          outline-color: rgba($ic-brand-primary, 0.2);
+          outline-color: var(--ic-brand-primary-lightened-15);
         }
 
       }
@@ -1837,9 +1856,9 @@ form.ic-Form-group { margin: 0; }
     &:checked {
       ~ .ic-Label {
         &:before {
-          background-color: $ic-brand-primary;
+          background-color: var(--ic-brand-primary);
           background-position: center -1px;
-          border-color: $ic-brand-primary;
+          border-color: var(--ic-brand-primary);
         }
       }
       &:focus {
@@ -1871,27 +1890,27 @@ form.ic-Form-group { margin: 0; }
     flex: 1;
 
     &:not(:first-child) {
-      border-top-left-radius: 0;
-      border-bottom-left-radius: 0;
+      border-top-#{direction(left)}-radius: 0;
+      border-bottom-#{direction(left)}-radius: 0;
     }
     &:not(:last-child) {
-      border-top-right-radius: 0;
-      border-bottom-right-radius: 0;
+      border-top-#{direction(right)}-radius: 0;
+      border-bottom-#{direction(right)}-radius: 0;
     }
   }
 
   .Button {
 
     &:first-child {
-      border-top-right-radius: 0;
-      border-bottom-right-radius: 0;
-      &:not(.Button--primary):not(.Button--secondary):not(.Button--success):not(.Button--warning):not(.Button--danger) { border-right: none; }
+      border-top-#{direction(right)}-radius: 0;
+      border-bottom-#{direction(right)}-radius: 0;
+      &:not(.Button--primary):not(.Button--secondary):not(.Button--success):not(.Button--warning):not(.Button--danger) { border-#{direction(right)}: none; }
     }
 
     &:last-child {
-      border-top-left-radius: 0;
-      border-bottom-left-radius: 0;
-      &:not(.Button--primary):not(.Button--secondary):not(.Button--success):not(.Button--warning):not(.Button--danger) { border-left: none; }
+      border-top-#{direction(left)}-radius: 0;
+      border-bottom-#{direction(left)}-radius: 0;
+      &:not(.Button--primary):not(.Button--secondary):not(.Button--success):not(.Button--warning):not(.Button--danger) { border-#{direction(left)}: none; }
     }
   }
 
@@ -1905,14 +1924,14 @@ form.ic-Form-group { margin: 0; }
     padding: $ic-sp/2 ($ic-sp - 4);
 
     &:first-child {
-      border-right: none;
-      border-top-left-radius: $baseBorderRadius;
-      border-bottom-left-radius: $baseBorderRadius;
+      border-#{direction(right)}: none;
+      border-top-#{direction(left)}-radius: $baseBorderRadius;
+      border-bottom-#{direction(left)}-radius: $baseBorderRadius;
     }
     &:last-child {
-      border-left: none;
-      border-top-right-radius: $baseBorderRadius;
-      border-bottom-right-radius: $baseBorderRadius;
+      border-#{direction(left)}: none;
+      border-top-#{direction(right)}-radius: $baseBorderRadius;
+      border-bottom-#{direction(right)}-radius: $baseBorderRadius;
     }
   }
 
@@ -1949,15 +1968,17 @@ form.ic-Form-group { margin: 0; }
     .ic-Action-header__Secondary {
       flex: 1;
       box-sizing: border-box;
-      text-align: right;
+      text-align: direction(right);
+      &--auto {
+        flex: 0 0 auto;
+      }
       > .Button,
       > .btn,
-      > .ui-button { margin-left: $ic-sp/4; }
+      > .ui-button { margin-#{direction(left)}: $ic-sp/4; }
     }
 
     .ic-Action-header__Primary + .ic-Action-header__Secondary {
-      flex: 1;
-      padding-left: $ic-sp*2;
+      padding-#{direction(left)}: $ic-sp*2;
     }
   }
 }
@@ -1980,8 +2001,8 @@ form.ic-Form-group { margin: 0; }
     @include breakpoint(desktop) {
       margin: 0 $ic-sp/3;
       flex: 1;
-      &:first-child { margin-left: 0; }
-      &:last-of-type { margin-right: 0; }
+      &:first-child { margin-#{direction(left)}: 0; }
+      &:last-of-type { margin-#{direction(right)}: 0; }
     }
   }
 
@@ -1998,7 +2019,7 @@ form.ic-Form-group { margin: 0; }
 
 .ic-Form-action-box__Actions {
   box-sizing: border-box;
-  padding-left: $ic-sp*4;
+  padding-#{direction(left)}: $ic-sp*4;
 }
 
 .ic-Form-help-text {

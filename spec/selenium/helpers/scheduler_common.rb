@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module SchedulerCommon
@@ -57,19 +74,22 @@ module SchedulerCommon
     @course1.enroll_teacher(@teacher1).accept!
     @course1.enroll_student(@student2).accept!
     @course2.enroll_student(@student2).accept!
+    @course2.enroll_student(@student1).accept!
     @course3.enroll_student(@student3).accept!
     @course3.enroll_student(@student1).accept!
   end
 
   def create_appointment_groups_for_courses
+    time = Time.zone.now
+    time += 1.hour if time.hour == 23 # ensure the appointments are on the same day
     @app1 = AppointmentGroup.create!(title: "Appointment 1", contexts: [@course1],
-                                     new_appointments: [[Time.zone.now, Time.zone.now + 30.minutes],
-                                                        [Time.zone.now + 30.minutes, Time.zone.now + 1.hour]],
-                                     participants_per_appointment: 1)
+                                     participant_visibility: 'protected',
+                                     new_appointments: [[time, time+30.minutes],
+                                                        [time + 30.minutes, time + 1.hour]],
+                                     participants_per_appointment: 1, max_appointments_per_participant: 1)
     @app1.publish!
-    @app2 = AppointmentGroup.create!(appointment_params(title: "Appointment 2", contexts: [@course2]))
-    @app2.publish!
-    @app3 = AppointmentGroup.create!(appointment_params(title: "Appointment 3", contexts: [@course1, @course3]))
+    @app3 = AppointmentGroup.create!(title: "Appointment 3", contexts: [@course1, @course2],
+                                                        new_appointments: [[time+1.hour, time+1.hour + 30.minutes]])
     @app3.publish!
   end
 
@@ -95,6 +115,10 @@ module SchedulerCommon
     wait_for_ajaximations
   end
 
+  def reserve_appointment_for(participant, user, appointment_group)
+    appointment_group.appointments.first.reserve_for(participant, user)
+  end
+
   def create_appointment_group_manual(opts = {})
     opts = {
         :publish => true,
@@ -111,7 +135,7 @@ module SchedulerCommon
   def open_select_courses_modal(course_name)
     f('#FindAppointmentButton').click
     click_option('.ic-Input', course_name)
-    f('.ReactModal__Footer-Actions .btn').click
+    f('[role="dialog"][aria-label="Select Course"] button[type="submit"]').click
   end
 
   # This method closes the modal only when it is already opened. If not, it will open the modal
@@ -126,8 +150,10 @@ module SchedulerCommon
 
   def click_appointment_link
     f('.view_calendar_link').click
-    expect(f('.agenda-wrapper.active')).to be_displayed
-    wait_for_ajaximations
+    fj('.agenda-wrapper.active:visible')
+    # wait for loading spinner, then wait for it to not be displayed
+    wait_for(method: nil, timeout: 3) { f('#refresh_calendar_link').displayed? }
+    wait_for(method: nil, timeout: 15) { !f('#refresh_calendar_link').displayed? }
   end
 
   def click_al_option(option_selector, offset=0)
@@ -163,5 +189,25 @@ module SchedulerCommon
     expect(f('.edit_event_link')).to be_displayed
     f('.edit_event_link').click
     wait_for_ajaximations
+  end
+
+  def limit_timeslot_checkbox
+    f('[type=checkbox][name="per_slot_option"]')
+  end
+
+  def allow_visibility_checkbox
+    f('[type=checkbox][name="participant_visibility"]')
+  end
+
+  def limit_participation_checkbox
+    f('[type=checkbox][name="max_appointments_per_participant_option"]')
+  end
+
+  def agenda_item
+    f('.agenda-event__item .agenda-event__item-container')
+  end
+
+  def scheduler_event
+    f('.fc-event.scheduler-event')
   end
 end

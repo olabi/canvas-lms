@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,28 +26,28 @@ describe WikiPagesController do
 
   describe "GET 'front_page'" do
     it "should redirect" do
-      get 'front_page', :course_id => @course.id
+      get 'front_page', params: {:course_id => @course.id}
       expect(response).to be_redirect
       expect(response.location).to match(%r{/courses/#{@course.id}/pages})
     end
 
     it "sets up js_env for view_all_pages link" do
-      front_page = @wiki.wiki_pages.create!(title: "ponies4ever")
+      front_page = @course.wiki_pages.create!(title: "ponies4ever")
       @wiki.set_front_page_url!(front_page.url)
-      get 'front_page', course_id: @course.id
-      expect(response).to be_success
+      get 'front_page', params: {course_id: @course.id}
+      expect(response).to be_successful
       expect(assigns[:js_env][:DISPLAY_SHOW_ALL_LINK]).to be(true)
     end
   end
 
   context "with page" do
     before do
-      @page = @wiki.wiki_pages.create!(title: "ponies5ever", body: "")
+      @page = @course.wiki_pages.create!(title: "ponies5ever", body: "")
     end
 
     describe "GET 'show_redirect'" do
       it "should redirect" do
-        get 'show_redirect', :course_id => @course.id, :id => @page.url
+        get 'show_redirect', params: {:course_id => @course.id, :id => @page.url}
         expect(response).to be_redirect
         expect(response.location).to match(%r{/courses/#{@course.id}/pages/#{@page.url}})
       end
@@ -55,22 +55,55 @@ describe WikiPagesController do
 
     describe "GET 'show'" do
       it "should render" do
-        get 'show', course_id: @course.id, id: @page.url
+        get 'show', params: {course_id: @course.id, id: @page.url}
         expect(response).to be_successful
       end
     end
 
     describe "GET 'edit'" do
       it "should render" do
-        get 'edit', course_id: @course.id, id: @page.url
+        get 'edit', params: {course_id: @course.id, id: @page.url}
         expect(response).to be_successful
       end
     end
 
     describe "GET 'revisions'" do
       it "should render" do
-        get 'revisions', course_id: @course.id, wiki_page_id: @page.url
+        get 'revisions', params: {course_id: @course.id, wiki_page_id: @page.url}
         expect(response).to be_successful
+      end
+    end
+
+    describe "student planner" do
+      before :once do
+        course_with_teacher(active_all: true)
+        @page = @course.wiki_pages.create!(title: "plan for planning the planner's planned plan... plan", body: "")
+      end
+
+      before do
+        user_session @teacher
+      end
+
+      context "feature enabled" do
+        before :once do
+          @course.root_account.enable_feature! :student_planner
+        end
+
+        describe "GET 'index" do
+          it "should render" do
+            get 'index', params: {course_id: @course.id}
+            expect(response).to be_successful
+            expect(controller.js_env[:STUDENT_PLANNER_ENABLED]).to be_truthy
+          end
+        end
+
+        describe "GET 'show" do
+          it "should render" do
+            get 'show', params: {course_id: @course.id, id: @page.url}
+            expect(response).to be_successful
+            expect(controller.js_env[:STUDENT_PLANNER_ENABLED]).to be_truthy
+          end
+        end
       end
     end
 
@@ -96,40 +129,40 @@ describe WikiPagesController do
         end
 
         it "should allow show" do
-          get 'show', course_id: @course.id, id: @page.url
+          get 'show', params: {course_id: @course.id, id: @page.url}
           expect(response.code).to eq "200"
         end
 
         it "should allow edit" do
-          get 'edit', course_id: @course.id, id: @page.url
+          get 'edit', params: {course_id: @course.id, id: @page.url}
           expect(response.code).to eq "200"
         end
 
         it "should allow revisions" do
-          get 'revisions', course_id: @course.id, wiki_page_id: @page.url
+          get 'revisions', params: {course_id: @course.id, wiki_page_id: @page.url}
           expect(response.code).to eq "200"
         end
 
         context "feature enabled" do
           before do
-            ConditionalRelease::Service.stubs(:configured?).returns(true)
+            allow(ConditionalRelease::Service).to receive(:configured?).and_return(true)
             @course.enable_feature!(:conditional_release)
           end
 
           it "should forbid show" do
-            get 'show', course_id: @course.id, id: @page.url
+            get 'show', params: {course_id: @course.id, id: @page.url}
             expect(response).to be_redirect
             expect(response.location).to eq course_wiki_pages_url(@course)
           end
 
           it "should forbid edit" do
-            get 'edit', course_id: @course.id, id: @page.url
+            get 'edit', params: {course_id: @course.id, id: @page.url}
             expect(response).to be_redirect
             expect(response.location).to eq course_wiki_pages_url(@course)
           end
 
           it "should forbid revisions" do
-            get 'revisions', course_id: @course.id, wiki_page_id: @page.url
+            get 'revisions', params: {course_id: @course.id, wiki_page_id: @page.url}
             expect(response).to be_redirect
             expect(response.location).to eq course_wiki_pages_url(@course)
           end
@@ -143,18 +176,18 @@ describe WikiPagesController do
         end
 
         it "should allow show" do
-          get 'show', course_id: @course.id, id: @page.url
+          get 'show', params: {course_id: @course.id, id: @page.url}
           expect(response.code).to eq "200"
         end
 
         it "should allow edit" do
-          get 'edit', course_id: @course.id, id: @page.url
+          get 'edit', params: {course_id: @course.id, id: @page.url}
           expect(response.code).to eq "200"
           expect(controller.js_env[:CONDITIONAL_RELEASE_SERVICE_ENABLED]).to eq false
         end
 
         it "should allow revisions" do
-          get 'revisions', course_id: @course.id, wiki_page_id: @page.url
+          get 'revisions', params: {course_id: @course.id, wiki_page_id: @page.url}
           expect(response.code).to eq "200"
         end
       end

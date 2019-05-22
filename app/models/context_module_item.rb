@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,7 +24,7 @@
 module ContextModuleItem
   # set up the association for the AR class that included this module
   def self.included(klass)
-    klass.has_many :context_module_tags, -> { where("content_tags.tag_type='context_module' AND content_tags.workflow_state<>'deleted'").preload(context_module: :content_tags) }, as: :content, inverse_of: :content, class_name: 'ContentTag'
+    klass.has_many :context_module_tags, -> { where("content_tags.tag_type='context_module' AND content_tags.workflow_state<>'deleted'").preload(:context_module) }, as: :content, inverse_of: :content, class_name: 'ContentTag'
   end
 
   # Check if this item is locked for the given user.

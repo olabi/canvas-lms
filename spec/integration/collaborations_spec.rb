@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,13 +37,13 @@ describe CollaborationsController, type: :request do
     )
 
     get "/courses/#{@course.id}/collaborations/"
-    expect(response).to be_success
+    expect(response).to be_successful
 
-    post "/courses/#{@course.id}/collaborations/", { :collaboration => { :collaboration_type => "EtherPad", :title => "My Collab" } }
+    post "/courses/#{@course.id}/collaborations/", params: { :collaboration => { :collaboration_type => "EtherPad", :title => "My Collab" } }
     expect(response).to be_redirect
 
     get "/courses/#{@course.id}/collaborations/"
-    expect(response).to be_success
+    expect(response).to be_successful
 
     html = Nokogiri::HTML(response.body)
     links = html.css("div.collaboration_#{Collaboration.last.id} a.collaborator_link")

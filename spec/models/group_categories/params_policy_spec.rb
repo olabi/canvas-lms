@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../spec_helper'
 require_relative '../../support/boolean_translator'
 require_dependency "group_categories/params_policy"
@@ -15,8 +32,8 @@ module GroupCategories
 
     describe 'intializer' do
       it 'accepts a category and context' do
-        category = stub('group_category')
-        context = stub('course')
+        category = double('group_category')
+        context = double('course')
         policy = ParamsPolicy.new(category, context)
         expect(policy.group_category).to eq category
         expect(policy.context).to eq context
@@ -25,7 +42,7 @@ module GroupCategories
 
     describe '#populate_with' do
       let(:category){ MockGroupCategory.new() }
-      let(:context){ stub('course') }
+      let(:context){ double('course') }
       let(:policy){ ParamsPolicy.new(category, context) }
 
       it 'configures the self_signup accoring to the params' do

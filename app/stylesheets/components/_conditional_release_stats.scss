@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2016 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #crs-graphs {
   margin-top: 50px;
 
@@ -12,15 +30,32 @@
 
   .crs-breakdown-graph__loading {
     p {
-      float: left;
+      float: direction(left);
       padding-top: 8px;
-      padding-left: 10px;
+      padding-#{direction(left)}: 10px;
     }
 
     > div {
-      float: left;
+      float: direction(left);
     }
   }
+}
+
+.crs-breakdown-details {
+  width: 365px;
+}
+
+.crs-breakdown-details__closeButton {
+  position: absolute;
+  top: 1rem;
+  #{direction(right)}: 1rem;
+  z-index: 11;
+  color: $ic-color-medium;
+}
+
+.crs-breakdown-details__closeButtonIcon {
+  font-size: 1rem;
+  font-weight: lighter;
 }
 
 .crs-breakdown-details__header {
@@ -33,8 +68,8 @@
 }
 
 .crs-breakdown-details__header-text {
-  margin-left: 20px;
-  margin-right: 10px;
+  margin-#{direction(left)}: 20px;
+  margin-#{direction(right)}: 10px;
 }
 
 .crs-bar__horizontal-outside {
@@ -70,7 +105,7 @@
   justify-content: space-between;
   font-size: 14px;
   color: $ic-color-dark;
-  margin-left: 4px;
+  margin-#{direction(left)}: 4px;
   margin-bottom: 15px;
 }
 
@@ -81,40 +116,23 @@
 .crs-link-button {
   background: transparent;
   border: none;
-  color: $ic-link-color;
+  color: var(--ic-link-color);
 
   &:focus,
   &:hover {
     text-decoration: underline;
-    color: $ic-link-color-hover;
-  }
-}
-
-.crs-sticky-sidebar {
-  width: 365px;
-  height: 100%;
-  position: fixed;
-  right: 0;
-  top: 0;
-  transition: all .5s;
-  box-shadow: -2px 0px 15px $ic-color-medium;
-  background: $ic-color-light;
-  z-index: 10;
-
-  &.crs-sticky-sidebar__hidden {
-    right: -365px;
-    opacity: 0;
-  }
-
-  .crs-sticky-sidebar__close {
-    position: absolute;
-    top: 20px;
-    right: 15px;
-    z-index: 20;
+    color: var(--ic-link-color-darkened-10);
   }
 }
 
 .crs-ranges-view {
+  transition: all .5s;
+
+  &.crs-ranges-view__hidden {
+    opacity: 0;
+    visibility: hidden;
+  }
+
   .crs-ranges-view__header {
     font-weight: lighter;
     padding: 15px 10px;
@@ -147,14 +165,14 @@
 }
 
 .crs-student-range__item {
-  margin: 15px 15px;
+  margin: 15px;
 }
 
 .crs-student__avatar {
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  margin-right: 10px;
+  margin-#{direction(right)}: 10px;
 }
 
 .crs-student__trend-icon {
@@ -162,7 +180,7 @@
   height: 30px;
   font-size: 18px;
   font-weight: bold;
-  float: right;
+  float: direction(right);
 
   &.crs-student__trend-icon__positive {
     color: $ic-color-success;
@@ -193,22 +211,19 @@
   }
 }
 
-.crs-icon-x {
-  margin: auto;
-}
-
 .crs-student-details {
-  width: 365px;
+  width: 20em;
   height: 100%;
   position: fixed;
-  right: 0px;
+  #{direction(right)}: 0px;
   top: 0px;
   transition: all .5s;
   background: $ic-color-light;
 
   &.crs-student-details__hidden {
-    right: -365px;
+    #{direction(right)}: -365px;
     opacity: 0;
+    visibility: hidden;
   }
 }
 
@@ -222,7 +237,7 @@
 }
 
 .crs-student-details__name {
-  margin: 5px 0px 0px 0px;
+  margin: 5px 0px 0px;
 }
 
 .crs-student__range-item {
@@ -277,11 +292,11 @@
 .crs-breakdown__link {
   text-decoration: none;
   font-weight: normal;
-  color: $ic-link-color;
+  color: var(--ic-link-color);
 
   &:focus,
   &:hover {
-    color: $ic-link-color-hover;
+    color: var(--ic-link-color-darkened-10);
     text-decoration: underline;
   }
 }
@@ -299,8 +314,8 @@ i.crs-student-details__assignment-icon {
   line-height: 32px;
   border-radius: 50%;
   color: $ic-color-light;
-  float: left;
-  margin-left: 5px;
+  float: direction(left);
+  margin-#{direction(left)}: 5px;
 
   &:before {
     font-size: 14px;
@@ -327,7 +342,7 @@ i.crs-icon-discussion {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
-  padding: 15px 15px;
+  padding: 15px;
   border-bottom: 1px solid $ic-border-color;
 }
 
@@ -335,7 +350,7 @@ i.crs-icon-discussion {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-right: 10px;
+  margin-#{direction(right)}: 10px;
   font-weight: bold;
 }
 
@@ -347,5 +362,5 @@ i.crs-icon-discussion {
 }
 
 .crs-icon-email {
-  padding-right: 5px;
+  padding-#{direction(right)}: 5px;
 }

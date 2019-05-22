@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,21 +20,20 @@ require 'securerandom'
 
 class EportfolioCategoriesController < ApplicationController
   include EportfolioPage
-  before_filter :rich_content_service_config
+  before_action :rce_js_env
+  before_action :get_eportfolio
 
   def index
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     redirect_to eportfolio_url(@portfolio)
   end
 
   def create
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :update)
       category_names = @portfolio.eportfolio_categories.map{|c| c.name}
       @category = @portfolio.eportfolio_categories.build(eportfolio_category_params)
       respond_to do |format|
         if @category.save
-          @portfolio.eportfolio_entries.create(:eportfolio_category => @category, :name => t(:default_name, "New Page"), :allow_comments => true, :show_comments => :true)
+          @portfolio.eportfolio_entries.create(:eportfolio_category => @category, :name => t(:default_name, "New Page"), :allow_comments => true, :show_comments => true)
           format.html { redirect_to eportfolio_category_url(@portfolio, @category) }
           format.json { render :json => @category }
         else
@@ -45,7 +44,6 @@ class EportfolioCategoriesController < ApplicationController
   end
 
   def update
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :update)
       @category = @portfolio.eportfolio_categories.find(params[:id])
       respond_to do |format|
@@ -60,7 +58,6 @@ class EportfolioCategoriesController < ApplicationController
   end
 
   def show
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     begin
       if params[:verifier] == @portfolio.uuid
         session[:eportfolio_ids] ||= []
@@ -86,7 +83,6 @@ class EportfolioCategoriesController < ApplicationController
   end
 
   def destroy
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :update)
       @category = @portfolio.eportfolio_categories.find(params[:id])
       respond_to do |format|
@@ -100,11 +96,11 @@ class EportfolioCategoriesController < ApplicationController
   end
 
   protected
-  def rich_content_service_config
-    rce_js_env(:basic)
-  end
-
   def eportfolio_category_params
     params.require(:eportfolio_category).permit(:name)
+  end
+
+  def get_eportfolio
+    @portfolio = Eportfolio.active.find(params[:eportfolio_id])
   end
 end

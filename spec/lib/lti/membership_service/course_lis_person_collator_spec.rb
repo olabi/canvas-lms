@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,7 +32,7 @@ module Lti::MembershipService
 
           expect(collator.role).to be_nil
           expect(collator.per_page).to eq(Api.per_page)
-          expect(collator.page).to eq(0)
+          expect(collator.page).to eq(1)
         end
 
         it 'handles negative values for :page option' do
@@ -41,7 +41,7 @@ module Lti::MembershipService
           }
           collator = CourseLisPersonCollator.new(@course, @teacher, opts)
 
-          expect(collator.page).to eq(0)
+          expect(collator.page).to eq(1)
         end
 
         it 'handles negative values for :per_page option' do
@@ -64,7 +64,7 @@ module Lti::MembershipService
 
         it 'generates a list of IMS::LTI::Models::Membership objects' do
           collator = CourseLisPersonCollator.new(@course, @teacher)
-          memberships = collator.memberships
+          memberships = collator.memberships(context: @course)
           @teacher.reload
           membership = memberships[0]
 
@@ -79,6 +79,14 @@ module Lti::MembershipService
           expect(membership.member.result_sourced_id).to be_nil
           expect(membership.member.sourced_id).to be_nil
           expect(membership.member.user_id).to eq(@teacher.lti_context_id)
+        end
+
+        it 'sends old_id when present' do
+          Lti::Asset.opaque_identifier_for(@teacher)
+          collator = CourseLisPersonCollator.new(@course, @teacher)
+          UserPastLtiId.create!(user: @teacher, context: @course, user_lti_id: @teacher.lti_id, user_lti_context_id: 'old_lti_id', user_uuid: 'old')
+          memberships = collator.memberships(context: @course)
+          expect(memberships[0].member.user_id).to eq('old_lti_id')
         end
       end
 
@@ -190,11 +198,31 @@ module Lti::MembershipService
       @course.enroll_user(@student, 'StudentEnrollment', enrollment_state: 'active')
       @observer = user_model
       @course.enroll_user(@observer, 'ObserverEnrollment', enrollment_state: 'active')
+      allow(Api).to receive(:per_page).and_return(1)
+    end
+
+    context 'OAuth 1' do
+      subject do
+        collator_one.memberships.map(&:member).map(&:user_id) +
+        collator_two.memberships.map(&:member).map(&:user_id) +
+        collator_three.memberships.map(&:member).map(&:user_id)
+      end
+
+      let(:collator_one) { CourseLisPersonCollator.new(@course, @teacher, per_page: 2, page: 1) }
+      let(:collator_two) { CourseLisPersonCollator.new(@course, @teacher, per_page: 2, page: 2) }
+      let(:collator_three) { CourseLisPersonCollator.new(@course, @teacher, per_page: 2, page: 3) }
+
+      it 'does not render duplicate items when paginating' do
+        expect(subject.length).to eq subject.uniq.length
+      end
+
+      it 'paginates the entire collection' do
+        expect(subject.length).to eq @course.current_users.length
+      end
     end
 
     describe '#memberships' do
       it 'returns the number of memberships specified by the per_page params' do
-        Api.stubs(:per_page).returns(1)
         collator = CourseLisPersonCollator.new(@course, @teacher, per_page: 1, page: 1)
 
         expect(collator.memberships.size).to eq(1)
@@ -205,7 +233,6 @@ module Lti::MembershipService
       end
 
       it 'returns the right page of memberships based on the page param' do
-        Api.stubs(:per_page).returns(1)
         collator1 = CourseLisPersonCollator.new(@course, @teacher, per_page: 1, page: 1)
         collator2 = CourseLisPersonCollator.new(@course, @teacher, per_page: 1, page: 2)
         collator3 = CourseLisPersonCollator.new(@course, @teacher, per_page: 1, page: 3)
@@ -225,16 +252,13 @@ module Lti::MembershipService
 
     describe '#next_page?' do
       it 'returns true when there is an additional page of results' do
-        Api.stubs(:per_page).returns(1)
         collator = CourseLisPersonCollator.new(@course, @teacher, per_page: 1, page: 1)
-
         expect(collator.next_page?).to eq(true)
       end
 
       it 'returns false when there are no more pages' do
-        Api.stubs(:per_page).returns(1)
         collator = CourseLisPersonCollator.new(@course, @teacher, per_page: 1, page: 5)
-
+        collator.memberships
         expect(collator.next_page?).to eq(false)
       end
     end

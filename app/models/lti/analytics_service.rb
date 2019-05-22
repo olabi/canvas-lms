@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'duration'
 require 'net/http'
 require 'securerandom'
@@ -47,8 +64,7 @@ module Lti
           update_all(['total_activity_time = COALESCE(total_activity_time, 0) + ?', seconds])
       end
 
-      access = AssetUserAccess.where(user_id: user, asset_code: tool.asset_string).first_or_initialize
-      access.log(course, group_code: "external_tools", category: "external_tools")
+      AssetUserAccess.log(user, course, code: tool.asset_string, group_code: "external_tools", category: "external_tools")
 
       if PageView.page_views_enabled?
         PageView.new(user: user, context: course, account: course.account).tap { |p|

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/files_common'
 
@@ -92,10 +109,11 @@ describe 'new ui' do
       get "/courses/#{@course.id}/files"
       add_folder
       # verifying new files folder icon css property still displays with new ui
-      f('.media-object.ef-big-icon.FilesystemObjectThumbnail.mimeClass-folder').displayed?
+      expect(f('.media-object.ef-big-icon.FilesystemObjectThumbnail.mimeClass-folder')).to be_displayed
     end
 
     it 'should not override high contrast theme', priority: "2", test_id: 244898 do
+      BrandableCSS.save_default!('css') # make sure variable css file is up to date
       get '/profile/settings'
       f('.ic-Super-toggle__switch').click
       wait_for_ajaximations
@@ -121,9 +139,10 @@ describe 'new ui' do
 
     it 'should not break equation editor css', priority: "2", test_id: 273600 do
       get "/courses/#{@course.id}/assignments/new"
-      f('div#mceu_19.mce-widget.mce-btn').click
+      wait_for_tiny(f('#assignment_description'))
+      f('div#mceu_20.mce-widget.mce-btn').click
       wait_for_ajaximations
-      f('.mathquill-toolbar-panes, .mathquill-tab-bar').displayed?
+      expect(f('.mathquill-toolbar-panes, .mathquill-tab-bar')).to be_displayed
     end
   end
 
@@ -137,8 +156,7 @@ describe 'new ui' do
       expect(global_nav_courses_link).to be_displayed
       global_nav_courses_link.click
       wait_for_ajaximations
-      course_link_list = fj('ul.ic-NavMenu__link-list')
-      course_link_list.find_element(:link_text, 'All Courses').click
+      fj("[aria-label='Courses tray'] a:contains('All Courses')").click
 
       # and now actually go to the "/courses" page and make sure it shows up there too as "unpublisned"
       wait_for_ajaximations

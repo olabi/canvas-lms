@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -52,33 +52,35 @@ class Quizzes::QuizSubmission::QuestionReferenceDataFixer
 
     modified = false
 
-    connection = quiz_submission.class.connection
-    connection.transaction do
-      Quizzes::QuizQuestion.transaction(requires_new: true) do
-        if relink_or_create_questions(quiz_submission)
-          modified = true
+    Shackles.activate(:master) do
+      connection = quiz_submission.class.connection
+      connection.transaction do
+        Quizzes::QuizQuestion.transaction(requires_new: true) do
+          if relink_or_create_questions(quiz_submission)
+            modified = true
 
-          Quizzes::QuizSubmission.where(id: quiz_submission).update_all <<-SQL
+            Quizzes::QuizSubmission.where(id: quiz_submission).update_all <<-SQL
             quiz_data = '#{connection.quote_string(quiz_submission.quiz_data.to_yaml)}',
             submission_data = '#{connection.quote_string(quiz_submission.submission_data.to_yaml)}',
             question_references_fixed = TRUE
-          SQL
-        else
-          quiz_submission.update_column('question_references_fixed', true)
-        end
-
-        # Now pass over all the version models:
-        quiz_submission.versions.each do |version|
-          model = version.model
-
-          if relink_or_create_questions(model)
-            modified ||= true
-            version.update_column("yaml", model.attributes.to_yaml)
+            SQL
+          else
+            quiz_submission.update_column('question_references_fixed', true)
           end
-        end
 
-      end # QuizQuestion#transaction
-    end # QuizSubmission#transaction
+          # Now pass over all the version models:
+          quiz_submission.versions.each do |version|
+            model = version.model
+
+            if relink_or_create_questions(model)
+              modified ||= true
+              version.update_column("yaml", model.attributes.to_yaml)
+            end
+          end
+
+        end # QuizQuestion#transaction
+      end # QuizSubmission#transaction
+    end
 
     return modified
   end
@@ -115,7 +117,7 @@ class Quizzes::QuizSubmission::QuestionReferenceDataFixer
     quiz_questions = Quizzes::QuizQuestion.where({
       quiz_id: quiz_id,
       assessment_question_id: assessment_questions.map(&:id)
-    }).select([ :id, :quiz_id, :assessment_question_id ])
+    }).select([ :id, :quiz_id, :assessment_question_id ]).to_a
 
     quiz_data.each do |question_data|
       # 1. the "id" must point to the assessment question's:

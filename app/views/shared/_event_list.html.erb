@@ -1,5 +1,23 @@
 <%
-  event_list ||= nil
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
+  event_list ||= []
   title ||= t('titles.events', "Events")
   display_count ||= 3
   display_count += 1 if event_list.length == display_count + 1
@@ -11,8 +29,20 @@
   partial = is_recent_feedback ? 'courses/recent_feedback' : 'courses/recent_event'
   contexts_to_link_to ||= nil
 %>
-<div class="events_list <%= is_recent_feedback ? 'recent_feedback' : 'coming_up' %>">
-  <h2><% unless is_recent_feedback %><a class='event-list-view-calendar icon-calendar-day standalone-icon' href='<%= calendar_url_for(contexts_to_link_to) %>'><%= t 'links.view_calendar', "View Calendar" %></a><% end %> <%= title %></h2>
+<div class="events_list
+  <%= is_recent_feedback ? 'recent_feedback' : 'coming_up' %>"
+>
+  <div class="h2 shared-space">
+    <h2><%= title %></h2>
+    <% unless is_recent_feedback %>
+      <a
+        class='event-list-view-calendar icon-calendar-day standalone-icon'
+        href='<%= calendar_url_for(contexts_to_link_to) %>'
+      >
+        <%= t 'links.view_calendar', "View Calendar" %>
+      </a>
+    <% end %>
+  </div>
   <ul class="right-side-list events">
   <% if !event_list || event_list.empty? %>
     <li>

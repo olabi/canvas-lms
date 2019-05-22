@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 begin
   require '../../spec/coverage_tool.rb'
   CoverageTool.start('canvas-partman-gem')
@@ -15,6 +32,7 @@ require 'support/schema_helper'
 require 'fixtures/zoo'
 require 'fixtures/animal'
 require 'fixtures/trail'
+require 'fixtures/week_event'
 
 require 'byebug'
 
@@ -22,6 +40,7 @@ RSpec.configure do |config|
   Zoo = CanvasPartmanTest::Zoo
   Animal = CanvasPartmanTest::Animal
   Trail = CanvasPartmanTest::Trail
+  WeekEvent = CanvasPartmanTest::WeekEvent
 
   config.run_all_when_everything_filtered = true
   config.filter_run :focus
@@ -42,11 +61,11 @@ RSpec.configure do |config|
   end
 
   config.before :all do
-    [ Zoo, Animal, Trail ].each(&:create_schema)
+    [ Zoo, Animal, Trail, WeekEvent ].each(&:create_schema)
   end
 
   config.after :all do
-    [ Zoo, Animal, Trail ].each(&:drop_schema)
+    [ Animal, Trail, Zoo, WeekEvent ].each(&:drop_schema)
   end
 
   config.after :each do

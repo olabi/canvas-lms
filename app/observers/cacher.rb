@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class Cacher < ActiveRecord::Observer
   observe :user, :account_user
 
@@ -12,12 +29,12 @@ class Cacher < ActiveRecord::Observer
   def after_update(obj)
     case obj
     when User
-      if obj.avatar_image_url_changed? ||
-         obj.avatar_image_source_changed? ||
-         obj.avatar_state_changed?
+      if obj.saved_change_to_avatar_image_url? ||
+         obj.saved_change_to_avatar_image_source? ||
+         obj.saved_change_to_avatar_state?
         User::AVATAR_SETTINGS.each do |avatar_setting|
-          Rails.cache.delete(Cacher.avatar_cache_key(obj.id, avatar_setting))
-          Rails.cache.delete(Cacher.inline_avatar_cache_key(obj.id, avatar_setting))
+          Rails.cache.delete(Cacher.avatar_cache_key(obj.global_id, avatar_setting))
+          Rails.cache.delete(Cacher.inline_avatar_cache_key(obj.global_id, avatar_setting))
         end
       end
     end

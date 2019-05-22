@@ -1,4 +1,25 @@
 <%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
+  js_env ga_page_title: "Roster User"
+%>
+<%
   add_crumb(t('#crumbs.people', "People"), context_url(@context, :context_users_url))
   add_crumb(context_user_name(@context, @user), context_url(@context, :context_user_url, @user))
   @active_tab="people"
@@ -60,6 +81,11 @@
         <%= link[:text] %>
       </a>
     <% end %>
+    <% if @user.grants_right?(@current_user, :generate_observer_pairing_code) &&
+          @user.has_student_enrollment? &&
+          @domain_root_account.self_registration? %>
+      <div id="pairing-code"></div>
+    <% end %>
   </div>
   <a href="<%= user_profile_path(@current_user) %>" class="profile_url" style="display: none;">&nbsp;</a>
   <h2><%= t 'headings.user_services', "Registered Web Services" %></h2>
@@ -101,7 +127,7 @@
 <% end %>
 
 <% js_bundle :user_name %>
-<% css_bundle :roster_user %>
+<% css_bundle :roster_user, :pairing_code %>
 
 <h1><%= @user.name %></h1>
 <% can_manage_students = can_do(@context, @current_user, :manage_students) %>
@@ -122,14 +148,14 @@
                 <div><%= t 'enrolled_as', "Enrolled as a %{enrollment_type}", :enrollment_type => enrollment.readable_type %></div>
                 <div>created <%= datetime_string(enrollment.created_at) %></div>
                 <% if enrollment.is_a?(ObserverEnrollment) %>
-                  <div style="font-size: 0.8em; padding-left: 20px; <%= hidden unless enrollment.associated_user %>" class="associated_user" >
+                  <div style="font-size: 0.8em; padding-<%= direction('left') %>: 20px; <%= hidden unless enrollment.associated_user %>" class="associated_user" >
                     <%= t 'enrollment_linked_to', "linked to *%{linked_user}*",
                         :linked_user => context_user_name(@context, enrollment.associated_user),
                         :wrapper => '<span class="associated_user_name">\1</span>' %>
                   </div>
                 <% end %>
-                <div style="font-size: 0.8em; padding-left: 20px; <%= hidden unless enrollment.completed? || enrollment.inactive? %>" class="completed_at_holder">
-                  <% if enrollment.inactive? %>
+                <div style="font-size: 0.8em; padding-<%= direction('left') %>: 20px; <%= hidden unless enrollment.completed? || enrollment.inactive? %>" class="completed_at_holder">
+                  <% if enrollment.workflow_state == 'inactive' %>
                     <%= t 'inactive' %>
                   <% elsif enrollment.completed_at %>
                     <%= t 'completed_enrollment', "completed *%{completed_at}*", :completed_at => datetime_string(enrollment.completed_at), :wrapper => '<span class="completed_at">\1</span>' %>
@@ -148,7 +174,7 @@
                       <a class="unconclude_enrollment_link" href="<%= context_url(@context, :controller => :courses, :action => :unconclude_user, :id => enrollment.id) %>"><%= t('links.restore_enrollment', %{Restore this Enrollment}) %></a>
                     </div>
                   <% end %>
-                  <div><% if enrollment.defined_by_sis? %>
+                  <div><% if enrollment.defined_by_sis? && !@context.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis) %>
                     <a href="#" title="<%= t('links.title.enrollment_sis_defined', %{This enrollment was defined by the university, and can't be deleted}) %>"><%= t('links.cant_delete', %{Can't Delete}) %></a>
                   <% else %>
                     <a class="delete_enrollment_link" href="<%= context_url(@context, :context_unenroll_url, enrollment.id) %>"><%= t('links.delete_enrollment', %{Delete this Enrollment}) %></a>
@@ -166,13 +192,13 @@
               <td>
                 <div class="elevate_enrollment_link_holder" style="<%= hidden if @enrollments.any?{|e| !e.limit_privileges_to_course_section } %>">
                   <%= t('user_only_view_section', %{this user can only view students in their assigned course section(s)}) %>
-                  <div style="margin-left: 10px; font-size: 0.8em;">
+                  <div style="margin-<%= direction('left') %>: 10px; font-size: 0.8em;">
                     <a href="<%= context_url(@context, :context_limit_user_grading_url, @user.id) %>" class="elevate_enrollment_link"><%= t('links.user_view_all_sections', %{let this user see all course users}) %></a>
                   </div>
                 </div>
                 <div class="restrict_enrollment_link_holder" style="<%= hidden unless @enrollments.any?{|e| !e.limit_privileges_to_course_section } %>">
                   <%= t('user_view_all_sections', %{this user can view students in any course section}) %>
-                  <div style="margin-left: 10px; font-size: 0.8em;">
+                  <div style="margin-<%= direction('left') %>: 10px; font-size: 0.8em;">
                     <a href="<%= context_url(@context, :context_limit_user_grading_url, @user.id) %>" class="restrict_enrollment_link"><%= t('links.user_only_view_section', %{limit this user to only see fellow section users}) %></a>
                   </div>
                 </div>
@@ -180,6 +206,9 @@
             </tr>
           <% end %>
         </table>
+        <% if @context.is_a?(Course) && can_do(@context, @current_user, :manage_admin_users) %>
+          <div id="student_last_attended__component"></div>
+        <% end %>
       </fieldset>
       <%= render :partial => 'courses/link_enrollment' %>
     <% end %>
@@ -188,7 +217,7 @@
 <div style="margin-bottom: 10px;">&nbsp;</div>
 <% elsif service_enabled?(:avatars) %>
   <div style="margin-bottom: 20px;">
-    <%= avatar(@user) %>
+    <%= avatar(@user, url: nil) %>
     <% if can_do(@user, @current_user, :remove_avatar) %>
       <a href="#" class="remove_avatar_picture_link"><%= t('links.remove_avatar', %{Remove avatar picture}) %></a>
     <% else %>

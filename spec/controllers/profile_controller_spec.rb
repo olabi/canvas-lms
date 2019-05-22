@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,7 +35,7 @@ describe ProfileController do
     it "should chain to settings when it's the same user" do
       user_session(@user)
 
-      get 'show', :user_id => @user.id
+      get 'show', params: {:user_id => @user.id}
       expect(response).to render_template('profile')
     end
 
@@ -43,14 +43,14 @@ describe ProfileController do
       user_session(@user)
       session[:used_remember_me_token] = true
 
-      get 'show', :user_id => @user.id
+      get 'show', params: {:user_id => @user.id}
       expect(response).to redirect_to(login_url)
     end
 
     describe "other user's profile" do
       before :each do
         # to allow viewing other user's profile
-        @controller.stubs(:api_request?).returns(true)
+        allow(@controller).to receive(:api_request?).and_return(true)
       end
 
       it "should include common contexts in @user_data" do
@@ -62,7 +62,7 @@ describe ProfileController do
         group.add_user(@user, 'accepted')
         student_in_course(user: @user, active_all: true)
 
-        get 'show', user_id: @user.id
+        get 'show', params: {user_id: @user.id}
         expect(assigns(:user_data)[:common_contexts].size).to eql(2)
         expect(assigns(:user_data)[:common_contexts][0]['id']).to eql(@course.id)
         expect(assigns(:user_data)[:common_contexts][0]['roles']).to eql(['Student'])
@@ -76,10 +76,10 @@ describe ProfileController do
     it "should allow changing the default e-mail address and nothing else" do
       user_session(@user, @pseudonym)
       expect(@cc.position).to eq 1
-      @cc2 = @user.communication_channels.create!(:path => 'email2@example.com')
+      @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'active')
       expect(@cc2.position).to eq 2
-      put 'update', :user_id => @user.id, :default_email_id => @cc2.id, :format => 'json'
-      expect(response).to be_success
+      put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
+      expect(response).to be_successful
       expect(@cc2.reload.position).to eq 1
       expect(@cc.reload.position).to eq 2
     end
@@ -88,9 +88,9 @@ describe ProfileController do
       enable_cache do
         @user.email # prime cache
         user_session(@user, @pseudonym)
-        @cc2 = @user.communication_channels.create!(:path => 'email2@example.com')
-        put 'update', :user_id => @user.id, :default_email_id => @cc2.id, :format => 'json'
-        expect(response).to be_success
+        @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'active')
+        put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
+        expect(response).to be_successful
         expect(@user.email).to eq @cc2.path
       end
     end
@@ -101,12 +101,19 @@ describe ProfileController do
       @account.save!
       user_session(@user, @pseudonym)
       expect(@cc.position).to eq 1
-      @cc2 = @user.communication_channels.create!(:path => 'email2@example.com')
+      @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'active')
       expect(@cc2.position).to eq 2
-      put 'update', :user_id => @user.id, :default_email_id => @cc2.id, :format => 'json'
-      expect(response).to be_success
+      put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
+      expect(response).to be_successful
       expect(@cc2.reload.position).to eq 1
       expect(@cc.reload.position).to eq 2
+    end
+
+    it "should not let an unconfirmed e-mail address be set as default" do
+      user_session(@user, @pseudonym)
+      @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'unconfirmed')
+      put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
+      expect(@user.email).to eq @cc.path
     end
 
     it "should not allow a student view student profile to be edited" do
@@ -114,7 +121,7 @@ describe ProfileController do
       @fake_student = @course.student_view_student
       session[:become_user_id] = @fake_student.id
 
-      put 'update', :user_id => @fake_student.id
+      put 'update', params: {:user_id => @fake_student.id}
       assert_unauthorized
     end
   end
@@ -130,7 +137,7 @@ describe ProfileController do
       cc.notification_policies.create!(:notification => nil, :frequency => 'daily')
 
       get 'communication'
-      expect(response).to be_success
+      expect(response).to be_successful
     end
   end
 
@@ -147,10 +154,10 @@ describe ProfileController do
 
     it "should let you change your short_name and profile information" do
       put 'update_profile',
-          :user => {:short_name => 'Monsturd', :name => 'Jenkins'},
-          :user_profile => {:bio => '...', :title => '!!!'},
-          :format => 'json'
-      expect(response).to be_success
+          params: {:user => {:short_name => 'Monsturd', :name => 'Jenkins'},
+          :user_profile => {:bio => '...', :title => '!!!'}},
+          format: 'json'
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.short_name).to eql 'Monsturd'
@@ -167,10 +174,10 @@ describe ProfileController do
       old_name = @user.short_name
       old_title = @user.profile.title
       put 'update_profile',
-          :user => {:short_name => 'Monsturd', :name => 'Jenkins'},
-          :user_profile => {:bio => '...', :title => '!!!'},
-          :format => 'json'
-      expect(response).to be_success
+          params: {:user => {:short_name => 'Monsturd', :name => 'Jenkins'},
+          :user_profile => {:bio => '...', :title => '!!!'}},
+          format: 'json'
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.short_name).to eql old_name
@@ -184,10 +191,10 @@ describe ProfileController do
       @user.user_services.create! :service => 'twitter', :service_user_name => 'user', :service_user_id => 'user', :visible => false
 
       put 'update_profile',
-        :user_profile => {:bio => '...'},
-        :user_services => {:twitter => "1", :skype => "false"},
-        :format => 'json'
-      expect(response).to be_success
+        params: {:user_profile => {:bio => '...'},
+        :user_services => {:twitter => "1", :skype => "false"}},
+        format: 'json'
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.user_services.where(service: 'skype').first.visible?).to be_falsey
@@ -196,11 +203,11 @@ describe ProfileController do
 
     it "should let you set your profile links" do
       put 'update_profile',
-        :user_profile => {:bio => '...'},
+        params: {:user_profile => {:bio => '...'},
         :link_urls => ['example.com', 'foo.com', ''],
-        :link_titles => ['Example.com', 'Foo', ''],
-        :format => 'json'
-      expect(response).to be_success
+        :link_titles => ['Example.com', 'Foo', '']},
+        format: 'json'
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.profile.links.map { |l| [l.url, l.title] }).to eq [

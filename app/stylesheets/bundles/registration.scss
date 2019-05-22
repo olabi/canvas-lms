@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "pages/login/registration_dialog";
 
@@ -23,7 +41,7 @@ a {
   height: 122px;
   padding-top: 12px;
   h1, .h1 {
-    padding: 50px 0 0 0px;
+    padding: direction-sides(50px 0 0 0px);
     a {
       display: block;
       width: 175px;
@@ -35,9 +53,9 @@ a {
   #registration_login {
     color: #30536e;
     position: absolute;
-    right: 73px;
+    #{direction(right)}: 73px;
     top: 55px;
-    padding: 0 22px 0 0;
+    padding: direction-sides(0 22px 0 0);
     border: 5px solid transparent;
     font-size: 1.1em;
     background: transparent url(/images/registration/down-arrow.png) right center no-repeat;
@@ -78,8 +96,7 @@ a {
   height: 100px;
   position: absolute;
   content: " ";
-  @include gradient-vertical(#ffffff, rgba(255, 255, 255, 0));
-  background-color: transparent;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0) 100%);
   opacity: 0.5;
 }
 
@@ -96,7 +113,7 @@ a {
   color: #999;
   @include fontSize(11px);
   a {
-    margin-left: 5px;
+    margin-#{direction(left)}: 5px;
     color: #999;
     &:hover, &:active {
       color: #2ca4e9;
@@ -105,14 +122,25 @@ a {
 }
 
 .left {
-  float: left;
+  float: direction(left);
 }
 
 .right {
-  float: right;
+  float: direction(right);
+}
+
+#terms_link {
+  @include ic-focus-base;
+  &:focus {
+    @include ic-focus-variant;
+  }
 }
 
 #signup_teacher, #signup_student {
+  @include ic-focus-base;
+  &:focus {
+    @include ic-focus-variant;
+  }
   position: absolute;
   background-image: url(/images/registration/landing_buttons.png);
   background-repeat: no-repeat;
@@ -129,11 +157,11 @@ a {
     background-position: 5px -60px;
     outline: none;
   }
-  left: 67px;
+  #{direction(left)}: 67px;
 }
 
 #signup_student {
-  right: 67px;
+  #{direction(right)}: 67px;
   background-position: 5px -125px;
   &:hover, &:focus {
     background-position: 5px -190px;
@@ -143,7 +171,7 @@ a {
 
 #login_form {
   position: absolute;
-  right: 0;
+  #{direction(right)}: 0;
   top: 95px;
   background: #fff;
   border: 1px solid #bbb;
@@ -162,17 +190,16 @@ a {
     font-weight: bold;
     text-align: center;
     margin-bottom: 1em;
-    background-image: none;
-    @include gradient-vertical(#0abcfe, #0090d7);
+    background: linear-gradient(to bottom, #0abcfe 0%, #0090d7 100%);
     border-width: 1px;
     border-style: solid;
-    border-color: #0abcfe #238fe4 #1974c9 #238fe4;
+    border-color: #0abcfe #238fe4 #1974c9;
     border-radius: 3px;
     color: #fff;
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 1px 1px rgba(0, 0, 0, 0.3);
     &:hover, &:focus {
-      @include gradient-vertical(#09aae5, #0080c0);
+      background: linear-gradient(to bottom, #09aae5 0%, #0080c0 100%);
       outline: none;
     }
   }
@@ -183,11 +210,11 @@ a {
     width: 16px;
     position: absolute;
     top: -10px;
-    left: 50%;
-    margin-left: -11px;
+    #{direction(left)}: 50%;
+    margin-#{direction(left)}: -11px;
     transform: rotate(45deg);
     border: 1px solid #bbb;
-    border-right: none;
+    border-#{direction(right)}: none;
     border-bottom: none;
     background: $white;
   }

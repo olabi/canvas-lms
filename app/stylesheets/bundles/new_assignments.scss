@@ -1,18 +1,37 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "pages/shared/move_dialog";
+@import "base/mixins/misc";
+@import "components/spinner";
 
-.accessibility-warning {
-  @include accessibility-prompt;
-  @include fontSize(12px);
-  position: absolute;
-  left: 0px;
-  top: -16px;
+.drag_and_drop_warning {
+  @include accessibility-prompt($is-link: false);
+  &:focus {
+    margin-bottom: 8px;
+  }
 }
 
 .ag-header-controls {
   position: absolute;
   top: 0;
-  right: 0;
+  #{direction(right)}: 0;
 }
 
 .loadingIndicator {
@@ -20,7 +39,7 @@
 }
 
 .group_select {
-  margin-left: 20px;
+  margin-#{direction(left)}: 20px;
 }
 
 #ag_weights_wrapper {
@@ -34,7 +53,7 @@
     padding: 10px 0px;
   }
   td.right-align {
-    text-align: right;
+    text-align: direction(right);
   }
   tfoot td {
     font-weight: bold;
@@ -63,7 +82,7 @@
 
 .ag-weights-message {
   display: block;
-  margin: 20px 20px 0 20px;
+  margin: 20px 20px 0;
 }
 
 .ag-weights-content .checkbox {
@@ -84,7 +103,17 @@
 }
 
 .ag-settings-weights-message {
-  margin: 0 0 20px 0;
+  margin: 0 0 20px;
+}
+
+.disable-sync-to-sis-message {
+  display: block;
+  margin: 20px 20px 0;
+}
+
+.sync-to-sis-message-content {
+  display: block;
+  margin: 20px;
 }
 
 .remove_never_drop {
@@ -109,7 +138,7 @@
 .show-by-label {
   // to match what we add to non-wrapped labels in bootstrap overrides
   vertical-align: -4px;
-  margin-right: 5px;
+  margin-#{direction(right)}: 5px;
 }
 
 .sortable-handle, .draggable-handle {
@@ -129,10 +158,10 @@
 }
 
 .sortable-handle {
-  margin: 0 0px 0 -30px;
-  padding: 0 0px 0 30px;
+  margin: direction-sides(0 0px 0 -30px);
+  padding: direction-sides(0 0px 0 30px);
   a {
-    padding: 20px 0px 10px 0px;
+    padding: 20px 0px 10px;
   }
 }
 
@@ -159,8 +188,8 @@
 .draggable-dropzone {
   height: 40px;
   background-color: lighten($ic-color-dark, 15%);
-  border-right: 1px dashed $ic-border-dark;
-  border-left: 1px dashed $ic-border-dark;
+  border-#{direction(right)}: 1px dashed $ic-border-dark;
+  border-#{direction(left)}: 1px dashed $ic-border-dark;
 }
 
 .ag-header-controls .tooltip_link {
@@ -172,7 +201,7 @@
 }
 
 .row-fluid span.grade-display {
-  margin-left: 9%;
+  margin-#{direction(left)}: 9%;
 }
 
 .accessible-toggler {
@@ -189,5 +218,43 @@
   .icon-sis-imported:before {
     font-size: 1.5rem;
     vertical-align: middle;
+  }
+}
+
+.new_quiz_lti_wrapper {
+  display: inline-block;
+  margin-#{direction(right)}: 6px;
+  padding-#{direction(right)}: 10px;
+  border-#{direction(right)}: 1px solid $ic-color-medium-lighter;
+}
+
+/* support for master class locked input fields */
+form[data-view='edit-assignment'] {
+  h3 {
+    margin: 5px 8px;
+    font-weight: bold;
+    font-size: 1em;
+  }
+  @include readonly-input;
+
+  .date_field_container.readonly {
+    input.datetime_field {
+      margin-top: -3px;
+    }
+    button.ui-datepicker-trigger, .datetime_suggest {
+      display: none;
+    }
+  }
+
+  input[name='points_possible'][readonly] {
+    margin-top: -3px;
+  }
+}
+
+.duplicate-failed-actions {
+  margin: 0.5rem 0 0;
+
+  form {
+    margin: 0;
   }
 }

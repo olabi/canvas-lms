@@ -1,10 +1,27 @@
-define([
-  'i18n!account_settings',
-  'jquery',
-  'jsx/shared/rce/RichContentEditor',
-  'jquery.instructure_forms', // errorBox, validateForm
-  'jquery.instructure_misc_plugins' // confirmDelete, showIf
-], function(I18n, $, RichContentEditor) {
+/*
+ * Copyright (C) 2016 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import I18n from 'i18n!account_settings'
+import $ from 'jquery'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import './jquery.instructure_forms'
+import './jquery.instructure_misc_plugins'
+
   // optimization so user isn't waiting on RCS to
   // respond when they hit announcements
   RichContentEditor.preloadRemoteModule()
@@ -12,7 +29,7 @@ define([
   // account_settings.js mixes a lot of dom management for each of it's
   // tabs, so this file is meant to encapsulate just the javascript
   // used for working with the Announcements tab
-  return {
+export default {
     bindDomEvents: function(){
       $(".add_notification_toggle_focus").click(function() {
         var aria_expanded = $('add_notification_form').attr('aria-expanded') === "true";
@@ -62,7 +79,7 @@ define([
       });
 
       $("#account_notification_required_account_service").click(function(event) {
-        $this = $(this);
+        var $this = $(this);
         $("#confirm_global_announcement_field").showIf(!$this.is(":checked"));
         $("#account_notification_months_in_display_cycle").prop("disabled", !$this.is(":checked"));
       });
@@ -88,4 +105,3 @@ define([
       })
     }
   };
-});

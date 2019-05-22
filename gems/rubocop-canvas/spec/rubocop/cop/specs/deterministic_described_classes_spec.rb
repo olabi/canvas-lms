@@ -1,9 +1,26 @@
+#
+# Copyright (C) 2017 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 describe RuboCop::Cop::Specs::DeterministicDescribedClasses do
   subject(:cop) { described_class.new }
 
   shared_examples "relative describe constants" do
     before do
-      inspect_source(cop, source)
+      inspect_source(source)
     end
 
     let(:preamble) { "" }
@@ -80,7 +97,7 @@ describe RuboCop::Cop::Specs::DeterministicDescribedClasses do
 
   context "at the top level" do
     it 'allows describe constants' do
-      inspect_source(cop, %{
+      inspect_source(%{
         describe Foo
       })
       expect(cop.offenses.size).to eq(0)
@@ -88,7 +105,7 @@ describe RuboCop::Cop::Specs::DeterministicDescribedClasses do
   end
 
   it "allows describe strings inside a module" do
-    inspect_source(cop, %{
+    inspect_source(%{
       module Foo
         describe "bar"
       end
@@ -97,7 +114,7 @@ describe RuboCop::Cop::Specs::DeterministicDescribedClasses do
   end
 
   it "allows top-level describe constants inside a module" do
-    inspect_source(cop, %{
+    inspect_source(%{
       module Foo
         describe ::Bar
       end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -81,6 +81,11 @@
 #           "description": "optional details about the job",
 #           "example": "17 courses processed",
 #           "type": "string"
+#         },
+#         "results": {
+#           "description": "optional results of the job. omitted when job is still pending",
+#           "example": { "id": "123" },
+#           "type": "object"
 #         },
 #         "url": {
 #           "description": "url where a progress update can be retrieved",

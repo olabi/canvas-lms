@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'canvas/draft_state_validations'
 
 module Canvas
@@ -17,6 +34,15 @@ module Canvas
 
   def self.redis
     raise "Redis is not enabled for this install" unless Canvas.redis_enabled?
+    if redis_config == 'cache_store' || redis_config.is_a?(Hash) && redis_config['servers'] == 'cache_store'
+      raw_redis = Rails.cache.data
+      wrapped_redis = raw_redis.instance_variable_get(:@wrapped_redis)
+      unless wrapped_redis
+        wrapped_redis = RedisWrapper.new(raw_redis)
+        raw_redis.instance_variable_set(:@wrapped_redis, wrapped_redis)
+      end
+      return wrapped_redis
+    end
     @redis ||= begin
       Bundler.require 'redis'
       Canvas::Redis.patch
@@ -25,21 +51,27 @@ module Canvas
     end
   end
 
-  # Builds a redis object using a config hash in the format used by a couple
-  # different config/*.yml files, like redis.yml, cache_store.yml and
-  # delayed_jobs.yml
-  def self.redis_from_config(redis_settings)
-    RedisConfig.from_settings(redis_settings).redis
+  def self.redis_config
+    @redis_config ||= ConfigFile.load('redis')
   end
 
   def self.redis_enabled?
-    @redis_enabled ||= ConfigFile.load('redis').present?
+    @redis_enabled ||= redis_config.present?
   end
 
+  # technically this is jsut disconnect_redis, because new connections are created lazily,
+  # but I didn't want to rename it when there are several uses of it
   def self.reconnect_redis
-    if Rails.cache && Rails.cache.respond_to?(:reconnect)
+    if Rails.cache &&
+      defined?(ActiveSupport::Cache::RedisStore) &&
+      Rails.cache.is_a?(ActiveSupport::Cache::RedisStore)
       Canvas::Redis.handle_redis_failure(nil, "none") do
-        Rails.cache.reconnect
+        store = Rails.cache.data
+        if store.respond_to?(:nodes)
+          store.nodes.each(&:disconnect!)
+        else
+          store.disconnect!
+        end
       end
     end
 
@@ -50,79 +82,47 @@ module Canvas
     @redis = nil
   end
 
-  def self.cache_stores
-    unless @cache_stores
-      # this method is called really early in the bootup process, and
-      # autoloading might not be available yet, so we need to manually require
-      # Config
-      require_dependency 'lib/config_file'
-      @cache_stores = {}
-      configs = ConfigFile.load('cache_store', nil) || {}
+  def self.cache_store_config_for(cluster)
+    yaml_config = ConfigFile.load("cache_store", cluster)
+    consul_config = YAML.load(Canvas::DynamicSettings.find(tree: :private, cluster: cluster)["cache_store.yml"] || "{}") || {}
+    consul_config = consul_config.with_indifferent_access if consul_config.is_a?(Hash)
 
-      # sanity check the file
-      unless configs.is_a?(Hash)
-        raise <<-EOS
-          Invalid config/cache_store.yml: Root is not a hash. See comments in
-          config/cache_store.yml.example
-        EOS
-      end
+    consul_config.presence || yaml_config
+  end
 
-      non_hashes = configs.keys.select { |k| !configs[k].is_a?(Hash) }
-      non_hashes.reject! { |k| configs[k].is_a?(String) && configs[configs[k]].is_a?(Hash) }
-      unless non_hashes.empty?
-        raise <<-EOS
-          Invalid config/cache_store.yml: Some keys are not hashes:
-          #{non_hashes.join(', ')}. See comments in
-          config/cache_store.yml.example
-        EOS
-      end
-
-      configs.each do |env, config|
-        if config.is_a?(String)
-          # switchman will treat strings as a link to another database server
-          @cache_stores[env] = config
-          next
-        end
-        config = {'cache_store' => 'mem_cache_store'}.merge(config)
-        case config.delete('cache_store')
-        when 'mem_cache_store'
-          config['namespace'] ||= config['key']
-          servers = config['servers'] || (ConfigFile.load('memcache', env))
-          if servers
-            @cache_stores[env] = :mem_cache_store, servers, config
-          end
-        when 'redis_store'
-          Bundler.require 'redis'
-          require_dependency 'canvas/redis'
-          Canvas::Redis.patch
-          # if cache and redis data are configured identically, we want to share connections
-          if config == {} && env == Rails.env && Canvas.redis_enabled?
-            # A bit of gymnastics to wrap an existing Redis::Store into an ActiveSupport::Cache::RedisStore
-            store = ActiveSupport::Cache::RedisStore.new([])
-            store.instance_variable_set(:@data, Canvas.redis.__getobj__)
-            @cache_stores[env] = store
-          else
-            # merge in redis.yml, but give precedence to cache_store.yml
-            #
-            # the only options currently supported in redis-cache are the list of
-            # servers, not key prefix or database names.
-            config = (ConfigFile.load('redis', env) || {}).merge(config)
-            config_options = config.symbolize_keys.except(:key, :servers, :database)
-            servers = config['servers']
-            if servers
-              servers = config['servers'].map { |s| Canvas::RedisConfig.url_to_redis_options(s).merge(config_options) }
-              @cache_stores[env] = :redis_store, servers
-            end
-          end
-        when 'memory_store'
-          @cache_stores[env] = :memory_store
-        when 'nil_store'
-          @cache_stores[env] = :null_store
+  def self.lookup_cache_store(config, cluster)
+    config = {'cache_store' => 'nil_store'}.merge(config)
+    case config.delete('cache_store')
+    when 'redis_store'
+      Bundler.require 'redis'
+      require_dependency 'canvas/redis'
+      Canvas::Redis.patch
+      # if cache and redis data are configured identically, we want to share connections
+      if config == {} && cluster == Rails.env && Canvas.redis_enabled?
+        # A bit of gymnastics to wrap an existing Redis::Store into an ActiveSupport::Cache::RedisStore
+        store = ActiveSupport::Cache::RedisStore.new([])
+        store.instance_variable_set(:@data, Canvas.redis.__getobj__)
+        # yes, this would appear to be a no-op, but it allows switchman to add per-shard namespacing
+        ActiveSupport::Cache.lookup_store(store)
+      else
+        # merge in redis.yml, but give precedence to cache_store.yml
+        #
+        # the only options currently supported in redis-cache are the list of
+        # servers, not key prefix or database names.
+        redis_config = (ConfigFile.load('redis', cluster) || {})
+        config = redis_config.merge(config) if redis_config.is_a?(Hash)
+        config_options = config.symbolize_keys.except(:key, :servers, :database)
+        servers = config.delete('servers')
+        if servers
+          servers = servers.map { |s| Canvas::RedisConfig.url_to_redis_options(s).merge(config_options) }
+          ActiveSupport::Cache.lookup_store(:redis_store, servers, config.symbolize_keys)
         end
       end
-      @cache_stores[Rails.env] ||= :null_store
+    when 'memory_store'
+      ActiveSupport::Cache.lookup_store(:memory_store)
+    when 'nil_store', 'null_store'
+      ActiveSupport::Cache.lookup_store(:null_store)
     end
-    @cache_stores
   end
 
   # `sample` reports KB, not B

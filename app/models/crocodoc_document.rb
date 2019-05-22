@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,13 +12,15 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 require 'crocodoc'
 
 class CrocodocDocument < ActiveRecord::Base
+  include Canvadocs::Session
+
   belongs_to :attachment
 
   has_many :canvadocs_submissions
@@ -37,7 +39,7 @@ class CrocodocDocument < ActiveRecord::Base
   def upload
     return if uuid.present?
 
-    url = attachment.authenticated_s3_url(expires_in: 1.day)
+    url = attachment.public_url(expires_in: 1.day)
 
     begin
       response = Canvas.timeout_protection("crocodoc_upload", raise_on_timeout: true) do
@@ -58,7 +60,30 @@ class CrocodocDocument < ActiveRecord::Base
     end
   end
 
+  def should_migrate_to_canvadocs?
+    account_context = attachment.context.try(:account) || attachment.context.try(:root_account)
+    account_context.present? && account_context.migrate_to_canvadocs?
+  end
+
+  def canvadocs_can_annotate?(user)
+    user != nil
+  end
+  private :canvadocs_can_annotate?
+
+  def document_id
+    uuid
+  end
+  private :document_id
+
+  def canvadoc_options
+    {
+      migrate_crocodoc: true
+    }
+  end
+  private :canvadoc_options
+
   def session_url(opts = {})
+    return canvadocs_session_url opts.merge(canvadoc_options) if should_migrate_to_canvadocs?
     defaults = {
       :annotations => true,
       :downloadable => true,
@@ -73,7 +98,8 @@ class CrocodocDocument < ActiveRecord::Base
       opts[:user] = user.crocodoc_user
     end
 
-    opts.merge! permissions_for_user(user, opts[:crocodoc_ids])
+    crocodoc_ids = opts[:moderated_grading_whitelist]&.map {|h| h["crocodoc_id"] }
+    opts.merge! permissions_for_user(user, crocodoc_ids)
 
     unless annotations_on
       opts[:filter] = 'none'

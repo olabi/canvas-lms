@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -41,7 +41,7 @@ class UsageRights < ActiveRecord::Base
   end
 
   def license_name
-    self.class.licenses[license || 'private'][:readable_license]
+    self.class.licenses[license || 'private'][:readable_license].call
   end
 
   def license_url

@@ -1,5 +1,5 @@
-
-# Copyright (C) 2012 Instructure, Inc.
+#
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,8 +18,12 @@
 
 require File.expand_path(File.dirname(__FILE__) + '/../../api_spec_helper')
 require File.expand_path(File.dirname(__FILE__) + '/../../locked_spec')
+require File.expand_path(File.dirname(__FILE__) + '/../../../file_upload_helper')
+
 
 describe Quizzes::QuizzesApiController, type: :request do
+
+  include FileUploadHelper
 
   context 'locked api item' do
     let(:item_type) { 'quiz' }
@@ -213,7 +217,7 @@ describe Quizzes::QuizzesApiController, type: :request do
     context "unpublished quiz" do
       before do
         @quiz = @course.quizzes.create! :title => 'title'
-        @quiz.quiz_questions.create!(:question_data => { :name => "test 1" })
+        @quiz.quiz_questions.create!(:question_data => { :name => "test 1", :question_type => "essay_question" })
         @quiz.save!
 
         @json = api_call(:get, "/api/v1/courses/#{@course.id}/quizzes/#{@quiz.id}",
@@ -234,21 +238,34 @@ describe Quizzes::QuizzesApiController, type: :request do
                         'Accept' => 'application/vnd.api+json')
         @json = @json.fetch('quizzes').map { |q| q.with_indifferent_access }
         expect(@json).to match_array [
-          Quizzes::QuizSerializer.new(@quiz, scope: @user, controller: controller, session: session).
+          Quizzes::QuizApiSerializer.new(@quiz, scope: @user, controller: controller, session: session).
           as_json[:quiz].with_indifferent_access
         ]
       end
     end
 
-    context "non-existent quiz" do
-      before do
-        @json = api_call(:get, "/api/v1/courses/#{@course.id}/quizzes/10101",
-                        {:controller=>"quizzes/quizzes_api", :action=>"show", :format=>"json", :course_id=>"#{@course.id}", :id => "10101"},
-                        {}, {}, {:expected_status => 404})
+    context "non-jsonapi style request" do
+      let(:quiz) { @course.quizzes.create! title: 'Test Quiz' }
+      let(:json) do
+        json = api_call(:get, "/api/v1/courses/#{@course.id}/quizzes/#{quiz.id}",
+          { :controller=>"quizzes/quizzes_api", :action=>"show", :format=>"json", :course_id=>"#{@course.id}", :id => "#{quiz.id}"}, {})
+        json.with_indifferent_access
       end
 
+      it "renders with QuizApiSerializer" do
+        expect(json).to eq(
+          Quizzes::QuizApiSerializer.new(quiz, scope: @user, controller: controller, session: session).
+          as_json[:quiz].with_indifferent_access
+        )
+      end
+    end
+
+    context "non-existent quiz" do
       it "should return a not found error message" do
-        expect(@json.inspect).to include "does not exist"
+        json = api_call(:get, "/api/v1/courses/#{@course.id}/quizzes/10101",
+                       {:controller=>"quizzes/quizzes_api", :action=>"show", :format=>"json", :course_id=>"#{@course.id}", :id => "10101"},
+                       {}, {}, {:expected_status => 404})
+        expect(json.inspect).to include "does not exist"
       end
     end
   end
@@ -275,7 +292,7 @@ describe Quizzes::QuizzesApiController, type: :request do
         @course.reload
         @quiz = @course.quizzes.first
         expect(@json).to match_array [
-          Quizzes::QuizSerializer.new(@quiz, scope: @user, controller: controller, session: session).
+          Quizzes::QuizApiSerializer.new(@quiz, scope: @user, controller: controller, session: session).
           as_json[:quiz].with_indifferent_access
         ]
       end
@@ -423,9 +440,17 @@ describe Quizzes::QuizzesApiController, type: :request do
           expect(new_quiz.allowed_attempts).to eq 1
         end
       end
+
+      it 'removes domain from URLs in description' do
+        file = create_fixture_attachment(@course, 'test_image.jpg')
+        file_link = get_file_link(file)
+        api_create_quiz({description: file_link})
+        link_without_domain = "<a href=\"/courses/#{@course.id}/files/#{file.id}/download\">Link</a>"
+        expect(Quizzes::Quiz.last.description).to eq(link_without_domain)
+      end
     end
 
-    context "with multiple grading periods enabled" do
+    context "with grading periods" do
       def call_create(params, expected_status)
         api_call_as_user(
           @current_user,
@@ -444,7 +469,6 @@ describe Quizzes::QuizzesApiController, type: :request do
 
       before :once do
         teacher_in_course(active_all: true)
-        @course.root_account.enable_feature!(:multiple_grading_periods)
         grading_period_group = Factories::GradingPeriodGroupHelper.new.create_for_account(@course.root_account)
         term = @course.enrollment_term
         term.grading_period_group = grading_period_group
@@ -567,6 +591,14 @@ describe Quizzes::QuizzesApiController, type: :request do
       expect(updated_quiz.only_visible_to_overrides).to eq false
     end
 
+    it 'removes domain from URLs' do
+      file = create_fixture_attachment(@course, 'test_image.jpg')
+      file_link = get_file_link(file)
+      api_update_quiz({}, {description: file_link})
+      link_without_domain = "<a href=\"/courses/#{@course.id}/files/#{file.id}/download\">Link</a>"
+      expect(Quizzes::Quiz.last.description).to eq(link_without_domain)
+    end
+
     context "jsonapi style request" do
 
       it "renders in a jsonapi style" do
@@ -575,7 +607,7 @@ describe Quizzes::QuizzesApiController, type: :request do
                          { :controller=>"quizzes/quizzes_api", :action=>"update", :format=>"json", :course_id=>"#{@course.id}", :id => "#{@quiz.id}"},
                          { quizzes: [{ 'id' => @quiz.id, 'title' => 'blah blah' }] },
                         'Accept' => 'application/vnd.api+json')
-        expect(response).to be_success
+        expect(response).to be_successful
       end
     end
 
@@ -595,6 +627,13 @@ describe Quizzes::QuizzesApiController, type: :request do
       it "updates anonymous_submissions" do
         api_update_quiz({}, {anonymous_submissions: true})
         expect(updated_quiz.anonymous_submissions).to eq true
+      end
+    end
+
+    context 'points_possible' do
+      it "updates points_possible for graded surveys" do
+        api_update_quiz({quiz_type: "graded_survey", points_possible: 123.0}, {points_possible: 321.0})
+        expect(updated_quiz.points_possible).to eq 321.0
       end
     end
 
@@ -645,7 +684,7 @@ describe Quizzes::QuizzesApiController, type: :request do
         api_update_quiz({},{published: nil}) # nil shouldn't change published
         expect(@quiz.reload).to be_published
 
-        @quiz.any_instantiation.stubs(:has_student_submissions?).returns true
+        allow_any_instantiation_of(@quiz).to receive(:has_student_submissions?).and_return true
         json = api_update_quiz({},{}) # nil shouldn't change published
         expect(json['unpublishable']).to eq false
 
@@ -741,7 +780,7 @@ describe Quizzes::QuizzesApiController, type: :request do
       end
     end
 
-    context "with multiple grading periods enabled" do
+    context "with grading periods" do
       def create_quiz(attr)
         @course.quizzes.create!({ title: "Example Quiz", quiz_type: "assignment" }.merge(attr))
       end
@@ -775,7 +814,6 @@ describe Quizzes::QuizzesApiController, type: :request do
 
       before :once do
         teacher_in_course(active_all: true)
-        @course.root_account.enable_feature!(:multiple_grading_periods)
         grading_period_group = Factories::GradingPeriodGroupHelper.new.create_for_account(@course.root_account)
         term = @course.enrollment_term
         term.grading_period_group = grading_period_group
@@ -791,11 +829,39 @@ describe Quizzes::QuizzesApiController, type: :request do
           @current_user = @teacher
         end
 
+        it "should allow changing due_at and lock_at with 'fancy midnight'" do
+          quiz_params = {due_at: 'Sun, 18 Mar 2018', lock_at: 'Sun, 18 Mar 2018', unlock_at: 'Fri, 16 Mar 2018', quiz_type: 'assignment'}
+          api_params = {due_at: 'Sat, 17 Mar 2018', lock_at: 'Sat, 17 Mar 2018', unlock_at: 'Fri, 16 Mar 2018'}
+          api_update_quiz(quiz_params, api_params, expected_status: 200)
+          expect(@quiz.reload.due_at.iso8601).to eq('2018-03-17T23:59:59Z')
+          expect(@quiz.reload.lock_at.iso8601).to eq('2018-03-17T23:59:59Z')
+        end
+
+        it "should allow changing due_at with 'fancy midnight'" do
+          quiz_params = {due_at: 'Sun, 18 Mar 2018', lock_at: 'Sun, 18 Mar 2018', unlock_at: 'Fri, 16 Mar 2018', quiz_type: 'assignment'}
+          api_params = {due_at: 'Sat, 17 Mar 2018'}
+          api_update_quiz(quiz_params, api_params, expected_status: 200)
+          expect(@quiz.reload.due_at.iso8601).to eq('2018-03-17T23:59:59Z')
+        end
+
+        it "should allow changing lock_at with 'fancy midnight'" do
+          quiz_params = {due_at: 'Sun, 18 Mar 2018', lock_at: 'Mon, 19 Mar 2018', unlock_at: 'Fri, 16 Mar 2018', quiz_type: 'assignment'}
+          api_params = {lock_at: 'Sun, 18 Mar 2018'}
+          api_update_quiz(quiz_params, api_params, expected_status: 200)
+          expect(@quiz.reload.lock_at.iso8601).to eq('2018-03-18T23:59:59Z')
+        end
+
         it "allows changing the due date to another date in an open grading period" do
           due_date = 3.days.from_now.iso8601
           @quiz = create_quiz(due_at: 7.days.from_now)
           call_update({ due_at: due_date }, 200)
           expect(@quiz.reload.due_at).to eq due_date
+        end
+
+        it "allows dates within the same minute to be considered equal" do
+          quiz_params = {due_at: 'Sun, 18 Mar 2018', lock_at: 'Sun, 18 Mar 2018', unlock_at: 'Fri, 16 Mar 2018', quiz_type: 'assignment'}
+          api_params = {due_at: '2018-03-27 23:59:59 ', lock_at: '2018-03-27 23:59:00'}
+          api_update_quiz(quiz_params, api_params, expected_status: 200)
         end
 
         it "allows changing the due date when the quiz is only visible to overrides" do

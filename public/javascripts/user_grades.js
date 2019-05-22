@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2015 Instructure, Inc.
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,19 +12,17 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'jquery',
-  'i18n!user_grades',
-  'jquery.ajaxJSON'
-], function($, I18n) {
+import $ from 'jquery'
+import I18n from 'i18n!user_grades'
+import './jquery.ajaxJSON'
   $(document).ready(function() {
     $(".grading_periods_selector").each(function () {
       var $selector = $(this),
-          selectedOption = $selector.find('option[selected]').val();
+          selectedOption = $selector.find('option:selected').val();
       $selector.val(selectedOption);
     });
 
@@ -57,4 +55,3 @@ define([
 
     });
   });
-});

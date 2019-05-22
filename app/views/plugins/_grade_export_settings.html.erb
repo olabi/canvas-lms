@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <%= fields_for :settings, OpenObject.new(settings) do |f| %>
   <table style="width: 500px;" class="formtable">
     <tr>
@@ -12,6 +30,8 @@ For example, the Instructure formatted CSV will POST a csv file with mime type '
 (Note: the "grade" column is only returned if the course specifies a grading standard)
 
 For each student in the course being published, there will be 1 or more rows in the published csv. Specifically, there will be 1 row for each login that the student has in the course's root account.  Most of the time this will result in 1 row per student, but if the student has multiple logins, there will be a row for each of them.
+
+If "Include final grade overrides" is checked, and the feature for Final Grade Override is enabled, students with an override grade/score will receive that in place of the calculated score and grade.
 TEXT
         %>
       </td>
@@ -27,6 +47,10 @@ TEXT
     <tr>
       <td colspan=2><%= f.check_box :wait_for_success, {}, 'yes', 'no' %>
       <%= f.label :wait_for_success, :en => "Wait for success notifications" %></td>
+    </tr>
+    <tr>
+      <td colspan=2><%= f.check_box :include_final_grade_overrides, {}, "yes", "no" %>
+      <%= f.label :include_final_grade_overrides, :en => "Include final grade overrides" %></td>
     </tr>
     <tr>
       <td><%= f.blabel :success_timeout, :en => "Success notification timeout (in seconds)" %></td>

@@ -1,4 +1,22 @@
 /*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
 @styleguide Tab Navigation
 
 
@@ -63,13 +81,13 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
       box-shadow: none;
       a {
         @include ic-focus-base;
-        color: $ic-link-color;
+        color: var(--ic-link-color);
         font-weight: normal;
         padding: 8px 14px;
         text-shadow: none;
         @if $use_high_contrast { text-decoration: underline; }
         &:focus {
-          @if $use_high_contrast { @include ic-focus-variant($ic-link-color, -4px); }
+          @if $use_high_contrast { @include ic-focus-variant(var(--ic-link-color), -4px); }
           @else {
             text-decoration: underline;
             outline: none;
@@ -88,7 +106,7 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
           @if $use_high_contrast { text-decoration: none; }
 
           // special handling for Calendar tabs with solid-color header backgrounds
-          #edit_event & { color: $ic-link-color; }
+          #edit_event & { color: var(--ic-link-color); }
         }
       }
       &.ui-state-focus,
@@ -97,7 +115,7 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
         border-color: $ic-border-light;
         background: $ic-color-light;
         a {
-          @if $use_high_contrast { @include ic-focus-variant($ic-link-color, -4px); }
+          @if $use_high_contrast { @include ic-focus-variant(var(--ic-link-color), -4px); }
           @else {
             text-decoration: underline;
             outline: none;
@@ -130,8 +148,8 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
   &.ui-tabs-minimal {
     .ui-tabs-panel {
       border-width: 0;
-      padding-left: 0;
-      padding-right: 0;
+      padding-#{direction(left)}: 0;
+      padding-#{direction(right)}: 0;
       padding-bottom: 0;
     }
   }

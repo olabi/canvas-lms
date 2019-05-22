@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -73,8 +73,8 @@
 class GradingStandardsApiController < ApplicationController
   include Api::V1::GradingStandard
 
-  before_filter :require_user
-  before_filter :require_context
+  before_action :require_user
+  before_action :require_context
 
   # @API Create a new grading standard
   # Create a new grading standard
@@ -147,7 +147,7 @@ class GradingStandardsApiController < ApplicationController
 
   # @API List the grading standards available in a context.
   #
-  # Returns the list of grading standards in the given context that are visible to user.
+  # Returns the paginated list of grading standards for the given context that are visible to the user.
   #
   # @example_request
   #   curl https://<canvas>/api/v1/courses/1/grading_standards \
@@ -163,14 +163,31 @@ class GradingStandardsApiController < ApplicationController
     end
   end
 
+  # @API Get a single grading standard in a context.
+  #
+  # Returns a grading standard for the given context that is visible to the user.
+  #
+  # @example_request
+  #   curl https://<canvas>/api/v1/courses/1/grading_standards/5 \
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @returns GradingStandard
+  def context_show
+    if authorized_action(@context, @current_user, :read)
+      grading_standard = @context.grading_standards.find(params[:grading_standard_id])
+      render json: grading_standard_json(grading_standard, @current_user, session)
+    end
+  end
+
   private
 
   def build_grading_scheme(params)
     grading_standard_params = params.permit('title')
-    grading_standard_params['standard_data']={}
+    grading_standard_params['standard_data'] = {}
+    grading_standard_params['standard_data'].permit!
     if params['grading_scheme_entry']
       params['grading_scheme_entry'].each_with_index do |scheme, index|
-        grading_standard_params['standard_data']["scheme_#{index}"] = scheme
+        grading_standard_params['standard_data']["scheme_#{index}"] = scheme.permit(:name, :value)
       end
     end
     grading_standard_params

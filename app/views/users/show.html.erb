@@ -1,3 +1,24 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
+  js_env ga_page_title: "User"
+%>
 <% content_for :page_title do %><%= @user.short_name %><% end %>
 
 <% content_for :right_side do %>
@@ -11,12 +32,18 @@
         <%= t('buttons.faculty_journal_for', 'Faculty Journal for %{user}', :user => context_user_name(@context, @user)) %>
       </a>
     <% end %>
+    <% if @context_account.is_a?(Account) &&
+          @user.grants_right?(@current_user, :generate_observer_pairing_code) &&
+          @user.has_student_enrollment? &&
+          @context_account.root_account.self_registration? %>
+      <div id="pairing-code"></div>
+    <% end %>
   </div>
 <% end %>
 <div>
   <h1 class="screenreader-only"><%= t(:page_header_title, "User Profile") %></h1>
   <% if @context_account.is_a?(Account) && @context_account.has_outcomes? %>
-    <div style="float: right;">
+    <div style="float: <%= direction('right') %>;">
       <div>
         <a href="<%= context_url(@context_account, :context_user_outcomes_results_url, @user.id) %>" class=""><%= t('see_outcomes', 'See Outcome Results for %{user}', :user => @user.short_name) %></a>
       </div>
@@ -29,8 +56,8 @@
     margin-bottom: 2em;
   }
   #user-info-fieldsets table th{
-    text-align: left;
-    padding-right: 2em;
+    text-align: <%= direction('left') %>;
+    padding-<%= direction('right') %>: 2em;
   }
   ul.context_list .subtitle {
     line-height: 1.0em;
@@ -38,7 +65,7 @@
 </style>
 <% end %>
 
-<% css_bundle :roster_user, :context_list %>
+<% css_bundle :roster_user, :context_list, :pairing_code %>
 
 <div id="user-info-fieldsets">
   <%= render :partial => 'users/name' %>
@@ -50,7 +77,7 @@
     <div id="courses_list" style="<%= hidden if @enrollments.empty? %>">
       <h3><%= t('courses', 'Courses') %> <%= count_if_any(@enrollments.count) %></h3>
       <div class="courses" style="font-size: 1.2em">
-        <ul class="unstyled_list context_list" style="margin-left: 5px; font-size: 0.9em; margin-bottom: 10px; max-height: 200px; overflow: auto;">
+        <ul class="unstyled_list context_list" style="margin-<%= direction('left') %>: 5px; font-size: 0.9em; margin-bottom: 10px; max-height: 200px; overflow: auto;">
           <% @enrollments.each do |enrollment| %>
             <% num_enrollments += 1 %>
             <%= render :partial => "enrollment", :object => enrollment %>
@@ -58,11 +85,11 @@
         </ul>
       </div>
     </div>
-    <% if @user.all_accounts && !@user.all_accounts.empty? %>
-      <h3><%= t('accounts', 'Accounts') %> <%= count_if_any(@user.all_accounts.count) %></h3>
+    <% if @user.adminable_accounts && !@user.adminable_accounts.empty? %>
+      <h3><%= t('accounts', 'Accounts') %> <%= count_if_any(@user.adminable_accounts.count) %></h3>
       <div class="accounts" style="font-size: 1.2em">
-        <ul class="unstyled_list context_list" style="margin-left: 5px; font-size: 0.9em; margin-bottom: 10px; max-height: 200px; overflow: auto;">
-          <% @user.all_accounts.each do |account| %>
+        <ul class="unstyled_list context_list" style="margin-<%= direction('left') %>: 5px; font-size: 0.9em; margin-bottom: 10px; max-height: 200px; overflow: auto;">
+          <% @user.adminable_accounts.each do |account| %>
             <% num_enrollments += 1 %>
             <li>
               <a href="<%= url_for(account) %>">
@@ -77,7 +104,7 @@
     <% if !@group_memberships.empty? %>
       <h3><%= t('groups', 'Groups') %> <%= count_if_any(@group_memberships.count) %></h3>
       <div class="groups" style="font-size: 1.2em">
-        <ul class="unstyled_list context_list" style="margin-left: 5px; font-size: 0.9em; margin-bottom: 10px; max-height: 200px; overflow: auto;">
+        <ul class="unstyled_list context_list" style="margin-<%= direction('left') %>: 5px; font-size: 0.9em; max-width: 800px; margin-bottom: 10px; max-height: 200px; overflow: auto;">
           <% @group_memberships.each do |membership| %>
             <% num_enrollments += 1 %>
             <li>

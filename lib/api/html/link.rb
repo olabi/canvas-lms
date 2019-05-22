@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -55,7 +55,7 @@ module Api
       end
 
       def strip_verifier_params(local_link)
-        if local_link.include?('verifier=')
+        if local_link.include?('verifier=') && !local_link.match(%r{/assessment_questions/\d+/files/\d+})
           return local_link.gsub(VERIFIER_REGEX, '\1')
         end
 

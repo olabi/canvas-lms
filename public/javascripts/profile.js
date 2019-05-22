@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011-2013 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,26 +12,25 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'INST' /* INST */,
-  'i18n!profile',
-  'jquery' /* $ */,
-  'compiled/models/Pseudonym',
-  'compiled/util/AvatarWidget',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_date_and_time' /* datetimeString, time_field, datetime_field */,
-  'jquery.instructure_forms' /* formSubmit, formErrors, errorBox */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, fragmentChange, showIf */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData */,
-  'jqueryui/sortable' /* /\.sortable/ */,
-  'compiled/jquery.rails_flash_notifications'
-], function(INST, I18n, $, Pseudonym, AvatarWidget) {
+
+import INST from './INST'
+import I18n from 'i18n!profile'
+import $ from 'jquery'
+import Pseudonym from 'compiled/models/Pseudonym'
+import AvatarWidget from 'compiled/util/AvatarWidget'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' /* datetimeString, time_field, datetime_field */
+import './jquery.instructure_forms' /* formSubmit, formErrors, errorBox */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import './jquery.instructure_misc_plugins' /* confirmDelete, fragmentChange, showIf */
+import './jquery.loadingImg'
+import './jquery.templateData'
+import 'jqueryui/sortable'
+import 'compiled/jquery.rails_flash_notifications'
 
   var $edit_settings_link = $(".edit_settings_link");
 
@@ -333,10 +332,10 @@ define([
 
   $("#disable_mfa_link").click(function(event) {
     var $disable_mfa_link = $(this);
-    $.ajaxJSON($disable_mfa_link.attr('href'), 'DELETE', null, function() {
+    $.ajaxJSON($disable_mfa_link.attr('href'), 'DELETE', {}, function() {
       $.flashMessage(I18n.t('notices.mfa_disabled', "Multi-factor authentication disabled"));
       $disable_mfa_link.remove();
+      $('#otp_backup_codes_link').remove();
     });
     event.preventDefault();
   });
-});

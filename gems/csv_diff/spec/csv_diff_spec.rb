@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 
 describe CsvDiff::Diff do
@@ -59,6 +76,12 @@ pk1,col1,pk2,col2
 CSV
   end
 
+  def only_header_row
+    CSV.new(<<CSV, headers: true)
+pk1,col1,pk2,col2
+CSV
+  end
+
   context 'validation' do
     it 'rejects csvs without headers' do
       expect { subject.generate(csv1(headers: false), csv1) }.to raise_error(CsvDiff::Failure, /headers/)
@@ -72,6 +95,12 @@ CSV
 
     it 'requires at least one pk column to be present' do
       expect { subject.generate(missing_pk, missing_pk) }.to raise_error(CsvDiff::Failure, /primary key/)
+    end
+
+    it 'handles empty files' do
+      cb = ->(row) { row['col2'] = 'deleted' }
+      output = subject.generate(csv1, only_header_row, deletes: cb)
+      expect(output.read).to eq "pk1,col1,pk2,col2\na,b,c,deleted\n1,2,3,deleted\n"
     end
   end
 
@@ -128,5 +157,17 @@ CSV
     sorted_output = CSV.new(output, headers: true).read.to_a.sort
     expected_output = CSV.open(files+"/1.out.csv", headers: true).read.to_a.sort
     expect(sorted_output).to eq expected_output
+  end
+
+  it "returns a hash with a count if requested" do
+    subject = described_class.new(%w[user_id])
+    files = File.dirname(__FILE__)+"/files"
+    previous = CSV.open(files+"/1.prev.csv", headers: true)
+    current  = CSV.open(files+"/1.curr.csv", headers: true)
+    cb = ->(row) { row['state'] = 'deleted' }
+
+    hash = subject.generate(previous, current, deletes: cb, return_count: true)
+    expect(hash[:file_io].is_a?(Tempfile)).to be_truthy
+    expect(hash[:row_count]).to eq 29
   end
 end

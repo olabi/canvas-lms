@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ module QTI
     include CC::CCHelper
 
     attr_accessor :exporter
-    delegate :add_error, :set_progress, :export_object?, :add_exported_asset, :qti_export?, :course, :user, :create_key, :to => :exporter
+    delegate :add_error, :set_progress, :export_object?, :add_exported_asset, :for_course_copy, :qti_export?, :course, :user, :create_key, :to => :exporter
     delegate :referenced_files, :to => :@html_exporter
 
     def initialize(exporter)
@@ -95,6 +95,11 @@ module QTI
             end
           end
 
+          begin
+            Resource.new(self, manifest_node, resources).add_media_objects(@html_exporter)
+          rescue
+            add_error(I18n.t('course_exports.errors.resources', "Failed to link some resources."), $!)
+          end
         end
       end #manifest
 
@@ -128,7 +133,7 @@ module QTI
             node.imsmd :value, "yes"
           end
           rights.imsmd :description do |desc|
-            desc.imsmd :string, "#{course.license_data[:readable_license]} - #{course.license_data[:license_url]}"
+            desc.imsmd :string, "#{course.readable_license} - #{course.license_data[:license_url]}"
           end
         end
       end

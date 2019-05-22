@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,7 @@
 module Api::V1::Collaborator
   include Api::V1::Json
 
-  def collaborator_json(collaborator, current_user, session, options = {})
+  def collaborator_json(collaborator, current_user, session, options = {}, context: nil)
     includes = options[:include] || []
     api_json(collaborator, current_user, session, :only => %w{id}).tap do |hash|
       hash['type'] = collaborator.group_id.present? ? 'group' : 'user'
@@ -29,7 +29,7 @@ module Api::V1::Collaborator
         collaborator.group.id
 
       if includes.include?('collaborator_lti_id')
-        hash['collaborator_lti_id'] = collaborator.user ? Lti::Asset.opaque_identifier_for(collaborator.user) :
+        hash['collaborator_lti_id'] = collaborator.user ? Lti::Asset.opaque_identifier_for(collaborator.user, context: context) :
           Lti::Asset.opaque_identifier_for(collaborator.group)
       end
 

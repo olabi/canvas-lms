@@ -1,35 +1,55 @@
+/*
+ * Copyright (C) 2018 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+process.env.NODE_ENV = 'test'
+
 const path = require('path')
 const webpack = require('webpack')
 const testWebpackConfig = require('./frontend_build/baseWebpackConfig')
-const jspecEnv = require('./spec/jspec_env')
 
-// the ember specs don't play nice with the rest,
-// so we run them in totally seperate bundles
-testWebpackConfig.entry = (process.env.WEBPACK_TEST_BUNDLE === 'ember')
-  ? {WebpackedEmberSpecs: './spec/javascripts/webpack_ember_spec_index.js'}
-  : {WebpackedSpecs: './spec/javascripts/webpack_spec_index.js'}
+testWebpackConfig.entry = undefined
 
-testWebpackConfig.output.path = path.resolve(__dirname, 'spec/javascripts/webpack')
-testWebpackConfig.output.publicPath = '/base/spec/javascripts/webpack/'
-testWebpackConfig.output.filename = '[name].bundle.test.js';
+testWebpackConfig.plugins.push(new webpack.EnvironmentPlugin({
+  JSPEC_PATH: null,
+  JSPEC_GROUP: null,
+  A11Y_REPORT: false,
+  SENTRY_DSN: null,
+  GIT_COMMIT: null
+}))
 
-testWebpackConfig.plugins = testWebpackConfig.plugins.concat([
-  // expose a 'qunit' global variable to any file that uses it
-  new webpack.ProvidePlugin({qunit: 'qunitjs'}),
+if (process.env.SENTRY_DSN) {
+  const SentryCliPlugin = require('@sentry/webpack-plugin');
+  testWebpackConfig.plugins.push(new SentryCliPlugin({
+    release: process.env.GIT_COMMIT,
+    include: [
+      path.resolve(__dirname, 'public/javascripts'),
+      path.resolve(__dirname, 'app/jsx'),
+      path.resolve(__dirname, 'app/coffeescripts'),
+      path.resolve(__dirname, 'spec/javascripts/jsx'),
+      path.resolve(__dirname, 'spec/coffeescripts')
+    ],
+    ignore: [
+      path.resolve(__dirname, 'public/javascripts/translations'),
+      /bower\//
+    ]
+  }));
+}
 
-  new webpack.DefinePlugin(jspecEnv)
-]);
-
-// These externals are necessary for Enzyme
-// See http://airbnb.io/enzyme/docs/guides/webpack.html
-testWebpackConfig.externals = testWebpackConfig.externals || {};
-testWebpackConfig.externals['react-dom/server'] = 'window';
-testWebpackConfig.externals['react/lib/ReactContext'] = 'true';
-testWebpackConfig.externals['react/lib/ExecutionEnvironment'] = 'true';
-
-testWebpackConfig.resolve.alias.qunit = 'qunitjs';
-testWebpackConfig.resolve.modules.push(path.resolve(__dirname, 'spec/coffeescripts'))
-testWebpackConfig.resolve.modules.push(path.resolve(__dirname, 'spec/javascripts/support'))
 testWebpackConfig.resolve.alias['spec/jsx'] = path.resolve(__dirname, 'spec/javascripts/jsx')
 
 testWebpackConfig.module.rules.unshift({
@@ -46,26 +66,8 @@ testWebpackConfig.module.rules.unshift({
   // inside of a closure, without truly making them globals.
   // We should get rid of this and just change our actual source to s/test/qunit.test/ and s/module/qunit.module/
   loaders: [
-    'imports-loader?test=>qunit.test',
-    'imports-loader?asyncTest=>qunit.asyncTest',
-    'imports-loader?start=>qunit.start',
-    'qunitDependencyLoader'
+    'imports-loader?test=>QUnit.test',
   ]
 })
-
-// For easier local debugging in karma, only add istambul cruft if running on jenkins
-// or you've explicity set the "JS_CODE_COVERAGE" environment variable
-if (process.env.JENKINS_HOME || process.env.JS_CODE_COVERAGE) {
-  testWebpackConfig.module.rules.unshift({
-    test: /(jsx.*(\.js$|\.jsx$)|\.coffee$|public\/javascripts\/.*\.js$)/,
-    exclude: /(node_modules|spec|public\/javascripts\/(bower|client_apps|compiled|jst|jsx|translations|vendor))/,
-    loader: 'istanbul-instrumenter-loader'
-  })
-}
-
-testWebpackConfig.module.noParse = testWebpackConfig.module.noParse.concat([
-  /\/sinon-1.17.2.js/,
-  /\/axe.js/
-])
 
 module.exports = testWebpackConfig

@@ -1,6 +1,6 @@
 # encoding: UTF-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -161,6 +161,7 @@ describe Quizzes::QuizSubmission do
         v = qs.versions.current.model
         expect(v.score).to eq 45
         expect(v.fudge_points).to eq -5
+        expect(qs.submission.unread?(@student)).to eq true
       end
 
       context 'on a graded_survey' do
@@ -189,7 +190,7 @@ describe Quizzes::QuizSubmission do
       it "should not allow updating scores on an uncompleted submission" do
         qs = @quiz.generate_submission(@student)
         expect(qs).to be_untaken
-        expect { qs.update_scores }.to raise_error
+        expect { qs.update_scores({}) }.to raise_error("Can't update submission scores unless it's completed")
       end
 
       it "should update scores for a previous submission" do
@@ -222,7 +223,7 @@ describe Quizzes::QuizSubmission do
         qs.backup_submission_data({ "question_1" => "" }) # simulate k/v pairs we store for quizzes in progress
         expect(qs.reload.attempt).to eq 2
 
-        expect { qs.update_scores }.to raise_error
+        expect { qs.update_scores({}) }.to raise_error("Can't update submission scores unless it's completed")
         expect { qs.update_scores(:submission_version_number => 1, :fudge_points => 1, :question_score_1 => 0) }.not_to raise_error
 
         expect(qs).to be_untaken
@@ -266,6 +267,16 @@ describe Quizzes::QuizSubmission do
 
         # now when a score is updated we have a real grader associated!
         expect(qs.submission.reload.grader_id).to eq @user.id
+      end
+
+      it "should save a new version of submission" do
+        qs = @quiz.generate_submission(@user)
+        qs.submission_data = { "question_1" => "1658" }
+        Quizzes::SubmissionGrader.new(qs).grade_submission
+
+        qs.reload
+        expect { qs.update_scores(:submission_version_number => 1, :fudge_points => 3) }.
+          to change { qs.submission.versions.count }.by 1
       end
     end
 
@@ -873,7 +884,7 @@ describe Quizzes::QuizSubmission do
       let(:questions) { [question1, question2] }
 
       before do
-        submission.stubs(:questions).returns(questions)
+        allow(submission).to receive(:questions).and_return(questions)
       end
 
       it "returns the question matching the passed in ID" do
@@ -903,7 +914,7 @@ describe Quizzes::QuizSubmission do
       let(:submission) { @quiz.quiz_submissions.build }
 
       before do
-        submission.stubs(:temporary_data).returns \
+        allow(submission).to receive(:temporary_data).and_return \
           'question_1' => 'A',
           'question_2' => '',
           'question_3_123456abcdefghijklmnopqrstuvwxyz' => 'A',
@@ -1135,13 +1146,11 @@ describe Quizzes::QuizSubmission do
           s.score = 10
           s.save(:validate => false)
         end
-        expect(submission.version_number).to eq 1
 
         submission.with_versioning(true) do |s|
           s.score = 15
           s.save(:validate => false)
         end
-        expect(submission.version_number).to eq 2
       end
 
       it "updates a previous version given current attributes" do
@@ -1286,7 +1295,7 @@ describe Quizzes::QuizSubmission do
 
         it "returns true if it's completed and has an ungraded submission_data" do
           submission = @quiz.generate_submission(@student)
-          submission.stubs(:completed?).returns(true)
+          allow(submission).to receive(:completed?).and_return(true)
           expect(submission.needs_grading?).to be_truthy
         end
 
@@ -1350,13 +1359,11 @@ describe Quizzes::QuizSubmission do
         @submission.score = 5.0
         @submission.attempt = 1
         @submission.with_versioning(true, &:save!)
-        expect(@submission.version_number).to eql(1)
-        expect(@submission.score).to eql(5.0)
         @submission.save
       end
 
       it "should pass the date from the first version of the most recent attempt to quiz#questions_regraded_since" do
-        @submission.quiz.expects(:questions_regraded_since)
+        expect(@submission.quiz).to receive(:questions_regraded_since)
         @submission.questions_regraded_since_last_attempt
       end
 
@@ -1367,8 +1374,8 @@ describe Quizzes::QuizSubmission do
         @quiz = @course.quizzes.create! title: 'Test Quiz'
         @submission = @quiz.quiz_submissions.build
       end
-      it "takes ids from questions_as_object" do
-        @submission.stubs(:questions_as_object).returns [{"id" => 2}, {"id" => 3}]
+      it "takes ids from questions" do
+        allow(@submission).to receive(:questions).and_return [{"id" => 2}, {"id" => 3}]
 
         expect(@submission.quiz_question_ids).to eq [2, 3]
       end
@@ -1380,11 +1387,11 @@ describe Quizzes::QuizSubmission do
         @submission = @quiz.quiz_submissions.build
       end
       it "fetches questions based on quiz_question_ids" do
-        @submission.stubs(:quiz_question_ids).returns [2, 3]
-        Quizzes::QuizQuestion.expects(:where)
+        allow(@submission).to receive(:quiz_question_ids).and_return [2, 3]
+        expect(Quizzes::QuizQuestion).to receive(:where)
           .with(id: [2, 3])
-          .returns(User.where(id: [2, 3]))
-          .at_least_once
+          .and_return(User.where(id: [2, 3]))
+          .at_least(:once)
 
         @submission.quiz_questions
       end
@@ -1407,27 +1414,68 @@ describe Quizzes::QuizSubmission do
 
     describe 'broadcast policy' do
       before :once do
-        Notification.create(:name => 'Submission Graded')
-        Notification.create(:name => 'Submission Grade Changed')
-        Notification.create(:name => 'Submission Needs Grading')
+        Notification.create(:name => 'Submission Graded', :category => 'TestImmediately')
+        Notification.create(:name => 'Submission Grade Changed', :category => 'TestImmediately')
+        Notification.create(:name => 'Submission Needs Grading', :category => 'TestImmediately')
         @course.offer
-        student_in_course(active_all: true)
+        student_in_course(active_all: true, active_cc: true)
         teacher_in_course(active_all: true)
+        @observer = user_factory(active_all: true, active_cc: true)
+        @course.enroll_user(@observer, 'ObserverEnrollment', active_all: true,
+          active_cc: true, associated_user_id: @student.id)
+        # Admittedly weird for a student to observe himself, but make sure we
+        # don't send duplicates.
+        @course.enroll_user(@student, 'ObserverEnrollment', active_all: true,
+          active_cc: true, associated_user_id: @student.id)
+        @other_student = user_factory(active_all: true, active_cc: true)
+        @other_observer = user_factory(active_all: true, active_cc: true)
+        @course.enroll_user(@other_student, 'StudentEnrollment', active_all: true,
+          active_cc: true, associated_user_id: @student.id)
+        @course.enroll_user(@other_observer, 'ObserverEnrollment', active_all: true,
+          active_cc: true, associated_user_id: @other_student.id)
         assignment_quiz([], course: @course, user: @teacher)
         @submission = @quiz.generate_submission(@student)
       end
 
       it 'sends a graded notification after grading the quiz submission' do
         expect(@submission.messages_sent).not_to include 'Submission Graded'
+        expect(@student.messages.where(notification_name: "Submission Graded").length).to eq 0
+        expect(@observer.messages.where(notification_name: "Submission Graded").length).to eq 0
         Quizzes::SubmissionGrader.new(@submission).grade_submission
         expect(@submission.reload.messages_sent.keys).to include 'Submission Graded'
+        expect(@student.messages.where(notification_name: "Submission Graded").length).to eq 1
+        expect(@observer.messages.where(notification_name: "Submission Graded").length).to eq 1
+        expect(@other_student.messages.where(notification_name: "Submission Graded").length).to eq 0
+        expect(@other_observer.messages.where(notification_name: "Submission Graded").length).to eq 0
       end
 
       it 'sends a grade changed notification after re-grading the quiz submission' do
+        expect(@student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
+        expect(@observer.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
         Quizzes::SubmissionGrader.new(@submission).grade_submission
         @submission.score = @submission.score + 5
         @submission.save!
         expect(@submission.reload.messages_sent.keys).to include('Submission Grade Changed')
+        expect(@student.messages.where(notification_name: "Submission Grade Changed").length).to eq 1
+        expect(@observer.messages.where(notification_name: "Submission Grade Changed").length).to eq 1
+        expect(@other_student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
+        expect(@other_observer.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
+      end
+
+      it 'does not send a grade changed notification for an inactive user' do
+        expect(@student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
+
+        enrollment = @student.student_enrollments.first
+        enrollment.workflow_state = 'inactive'
+        enrollment.save!
+        Quizzes::SubmissionGrader.new(@submission).grade_submission
+        @submission.score = @submission.score + 5
+        @submission.save!
+
+        expect(@submission.reload.messages_sent.keys).not_to include('Submission Graded')
+        expect(@submission.reload.messages_sent.keys).not_to include('Submission Grade Changed')
+        expect(@student.messages.where(notification_name: "Submission Graded").length).to eq 0
+        expect(@student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
       end
 
       it 'does not send any "graded" or "grade changed" notifications for a submission with essay questions before they have been graded' do
@@ -1535,6 +1583,51 @@ describe Quizzes::QuizSubmission do
         expect(@quiz_submission.teachers).to_not include other_teacher
       end
     end
+
+    describe '#delete_ignores' do
+      before :once do
+        student_in_course(active_all: true, course: @course)
+        @ignore = Ignore.create!(user: @student, asset: @quiz, purpose: 'submitting')
+      end
+
+      it 'should delete ignores when the user completes the submission' do
+        qs = @quiz.generate_submission(@student)
+        qs.complete!
+        expect {@ignore.reload}.to raise_error ActiveRecord::RecordNotFound
+      end
+
+      it 'should not delete ignores when the quiz submission is updated, but not completed' do
+        @quiz.generate_submission(@student)
+        expect(@ignore.reload).to eq @ignore
+      end
+    end
+  end
+
+  describe "associated submission" do
+    before(:each) { course_with_student }
+
+    it "assigns seconds_late to zero when not late" do
+      Timecop.freeze do
+        quiz = @course.quizzes.create(due_at: 5.minutes.from_now, quiz_type: "assignment")
+        qs = Quizzes::QuizSubmission.create(
+          finished_at: Time.zone.now, user: @user, quiz: quiz, workflow_state: :complete
+        )
+
+        expect(qs.submission.seconds_late).to be 0
+      end
+    end
+
+    it "assigns seconds_late with a -1 minute offset" do
+      Timecop.freeze do
+        quiz = @course.quizzes.create(due_at: 5.minutes.ago, quiz_type: "assignment")
+        qs = Quizzes::QuizSubmission.create(
+          finished_at: Time.zone.now, user: @user, quiz: quiz, workflow_state: :complete
+        )
+
+        expected_seconds_late = (Time.zone.now - 60.seconds - 5.minutes.ago.change(usec: 0)).to_i
+        expect(qs.submission.seconds_late).to eql(expected_seconds_late)
+      end
+    end
   end
 
   describe "#time_spent" do
@@ -1576,12 +1669,12 @@ describe Quizzes::QuizSubmission do
 
   describe '#retriable?' do
     it 'should not be retriable by default' do
-      subject.stubs(:attempts_left).returns 0
+      allow(subject).to receive(:attempts_left).and_return 0
       expect(subject.retriable?).to be_falsey
     end
 
     it 'should not be retriable unless it is complete' do
-      subject.stubs(:attempts_left).returns 3
+      allow(subject).to receive(:attempts_left).and_return 3
       expect(subject.retriable?).to be_falsey
     end
 
@@ -1597,15 +1690,15 @@ describe Quizzes::QuizSubmission do
 
     it 'should be retriable if it is complete and has attempts left to spare' do
       subject.workflow_state = 'complete'
-      subject.stubs(:attempts_left).returns 3
+      allow(subject).to receive(:attempts_left).and_return 3
       expect(subject.retriable?).to be_truthy
     end
 
     it 'should be retriable if it is complete and the quiz has unlimited attempts' do
       subject.workflow_state = 'complete'
-      subject.stubs(:attempts_left).returns 0
+      allow(subject).to receive(:attempts_left).and_return 0
       subject.quiz = Quizzes::Quiz.new
-      subject.quiz.stubs(:unlimited_attempts?).returns true
+      allow(subject.quiz).to receive(:unlimited_attempts?).and_return true
       expect(subject.retriable?).to be_truthy
     end
   end
@@ -1619,7 +1712,7 @@ describe Quizzes::QuizSubmission do
     it 'should generate a snapshot' do
       snapshot_data = { 'question_5_marked' => true }
 
-      Quizzes::QuizSubmissionSnapshot.expects(:create).with({
+      expect(Quizzes::QuizSubmissionSnapshot).to receive(:create).with({
         quiz_submission: subject,
         attempt: 1,
         data: snapshot_data.with_indifferent_access
@@ -1629,13 +1722,13 @@ describe Quizzes::QuizSubmission do
     end
 
     it 'should generate a full snapshot' do
-      subject.stubs(:submission_data).returns({
+      allow(subject).to receive(:submission_data).and_return({
         'question_5' => 100
       })
 
       snapshot_data = { 'question_5_marked' => true }
 
-      Quizzes::QuizSubmissionSnapshot.expects(:create).with({
+      expect(Quizzes::QuizSubmissionSnapshot).to receive(:create).with({
         quiz_submission: subject,
         attempt: 1,
         data: snapshot_data.merge(subject.submission_data).with_indifferent_access
@@ -1665,87 +1758,6 @@ describe Quizzes::QuizSubmission do
       ])
 
       expect(@quiz_submission.points_possible_at_submission_time).to eq 0.65
-    end
-  end
-
-  describe "#late?" do
-    let(:course)          { Course.create! }
-    let(:now)             { Time.zone.now }
-    let(:quiz)            { course.quizzes.create! due_at: 3.days.ago(now) }
-
-    context "for quizzes with a due date" do
-      let(:quiz_submission) { quiz.quiz_submissions.create! }
-
-      it "is not late when on turned in before the due date" do
-        quiz_submission.finished_at = 4.days.ago(now)
-        quiz_submission.save
-
-        expect(quiz_submission.late?).to eq false
-      end
-
-      it "is not late when turned in at the due date" do
-        quiz_submission.finished_at = 3.days.ago(now) + 60.seconds
-        quiz_submission.save
-
-        expect(quiz_submission.late?).to eq false
-      end
-
-      it "is late when turned in after the due date" do
-        quiz_submission.finished_at = 2.days.ago(now)
-        quiz_submission.save
-
-        expect(quiz_submission.late?).to eq true
-      end
-
-      it "is not late when unfinished" do
-        expect(quiz_submission.late?).to eq false
-      end
-    end
-
-    context "for quizzes without a due date" do
-      let(:quiz) { course.quizzes.create! }
-      let(:quiz_submission) do
-        quiz.quiz_submissions.create! do |qs|
-          qs.finished_at = 3.days.ago(now)
-        end
-      end
-
-      it "is not late when the quiz has no due date" do
-        expect(quiz_submission.late?).to eq false
-      end
-    end
-
-    context "for quizzes with overridden due dates for some students" do
-      let(:quiz_submission) do
-        quiz.quiz_submissions.create! do |qs|
-          qs.user = student
-          qs.finished_at = 1.week.ago(now)
-        end
-      end
-
-      let(:student) { User.create! }
-
-      let!(:enroll_student) do
-        course.enroll_user student, 'StudentEnrollment'
-      end
-
-      let!(:override_students_quiz) do
-        assignment_override = quiz.assignment_overrides.create! do |override|
-          override.due_at = 3.weeks.ago(now)
-          override.due_at_overridden = true
-        end
-
-        assignment_override.assignment_override_students.create! do |aos|
-          aos.quiz = quiz
-          aos.user = student
-        end
-      end
-
-      it "is late when it's overridden due date is before the submission" do
-        submission = stub("blank?" => false, "user" => student)
-        quiz_submission.stubs(:submission).returns(submission)
-        expect(quiz_submission.late?).to eq true
-      end
     end
   end
 

@@ -1,4 +1,23 @@
-define(["jquery", 'jsx/shared/rce/RceCommandShim'], function($, RceCommandShim){
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import $ from "jquery"
+import {send} from 'jsx/shared/rce/RceCommandShim'
 
   /**
    * This is not yet a complete extraction, but the idea is to continue
@@ -22,6 +41,10 @@ define(["jquery", 'jsx/shared/rce/RceCommandShim'], function($, RceCommandShim){
 
     this.id = editor.id;
     this.selectedContent = editor.selection.getContent();
+    this.selectionDetails = {
+      node: editor.selection.getNode(),
+      range: editor.selection.getRng()
+    }
     this.$editorEl = $editorEl;
 
     /**
@@ -51,14 +74,14 @@ define(["jquery", 'jsx/shared/rce/RceCommandShim'], function($, RceCommandShim){
      * @param {Object} [dataAttrs] key value pairs for link data attributes
      */
     this.createLink = function(text, classes, dataAttrs){
-      RceCommandShim.send(this.getEditor(), "create_link",{
+      send(this.getEditor(), "create_link",{
         url: text,
         classes: classes,
         selectedContent: this.selectedContent,
-        dataAttributes: dataAttrs
+        dataAttributes: dataAttrs,
+        selectionDetails: this.selectionDetails
       });
     };
   };
 
-  return LinkableEditor;
-});
+export default LinkableEditor;

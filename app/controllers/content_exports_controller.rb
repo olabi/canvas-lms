@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,8 @@
 #
 
 class ContentExportsController < ApplicationController
-  before_filter :require_permission, :except => :xml_schema
-  before_filter { |c| c.active_tab = "settings" }
+  before_action :require_permission, :except => :xml_schema
+  before_action { |c| c.active_tab = "settings" }
 
   def require_permission
     get_context
@@ -50,7 +50,7 @@ class ContentExportsController < ApplicationController
       if @context.is_a?(Course)
         if params[:export_type] == 'qti'
           export.export_type = ContentExport::QTI
-          export.selected_content = params[:copy].to_hash.with_indifferent_access
+          export.selected_content = params[:copy].to_unsafe_h
         else
           export.export_type = ContentExport::COMMON_CARTRIDGE
           export.selected_content = { :everything => true }
@@ -94,7 +94,7 @@ class ContentExportsController < ApplicationController
 
   def render_export(export)
     json = export.as_json(:only => [:id, :progress, :workflow_state],:methods => [:error_message])
-    json['content_export']['download_url'] = verified_file_download_url(export.attachment, export) if export.attachment
+    json['content_export']['download_url'] = verified_file_download_url(export.attachment, export) if export.attachment && !export.expired?
     render :json => json
   end
 end

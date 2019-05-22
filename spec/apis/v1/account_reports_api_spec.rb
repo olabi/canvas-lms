@@ -58,11 +58,10 @@ describe 'Account Reports API', type: :request do
   describe 'create' do
     it 'should create a student report' do
       report = api_call(:post, "/api/v1/accounts/#{@admin.account.id}/reports/#{@report.report_type}",
-                        { :report=> @report.report_type, :controller => 'account_reports', :action => 'create', :format => 'json', :account_id => @admin.account.id.to_s })
-      expect(report.key?('id')).to be_truthy
-      expect(report.key?('status')).to be_truthy
-      expect(report.key?('progress')).to be_truthy
-      expect(report.key?('file_url')).to be_truthy
+                        {report: @report.report_type, controller: 'account_reports', action: 'create',
+                         format: 'json', account_id: @admin.account.id.to_s})
+      keys = %w(id progress parameters current_line status report created_at started_at ended_at file_url)
+      expect(keys - report.keys).to be_empty
     end
 
     it 'should work with parameters' do
@@ -118,13 +117,13 @@ describe 'Account Reports API', type: :request do
                       { :report=> @report.report_type, :controller => 'account_reports', :action => 'destroy', :format => 'json', :account_id => @admin.account.id.to_s, :id => @report.id.to_s })
 
       expect(json['id']).to eq @report.id
-      expect(json['status']).to eq @report.workflow_state
+      expect(json['status']).to eq @report.reload.workflow_state
       expect(json['progress']).to eq @report.progress
       expect(json['file_url']).to eq "http://www.example.com/accounts/#{@admin.account.id}/files/#{@report.attachment.id}/download"
       @report.parameters.each do |key, value|
         expect(json['parameters'][key]).to eq value
       end
-      expect(AccountReport.exists?(@report.id)).not_to be_truthy
+      expect(AccountReport.active.exists?(@report.id)).not_to be_truthy
     end
   end
 end

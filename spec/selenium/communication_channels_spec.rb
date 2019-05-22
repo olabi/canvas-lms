@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "communication channel selenium tests" do
@@ -13,6 +30,18 @@ describe "communication channel selenium tests" do
         f('#registration_confirmation_form').submit
       }
       expect_logout_link_present
+    end
+
+    it "should not show a mysterious error" do
+      Setting.set('terms_required', 'false')
+      u1 = user_with_communication_channel(:user_state => 'creation_pending')
+      get "/register/#{u1.communication_channel.confirmation_code}"
+      f('#registration_confirmation_form').submit
+      wait_for_ajaximations
+      error_boxes = ff('.error_box')
+      text = error_boxes.map(&:text).join
+      expect(text).to include("Must be at least 8 characters")
+      expect(text).to_not include("Doesn't match")
     end
 
     it "should require the terms if configured to do so" do
@@ -70,6 +99,24 @@ describe "communication channel selenium tests" do
       get '/profile/settings'
       # the email id does not have a link anymore
       expect(f('.email_channels')).not_to contain_link('nobody@example.com')
+    end
+
+    it 'resends sms confirmations properly' do
+      user_with_pseudonym({active_user: true})
+      create_session(@pseudonym)
+      sms_cc = @user.communication_channels.create(:path => "8011235555@example.com", :path_type => "sms")
+
+      get '/profile/settings'
+      expect(f('.other_channels')).to contain_css('.unconfirmed')
+      f('.other_channels .path').click
+      Notification.create!(name: 'Confirm SMS Communication Channel', category: 'Registration')
+      f('#confirm_communication_channel .re_send_confirmation_link').click
+      wait_for_ajaximations
+
+      expect(@user.messages.count).to eq 1
+      m = @user.messages.first
+      expect(m.subject).to eq('Canvas Alert')
+      expect(m.body).to include(sms_cc.confirmation_code)
     end
 
     it 'should show the bounce count reset button when a siteadmin is masquerading' do

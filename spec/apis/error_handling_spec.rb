@@ -21,6 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/api_spec_helper')
 describe "API Error Handling", type: :request do
   before :once do
     user_with_pseudonym(:active_all => true)
+    enable_default_developer_key!
     @token = @user.access_tokens.create!
   end
 
@@ -31,9 +32,9 @@ describe "API Error Handling", type: :request do
     end
 
     it "should not return the base object in ActiveRecord::Errors.to_json" do
-      page = WikiPage.new(:body => 'blah blah', :title => 'blah blah')
-      expect(page.valid?).to be_falsey
-      errors = page.errors.to_json
+      assmt = Assignment.new
+      expect(assmt.valid?).to be_falsey
+      errors = assmt.errors.to_json
       parsed = JSON.parse(errors)['errors']
       expect(parsed.size).to be > 0
       expect(errors).not_to match(/blah blah/)
@@ -42,10 +43,9 @@ describe "API Error Handling", type: :request do
   end
 
   it "should respond not_found for 404 errors" do
-    get "/api/v1/courses/54321", nil, { 'Authorization' => "Bearer #{@token.full_token}" }
+    get "/api/v1/courses/54321", headers: { 'Authorization' => "Bearer #{@token.full_token}" }
     expect(response.response_code).to eq 404
     json = JSON.parse(response.body)
     expect(json['errors']).to eq [{'message' => 'The specified resource does not exist.'}]
   end
 end
-

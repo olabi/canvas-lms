@@ -1,13 +1,34 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module LoginAndSessionMethods
   def create_session(pseudonym)
     if caller.grep(/onceler\/recorder.*record!/).present?
-      raise "don't stub sessions in a `before(:once)` block; do it in a `before(:each)` so the stubbing works for all examples and not just the first one"
+      raise "don't double sessions in a `before(:once)` block; do it in a `before(:each)` so the stubbing works for all examples and not just the first one"
     end
-    PseudonymSession.any_instance.stubs(:record).returns { pseudonym.reload }
+    @session_stubbed = true
+    allow_any_instance_of(PseudonymSession).to receive(:record).and_wrap_original do |original|
+      next original.call unless @session_stubbed
+      pseudonym.reload
+    end
   end
 
   def destroy_session
-    PseudonymSession.any_instance.unstub :record
+    @session_stubbed = false
   end
 
   def user_session(user)
@@ -50,6 +71,11 @@ module LoginAndSessionMethods
     course_with_teacher({:user => @user, :active_course => true, :active_enrollment => true}.merge(opts))
   end
 
+  def provision_quizzes_next(account)
+    account.root_account.settings[:provision] = { 'lti' => 'lti url'}
+    account.root_account.save!
+  end
+
   def admin_logged_in(opts={})
     account_admin_user({:active_user => true}.merge(opts))
     user_logged_in({:user => @user}.merge(opts))
@@ -65,6 +91,10 @@ module LoginAndSessionMethods
     get "/courses/#{@course.id}/settings"
     driver.execute_script("$('.student_view_button').click()")
     wait_for_ajaximations
+  end
+
+  def leave_student_view
+    expect_new_page_load { f('.leave_student_view').click }
   end
 
   def fill_in_login_form(username, password)
@@ -89,19 +119,21 @@ module LoginAndSessionMethods
   end
 
   def masquerade_as(user)
-    get "/users/#{user.id}/masquerade"
-    f('.masquerade_button').click
+    masquerade_url = "/users/#{user.id}/masquerade"
+    get masquerade_url
+    f('a[href="' + masquerade_url + '"]').click
   end
 
   def displayed_username
-    f('[aria-label="Main Navigation"] a[href="/profile"]').click
-    f('#global_nav_profile_display_name').text
+    f('[aria-label="Global Navigation"] a[href="/profile"]').click
+    f('[aria-label="Profile tray"] h2').text
   end
 
 
   def expect_logout_link_present
     logout_element = begin
-      f('[aria-label="Main Navigation"] a[href="/profile"]').click
+      f('[aria-label="Global Navigation"] a[href="/profile"]').click
+      wait_for_animations
       fj('form[action="/logout"] button:contains("Logout")')
     end
     expect(logout_element).to be_present

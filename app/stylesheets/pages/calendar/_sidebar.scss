@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 .rs-section {
@@ -14,6 +32,14 @@
   }
 }
 
+.navigation_title_text {
+  @include ic-focus-base;
+  text-decoration: underline;
+  &:focus {
+    @include ic-focus-variant;
+  }
+}
+
 #undated-events {
   &.droppable-hover {
     background-color: $droppableBackground;
@@ -24,7 +50,7 @@
     list-style: none;
   }
   .event {
-    padding: 0px 4px 1px 4px;
+    padding: 0px 4px 1px;
     cursor: move;
     border-radius: 3px;
     margin: 2px 0;
@@ -32,7 +58,7 @@
   }
   .spin_holder {
     display: none;
-    float: left;
+    float: direction(left);
     width: 22px;
     height: 20px;
     position: relative;
@@ -45,11 +71,6 @@
 
 .ui-kyle-menu li {
   min-width: 95px;
-}
-
-#calendar-feed-message {
-  background: url("/images/ical_big.png") no-repeat top left;
-  padding-left: 40px;
 }
 
 #calendar-feed-box-lower {
@@ -82,10 +103,15 @@
     &:hover { background: $lightBackground; }
   }
   .context-list-toggle-box {
+    @include ic-focus-base;
+    &:focus {
+      @include ic-focus-variant;
+      box-shadow: inset 0 0 0 1px white;
+    }
     width: 11px;
     height: 11px;
-    margin: 5px 11px 0 15px;
-    float: left;
+    margin: direction-sides(5px 11px 0 15px);
+    float: direction(left);
     border: 1px solid;
   }
   .not-checked {
@@ -97,10 +123,9 @@
   }
   .context-list-add {
     position: absolute;
-    right: 5px;
+    #{direction(right)}: 5px;
   }
-}
-
-.ContextList__MoreBtn {
-  float: right;
+  .ContextList__MoreBtn {
+    float: direction(right);
+  }
 }

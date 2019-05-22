@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,11 @@ class ContentTag < ActiveRecord::Base
 
   include Workflow
   include SearchTermHelper
-  belongs_to :content, :polymorphic => true
+
+  include MasterCourses::Restrictor
+  restrict_columns :state, [:workflow_state]
+
+  belongs_to :content, polymorphic: [], exhaustive: false
   validates_inclusion_of :content_type, :allow_nil => true, :in => CONTENT_TYPES
   belongs_to :context, polymorphic:
       [:course, :learning_outcome_group, :assignment, :account,
@@ -45,6 +49,7 @@ class ContentTag < ActiveRecord::Base
   validates_presence_of :context, :unless => proc { |tag| tag.context_id && tag.context_type }
   validates_presence_of :workflow_state
   validates_length_of :comments, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
+  before_save :associate_external_tool
   before_save :default_values
   after_save :update_could_be_locked
   after_save :touch_context_module_after_transaction
@@ -78,7 +83,7 @@ class ContentTag < ActiveRecord::Base
 
   attr_accessor :skip_touch
   def touch_context_module
-    return true if skip_touch.present?
+    return true if skip_touch.present? || self.context_module_id.nil?
     ContentTag.touch_context_modules([self.context_module_id])
   end
 
@@ -104,6 +109,12 @@ class ContentTag < ActiveRecord::Base
     if (self.tag_type == 'learning_outcome_association' || self.tag_type == 'learning_outcome') && skip_touch.blank?
       self.context_type.constantize.where(:id => self.context_id).update_all(:updated_at => Time.now.utc)
     end
+  end
+
+  def associate_external_tool
+    return if content.present? || content_type != 'ContextExternalTool' || context.blank? || url.blank?
+    content = ContextExternalTool.find_external_tool(url, context)
+    self.content = content if content
   end
 
   def default_values
@@ -140,7 +151,9 @@ class ContentTag < ActiveRecord::Base
       next unless klass < ActiveRecord::Base
       next if klass < Tableless
       if klass.new.respond_to?(:could_be_locked=)
-        klass.where(:id => ids).update_all(:could_be_locked => true)
+        klass.transaction do
+          klass.where(id: klass.where(id: ids).lock_in_order).update_all(could_be_locked: true)
+        end
       end
     end
   end
@@ -159,6 +172,17 @@ class ContentTag < ActiveRecord::Base
     return false unless self.can_have_assignment?
 
     return content && !content.assignment_id.nil?
+  end
+
+  def duplicate_able?
+    case self.content_type_class
+    when 'assignment'
+      content&.can_duplicate?
+    when 'discussion_topic', 'wiki_page'
+      true
+    else
+      false
+    end
   end
 
   def content_type_class
@@ -191,7 +215,7 @@ class ContentTag < ActiveRecord::Base
     if self.content_type == 'Assignment'
       self.content
     elsif can_have_assignment?
-      self.content.assignment
+      self.content&.assignment
     else
       nil
     end
@@ -245,7 +269,7 @@ class ContentTag < ActiveRecord::Base
     self.content && self.content.respond_to?(:context) && self.content.context == context
   end
 
-  def update_asset_name!
+  def update_asset_name!(user=nil)
     return unless self.sync_title_to_asset_title?
     return unless self.asset_context_matches?
 
@@ -257,7 +281,10 @@ class ContentTag < ActiveRecord::Base
     elsif content.respond_to?("display_name=")
       content.display_name = asset_safe_title('display_name')
     end
-    content.save if content.changed?
+    if content.changed?
+      content.user = user if user && content.is_a?(WikiPage)
+      content.save
+    end
   end
 
   def update_asset_workflow_state!
@@ -332,7 +359,7 @@ class ContentTag < ActiveRecord::Base
   end
 
   def locked_for?(user, opts={})
-    return unless self.context_module
+    return unless self.context_module && !self.context_module.deleted?
     self.context_module.locked_for?(user, opts.merge({:tag => self}))
   end
 
@@ -384,7 +411,9 @@ class ContentTag < ActiveRecord::Base
   end
 
   def context_module_action(user, action, points=nil)
-    self.context_module.update_for(user, action, self, points) if self.context_module
+    Shackles.activate(:master) do
+      self.context_module.update_for(user, action, self, points) if self.context_module
+    end
   end
 
   def progression_for_user(user)
@@ -437,52 +466,86 @@ class ContentTag < ActiveRecord::Base
   # Scopes For Differentiated Assignment Filtering:
 
   scope :visible_to_students_in_course_with_da, lambda { |user_ids, course_ids|
-    for_non_differentiable_classes(user_ids, course_ids).union(
-    for_non_differentiable_discussions(user_ids, course_ids),
-    for_differentiable_assignments(user_ids, course_ids),
-    for_differentiable_discussions(user_ids, course_ids),
-    for_differentiable_quizzes(user_ids, course_ids))
+    differentiable_classes = ['Assignment','DiscussionTopic', 'Quiz','Quizzes::Quiz', 'WikiPage']
+    scope = for_non_differentiable_classes(course_ids, differentiable_classes)
+    non_cyoe_courses = Course.where(id: course_ids).reject{|course| ConditionalRelease::Service.enabled_in_context?(course)}
+    if non_cyoe_courses
+      scope = scope.union(where(context_id: non_cyoe_courses, context_type: 'Course', content_type: 'WikiPage'))
+    end
+    scope.union(
+      for_non_differentiable_wiki_pages(course_ids),
+      for_non_differentiable_discussions(course_ids),
+      for_differentiable_assignments(user_ids, course_ids),
+      for_differentiable_wiki_pages(user_ids, course_ids),
+      for_differentiable_discussions(user_ids, course_ids),
+      for_differentiable_quizzes(user_ids, course_ids)
+    )
   }
 
-  scope :for_non_differentiable_classes, lambda {|user_ids, course_ids|
-    where("content_tags.content_type NOT IN ('Assignment','DiscussionTopic', 'Quiz','Quizzes::Quiz' ) AND content_tags.context_id IN (?)",course_ids)
+  scope :for_non_differentiable_classes, lambda {|course_ids, differentiable_classes|
+    where(context_id: course_ids, context_type: 'Course').where.not(content_type: differentiable_classes)
   }
 
-  scope :for_non_differentiable_discussions, lambda {|user_ids, course_ids|
+  scope :for_non_differentiable_discussions, lambda {|course_ids|
     joins("JOIN #{DiscussionTopic.quoted_table_name} as dt ON dt.id = content_tags.content_id").
-    where("content_tags.context_id IN (?)
-           AND content_tags.content_type = 'DiscussionTopic'
-           AND dt.assignment_id IS NULL",course_ids)
+      where("content_tags.context_id IN (?)
+             AND content_tags.context_type = 'Course'
+             AND content_tags.content_type = 'DiscussionTopic'
+             AND dt.assignment_id IS NULL",course_ids)
   }
 
-  scope :for_differentiable_assignments, lambda {|user_ids, course_ids|
-    joins("JOIN #{Quizzes::QuizStudentVisibility.quoted_table_name} as qsv ON qsv.quiz_id = content_tags.content_id").
-    where(" content_tags.context_id IN (?)
-           AND qsv.course_id IN (?)
-           AND content_tags.content_type in ('Quiz', 'Quizzes::Quiz')
-           AND qsv.user_id = ANY( '{?}'::INT8[] )
-      ",course_ids,course_ids,user_ids)
-  }
-
-  scope :for_differentiable_discussions, lambda {|user_ids, course_ids|
-    joins("JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv ON asv.assignment_id = content_tags.content_id").
-    where("content_tags.context_id IN (?)
-           AND asv.course_id IN (?)
-           AND content_tags.content_type = 'Assignment'
-           AND asv.user_id = ANY( '{?}'::INT8[] )
-      ",course_ids,course_ids,user_ids)
+  scope :for_non_differentiable_wiki_pages, lambda {|course_ids|
+    joins("JOIN #{WikiPage.quoted_table_name} as wp ON wp.id = content_tags.content_id").
+      where("content_tags.context_id IN (?)
+             AND content_tags.context_type = 'Course'
+             AND content_tags.content_type = 'WikiPage'
+             AND wp.assignment_id IS NULL", course_ids)
   }
 
   scope :for_differentiable_quizzes, lambda {|user_ids, course_ids|
-    joins("JOIN #{DiscussionTopic.quoted_table_name} as dt ON dt.id = content_tags.content_id AND content_tags.content_type = 'DiscussionTopic'").
-    joins("JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv ON asv.assignment_id = dt.assignment_id").
-    where("content_tags.context_id IN (?)
-           AND asv.course_id IN (?)
-           AND content_tags.content_type = 'DiscussionTopic'
-           AND dt.assignment_id IS NOT NULL
-           AND asv.course_id IN (?)
-           AND asv.user_id = ANY( '{?}'::INT8[] )
-    ",course_ids,course_ids,course_ids,user_ids)
+    joins("JOIN #{Quizzes::QuizStudentVisibility.quoted_table_name} as qsv ON qsv.quiz_id = content_tags.content_id").
+      where("content_tags.context_id IN (?)
+             AND content_tags.context_type = 'Course'
+             AND qsv.course_id IN (?)
+             AND content_tags.content_type in ('Quiz', 'Quizzes::Quiz')
+             AND qsv.user_id = ANY( '{?}'::INT8[] )
+        ",course_ids,course_ids,user_ids)
+  }
+
+  scope :for_differentiable_assignments, lambda {|user_ids, course_ids|
+    joins("JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv ON asv.assignment_id = content_tags.content_id").
+      where("content_tags.context_id IN (?)
+             AND content_tags.context_type = 'Course'
+             AND asv.course_id IN (?)
+             AND content_tags.content_type = 'Assignment'
+             AND asv.user_id = ANY( '{?}'::INT8[] )
+        ",course_ids,course_ids,user_ids)
+  }
+
+  scope :for_differentiable_discussions, lambda {|user_ids, course_ids|
+    joins("JOIN #{DiscussionTopic.quoted_table_name} as dt ON dt.id = content_tags.content_id
+           AND content_tags.content_type = 'DiscussionTopic'").
+      joins("JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv ON asv.assignment_id = dt.assignment_id").
+      where("content_tags.context_id IN (?)
+             AND content_tags.context_type = 'Course'
+             AND asv.course_id IN (?)
+             AND content_tags.content_type = 'DiscussionTopic'
+             AND dt.assignment_id IS NOT NULL
+             AND asv.user_id = ANY( '{?}'::INT8[] )
+      ",course_ids,course_ids,user_ids)
+  }
+
+  scope :for_differentiable_wiki_pages, lambda{|user_ids, course_ids|
+    joins("JOIN #{WikiPage.quoted_table_name} as wp on wp.id = content_tags.content_id
+           AND content_tags.content_type = 'WikiPage'").
+      joins("JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv on asv.assignment_id = wp.assignment_id").
+      where("content_tags.context_id IN (?)
+             AND content_tags.context_type = 'Course'
+             AND asv.course_id in (?)
+             AND content_tags.content_type = 'WikiPage'
+             AND wp.assignment_id IS NOT NULL
+             AND asv.user_id = ANY( '{?}'::INT8[] )
+      ",course_ids,course_ids,user_ids)
   }
 
   # only intended for learning outcome links

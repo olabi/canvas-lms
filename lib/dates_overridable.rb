@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module DatesOverridable
   attr_accessor :applied_overrides, :overridden_for_user, :overridden,
     :has_no_overrides, :has_too_many_overrides, :preloaded_override_students
@@ -9,7 +26,8 @@ module DatesOverridable
   def self.included(base)
     base.has_many :assignment_overrides, :dependent => :destroy
     base.has_many :active_assignment_overrides, -> { where(workflow_state: 'active') }, class_name: 'AssignmentOverride'
-    base.has_many :assignment_override_students, :dependent => :destroy
+    base.has_many :assignment_override_students, -> { where(workflow_state: 'active') }, :dependent => :destroy
+    base.has_many :all_assignment_override_students, class_name: 'AssignmentOverrideStudent', :dependent => :destroy
 
     base.validates_associated :active_assignment_overrides
 
@@ -43,7 +61,12 @@ module DatesOverridable
   end
 
   def has_overrides?
-    assignment_overrides.loaded? ? assignment_overrides.any? : assignment_overrides.exists?
+    if current_version?
+      assignment_overrides.loaded? ? assignment_overrides.any?(&:active?) : assignment_overrides.active.exists?
+    else
+      # the old version's overrides might have be deleted too but it's probably more trouble than it's worth to check here
+      assignment_overrides.loaded? ? assignment_overrides.any? : assignment_overrides.exists?
+    end
   end
 
   def has_active_overrides?
@@ -89,7 +112,7 @@ module DatesOverridable
     Shard.partition_by_shard(assignments) do |shard_assignments|
       Enrollment.where(course_id: shard_assignments.map(&:context), user_id: user).
           active.
-          uniq.
+          distinct.
           # duplicate the subquery logic of ObserverEnrollment.observed_users, where it verifies the observee exists
           where("associated_user_id IS NULL OR EXISTS (
             SELECT 1 FROM #{Enrollment.quoted_table_name} e2
@@ -184,11 +207,11 @@ module DatesOverridable
 
   def teacher_due_date_for_display(user)
     ao = overridden_for user
-    due_at || ao.due_at || all_due_dates.first[:due_at]
+    due_at || ao.due_at || all_due_dates.dig(0, :due_at)
   end
 
   def formatted_dates_hash(dates)
-    return [] unless dates.present?
+    return [] if dates.blank?
 
     dates = dates.sort_by do |date|
       due_at = date[:due_at]

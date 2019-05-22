@@ -1,5 +1,21 @@
 # encoding: UTF-8
 #
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
 # By Henrik Nyh <http://henrik.nyh.se> 2008-01-30.
 # Free to modify and redistribute with credit.
 
@@ -18,6 +34,7 @@
 require 'nokogiri'
 require 'cgi'
 require 'iconv'
+require 'active_support/core_ext/module/remove_method' # https://github.com/rails/rails/issues/28918
 require 'active_support'
 require 'active_support/core_ext'
 require 'sanitize'
@@ -68,12 +85,16 @@ module HtmlTextHelper
            when 'img'
              src = node['src']
              if src
-               begin
-                 src = URI.join(opts[:base_url], src) if opts[:base_url]
-               rescue URI::Error
-                 # do nothing, let src pass through as is
+               if opts[:preserve_links]
+                 node.to_html
+               else
+                 begin
+                   src = URI.join(opts[:base_url], src) if opts[:base_url]
+                 rescue URI::Error
+                   # do nothing, let src pass through as is
+                 end
+                 node['alt'] ? "[#{node['alt']}] (#{src})" : src
                end
-               node['alt'] ? "[#{node['alt']}](#{src})" : src
              else
                ''
              end
@@ -85,12 +106,16 @@ module HtmlTextHelper
              when 'a'
                href = node['href']
                if href
-                 begin
-                   href = URI.join(opts[:base_url], href) if opts[:base_url]
-                 rescue URI::Error
-                   # do nothing, let href pass through as is
+                 if opts[:preserve_links]
+                   node.to_html
+                 else
+                   begin
+                     href = URI.join(opts[:base_url], href) if opts[:base_url]
+                   rescue URI::Error
+                     # do nothing, let href pass through as is
+                   end
+                   href == subtext ? subtext : "[#{subtext}] (#{href})"
                  end
-                 href == subtext ? subtext : "[#{subtext}](#{href})"
                else
                  subtext
                end
@@ -139,13 +164,31 @@ module HtmlTextHelper
   # html - The original HTML string to format.
   # options - Formatting options.
   #   - base_url: The protocol and domain to prepend to relative links (e.g. "https://instructure.com").
-  #
+  #   - elements: elements (in addition to those allowed by BASIC) to be permitted
+  #   - attributes: a { element: attributes } hash of which attributes should be
+  #                 allowed for which elements.  This is in addition to whatever BASIC
+  #                 permits.
   # Returns an HTML string.
   def html_to_simple_html(html, options = {})
     return '' if html.blank?
     base_url = options.fetch(:base_url, '')
-    output = Sanitize.clean(html, Sanitize::Config::BASIC)
-
+    config = Sanitize::Config::BASIC
+    if options[:tags] || options[:attributes]
+      elements = config[:elements] + (options[:tags] || [])
+      final_attributes = {}
+      # Make sure if the basic config allows attriutes for a given element, and
+      # we pass in other attributes for that same element, that we permit both.
+      elements_with_attributes =
+        (config[:attributes]&.keys || []) | (options[:attributes]&.keys || [])
+      elements_with_attributes.each do |element|
+        basic_attributes = config[:attributes][element] || []
+        given_attributes = options[:attributes][element] || []
+        final_attributes[element] = basic_attributes | given_attributes
+      end
+      output = Sanitize.clean(html, :elements => elements, :attributes => final_attributes)
+    else
+      output = Sanitize.clean(html, config)
+    end
     append_base_url(output, base_url).html_safe
   end
 
@@ -160,8 +203,11 @@ module HtmlTextHelper
     tags = output.css('*[href]')
 
     tags.each do |tag|
-      next if tag.attributes['href'].value.match(/^https?|mailto|ftp/)
-      tag.attributes['href'].value = "#{base}#{tag.attributes['href']}"
+      url = tag.attributes['href'].value
+      next if url.match(/^https?|mailto|ftp/)
+
+      url.sub!("/", "") if url.start_with?("/") && base.end_with?("/")
+      tag.attributes['href'].value = "#{base}#{url}"
     end
 
     output.to_s

@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 $stripeColor: #f3f4f8;
@@ -13,31 +31,31 @@ thead th {
   margin-bottom: 0;
   thead {
     tr:first-child th:first-child {
-      border-top-left-radius: 0 !important;
+      border-top-#{direction(left)}-radius: 0 !important;
       min-width: 175px;
     }
     tr:first-child th:last-child {
-      border-top-right-radius: 0 !important;
+      border-top-#{direction(right)}-radius: 0 !important;
     }
   }
   tbody {
     tr:last-child th {
-      border-bottom-left-radius: 0 !important;
+      border-bottom-#{direction(left)}-radius: 0 !important;
     }
     tr:last-child td:last-child {
-      border-bottom-right-radius: 0 !important;
+      border-bottom-#{direction(right)}-radius: 0 !important;
     }
   }
 }
 
 .table-bordered:first-of-type {
-  border-radius: 4px 4px 0 0;
+  border-radius: direction-corners(4px 4px 0 0);
   thead {
     tr:first-child th:first-child {
-      border-top-left-radius: 4px !important;
+      border-top-#{direction(left)}-radius: 4px !important;
     }
     tr:first-child th:last-child {
-      border-top-right-radius: 4px !important;
+      border-top-#{direction(right)}-radius: 4px !important;
     }
   }
   .channel-name, .channel-addr {
@@ -47,13 +65,13 @@ thead th {
 
 .table-bordered:last-of-type {
   border-bottom: 1px solid #ddd;
-  border-radius: 0 0 4px 4px;
+  border-radius: direction-corners(0 0 4px 4px);
   tbody {
     tr:last-child th {
-      border-bottom-left-radius: 4px !important;
+      border-bottom-#{direction(left)}-radius: 4px !important;
     }
     tr:last-child td:last-child {
-      border-bottom-right-radius: 4px !important;
+      border-bottom-#{direction(right)}-radius: 4px !important;
     }
   }
 }
@@ -69,12 +87,12 @@ thead th {
 /* Column striping */
 
 .notification-table-wrapper {
-  @include transition(margin 0.3s ease);
+  transition: margin 0.3s ease;
 }
 
 @media screen and (max-width: 1300px) {
   .notification-table-wrapper {
-    margin-right: 40px;
+    margin-#{direction(right)}: 40px;
   }
 }
 
@@ -86,13 +104,13 @@ thead th {
 
 .notification-prefs-table {
   .ui-button {
-    margin-left: 0;
-    margin-right: 0;
+    margin-#{direction(left)}: 0;
+    margin-#{direction(right)}: 0;
     padding: 2px; // fixes FF padding issues
   }
   .ui-buttonset {
-    margin-left: 0;
-    margin-right: 0;
+    margin-#{direction(left)}: 0;
+    margin-#{direction(right)}: 0;
   }
   .grouping > td:first-child {
     min-width: 205px;
@@ -139,7 +157,7 @@ thead th {
     }
   }
   .user-preference {
-    margin-left: 1.1em;
+    margin-#{direction(left)}: 1.1em;
     label {
       display: block;
       @include fontSize(13px);
@@ -151,7 +169,7 @@ h2, .h2 {
   position: relative;
   #notifications_save_status {
     position: absolute;
-    right: 0;
+    #{direction(right)}: 0;
     top: 0;
     width: 40px;
     height: 40px;
@@ -161,5 +179,5 @@ h2, .h2 {
 .weekly_notification_range {
   color: gray;
   font-style: italic;
-  padding-left: 1em;
+  padding-#{direction(left)}: 1em;
 }

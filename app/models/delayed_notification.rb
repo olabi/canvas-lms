@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,6 @@ class DelayedNotification < ActiveRecord::Base
      :submission_comment, { quiz_submission: 'Quizzes::QuizSubmission' }, :discussion_topic, :course, :enrollment,
      :wiki_page, :group_membership, :web_conference], polymorphic_prefix: true, exhaustive: false
   include NotificationPreloader
-  belongs_to :asset_context, polymorphic: [:account, :group, :course]
 
   attr_accessor :data
   validates_presence_of :notification_id, :asset_id, :asset_type, :workflow_state
@@ -40,16 +39,22 @@ class DelayedNotification < ActiveRecord::Base
     state :errored
   end
 
-  def self.process(asset, notification, recipient_keys, asset_context, data)
-    dn = DelayedNotification.new(:asset => asset, :notification => notification, :recipient_keys => recipient_keys,
-      :asset_context => asset_context, :data => data)
-    dn.process
+  def self.process(asset, notification, recipient_keys, data)
+    DelayedNotification.new(
+      asset: asset,
+      notification: notification,
+      recipient_keys: recipient_keys,
+      data: data
+    ).process
   end
 
   def process
-    tos = self.to_list
-    if self.asset && !tos.empty?
-      res = self.notification.create_message(self.asset, tos, :asset_context => self.asset_context, :data => self.data)
+    res = []
+    if asset
+      iterate_to_list do |to_list_slice|
+        slice_res = notification.create_message(self.asset, to_list_slice, data: self.data)
+        res.concat(slice_res) if Rails.env.test?
+      end
     end
     self.do_process unless self.new_record?
     res
@@ -61,8 +66,7 @@ class DelayedNotification < ActiveRecord::Base
     []
   end
 
-  def to_list
-    return @to_list if @to_list
+  def iterate_to_list
     lookups = {}
     (recipient_keys || []).each do |key|
       pieces = key.split('_')
@@ -71,13 +75,16 @@ class DelayedNotification < ActiveRecord::Base
       lookups[klass] ||= []
       lookups[klass] << id
     end
-    res = []
+
     lookups.each do |klass, ids|
       includes = []
-      includes = [:user] if klass == CommunicationChannel
-      res += klass.where(:id => ids).preload(includes).to_a rescue []
+      includes = [ :notification_policies, { user: :pseudonyms } ] if klass == CommunicationChannel
+      includes = [ :pseudonyms, { communication_channel: :notification_policies } ] if klass == User
+
+      ids.each_slice(100) do |slice|
+        yield klass.where(:id => slice).preload(includes).to_a
+      end
     end
-    @to_list = res.uniq
   end
 
   scope :to_be_processed, lambda { |limit|

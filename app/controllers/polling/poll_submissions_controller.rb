@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 
 module Polling
   # @API PollSubmissions
-  # @beta
   # Manage submissions for polls
   #
   # @model PollSubmission
@@ -52,12 +51,11 @@ module Polling
   class PollSubmissionsController < ApplicationController
     include ::Filters::Polling
 
-    before_filter :require_user
-    before_filter :require_poll
-    before_filter :require_poll_session
+    before_action :require_user
+    before_action :require_poll
+    before_action :require_poll_session
 
     # @API Get a single poll submission
-    # @beta
     #
     # Returns the poll submission with the given id
     #
@@ -74,7 +72,6 @@ module Polling
     end
 
     # @API Create a single poll submission
-    # @beta
     #
     # Create a new poll submission for this poll session
     #

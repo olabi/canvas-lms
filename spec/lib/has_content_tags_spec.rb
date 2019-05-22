@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,7 +35,7 @@ describe HasContentTags do
       end
 
       it 'immediately invalidates the cache when traversing unlock_at' do
-        @harness.stubs(:unlock_at).returns(now_plus_one_sec)
+        allow(@harness).to receive(:unlock_at).and_return(now_plus_one_sec)
         expect(@harness.locked_cache_key(@student).split("/")[-2]).to eq("true")
         Timecop.travel(now_plus_two_sec) do
           expect(@harness.locked_cache_key(@student).split("/")[-2]).to eq("false")
@@ -43,7 +43,7 @@ describe HasContentTags do
       end
 
       it 'immediately invalidates the cache when traversing lock_at' do
-        @harness.stubs(:lock_at).returns(now_plus_one_sec)
+        allow(@harness).to receive(:lock_at).and_return(now_plus_one_sec)
         expect(@harness.locked_cache_key(@student).split("/").last).to eq("false")
         Timecop.travel(now_plus_two_sec) do
           expect(@harness.locked_cache_key(@student).split("/").last).to eq("true")

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,7 @@ describe Auditors::Course do
   let(:request_id) { 42 }
 
   before do
-    RequestContextGenerator.stubs( :request_id => request_id )
+    allow(RequestContextGenerator).to receive_messages( :request_id => request_id )
 
     @account = Account.default
     @sub_account = Account.create!(:parent_account => @account)
@@ -47,6 +47,12 @@ describe Auditors::Course do
     it "should set request_id" do
       @event = Auditors::Course.record_updated(@course, @teacher, @course.changes)
       expect(@event.request_id).to eq request_id.to_s
+    end
+
+    it "should truncate super long changes" do
+      @course.syllabus_body = "ohnoes" * 10_000
+      @event = Auditors::Course.record_updated(@course, @teacher, @course.changes)
+      expect(@event.attributes["data"].length < 3_000).to be_truthy
     end
   end
 

@@ -1,21 +1,37 @@
-define([
-  'i18n!section',
-  'jquery' /* $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_date_and_time' /* time_field, datetime_field */,
-  'jquery.instructure_forms' /* formSubmit, formErrors */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers' /* replaceTags */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, showIf */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData */,
-  'jqueryui/autocomplete' /* /\.autocomplete/ */,
-  'compiled/PaginatedList',
-  'jst/courses/section/enrollment',
-  'compiled/presenters/sectionEnrollmentPresenter',
-  'jsx/context_cards/StudentContextCardTrigger'
-], function(I18n, $, _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, PaginatedList, enrollmentTemplate, sectionEnrollmentPresenter) {
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import I18n from 'i18n!section'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' /* time_field, datetime_field */
+import './jquery.instructure_forms' /* formSubmit, formErrors */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_helpers' /* replaceTags */
+import './jquery.instructure_misc_plugins' /* confirmDelete, showIf */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import './jquery.templateData'
+import 'jqueryui/autocomplete'
+import PaginatedList from 'compiled/PaginatedList'
+import enrollmentTemplate from 'jst/courses/section/enrollment'
+import sectionEnrollmentPresenter from 'compiled/presenters/sectionEnrollmentPresenter'
+import 'jsx/context_cards/StudentContextCardTrigger'
 
   $(document).ready(function() {
     var section_id = window.location.pathname.split('/')[4],
@@ -48,7 +64,6 @@ define([
       error: function(data) {
         $edit_section_form.loadingImage('remove');
         $edit_section_form.show();
-        $edit_section_form.formErrors(data);
       }
     })
     .find(":text")
@@ -167,4 +182,3 @@ define([
       });
     });
   });
-});

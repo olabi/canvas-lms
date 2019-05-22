@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ module GroupsHelper
   def group_avatar_url(group)
     attachment = group.avatar_attachment
     attachment ?
-      thumbnail_image_url(attachment, attachment.uuid) :
+      thumbnail_image_url(attachment) :
       "/images/group-placeholder.png"
   end
 end

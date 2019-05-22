@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "components/ui.selectmenu";
 @import "components/conditional_release";
@@ -19,11 +37,11 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .right-align {
-  text-align: right;
+  text-align: direction(right);
 }
 
 .pull-right {
-  float: right;
+  float: direction(right);
 }
 
 .show-if-collapsed {
@@ -48,10 +66,10 @@ $discussion-dark-text: $ic-color-dark;
     background: $ic-color-light;
     border: 1px solid $ic-border-light;
     padding: 0;
-    margin: $ic-sp 0 $ic-sp*2 $ic-sp*2;
+    margin: direction-sides($ic-sp 0 $ic-sp*2 $ic-sp*2);
 
     &.collapsed, .entry {
-      margin: 16px 0 16px 18px;
+      margin: direction-sides(16px 0 16px 18px);
     }
 
     .deleted-discussion-entry {
@@ -108,18 +126,18 @@ $discussion-dark-text: $ic-color-dark;
   background: white;
   padding: 6px;
   .al-trigger {
-    margin-left: 10px;
-    margin-right: 0px;
+    margin-#{direction(left)}: 10px;
+    margin-#{direction(right)}: 0px;
     margin-top: 0px;
   }
 }
 
 .new-and-total-badge {
-  float: right;
+  float: direction(right);
 }
 
 .discussion-section {
-  padding: 4px 10px 3px 10px;
+  padding: 4px 10px 3px;
 }
 
 .peer-review-alert {
@@ -128,7 +146,7 @@ $discussion-dark-text: $ic-color-dark;
     margin: 0;
     a {
       display: inline-block;
-      margin-left: 3px
+      margin-#{direction(left)}: 3px
     }
   }
   .icon-peer-review {
@@ -141,7 +159,7 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .reply-textarea {
-  border-radius: 5px 5px 0 0;
+  border-radius: direction-corners(5px 5px 0 0);
   box-sizing: border-box;
   min-height: 155px;
   width: 100%;
@@ -153,7 +171,7 @@ $discussion-dark-text: $ic-color-dark;
 
 .toggle-wrapper {
   margin: 0 11px;
-  text-align: right;
+  text-align: direction(right);
 }
 
 .due_date_wrapper {
@@ -190,7 +208,7 @@ $discussion-dark-text: $ic-color-dark;
   color: $discussion-dark-text;
 }
 
-.discussion-pubdate {
+.discussion-pubdate, .discussion-tododate {
   @include fontSize(11px);
   color: $discussion-dark-text;
   line-height: 23px;
@@ -208,7 +226,6 @@ $discussion-dark-text: $ic-color-dark;
 
 
 .discussion-fyi {
-  font-style: italic;
   @include fontSize(12px);
   color: darken($ic-color-neutral, 45);
 }
@@ -222,7 +239,7 @@ $discussion-dark-text: $ic-color-dark;
   height: 10px;
   padding: 12px;
   display: block;
-  left: -($ic-sp*3);
+  #{direction(left)}: -($ic-sp*3);
 }
 
 .discussion-read-state {
@@ -231,7 +248,7 @@ $discussion-dark-text: $ic-color-dark;
   border-radius: 5px;
   width: 10px;
   height: 10px;
-  background: $ic-brand-primary;
+  background: var(--ic-brand-primary);
 }
 
 .read .discussion-read-state {
@@ -240,7 +257,7 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .discussion-read-state-btn {
-  left: -32px;
+  #{direction(left)}: -32px;
 }
 
 .discussion-reply-action, .discussion-rate-action {
@@ -255,13 +272,13 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .discussion-rate-action {
-  margin-left: 12px;
+  margin-#{direction(left)}: 12px;
 }
 
 .discussion-rate-action--checked {
-  color: $linkColor;
+  color: var(--ic-link-color);
   &:hover, &:focus {
-    color: $linkColor;
+    color: var(--ic-link-color);
   }
 }
 
@@ -297,8 +314,8 @@ $discussion-dark-text: $ic-color-dark;
 
 .entry-content {
   .avatar {
-    float: left;
-    margin: 3px 8px 0 0;
+    float: direction(left);
+    margin: direction-sides(3px 8px 0 0);
   }
 }
 
@@ -307,7 +324,7 @@ $discussion-dark-text: $ic-color-dark;
     .discussion-entry-reply-area {
       padding: 0 0.8em;
       border-top: 1px solid #d4d5d7;
-      border-radius: 0 0 3px 3px;
+      border-radius: direction-corners(0 0 3px 3px);
 
       &.reply-box-container {
         padding: 15px 0.8em;
@@ -341,7 +358,7 @@ $discussion-dark-text: $ic-color-dark;
   padding-top: 5px;
 
   .author.unknown {
-    font-style: italic;
+    font-style: normal;
   }
 }
 
@@ -350,7 +367,7 @@ $discussion-dark-text: $ic-color-dark;
   padding: 0;
   margin: 0;
   li {
-    padding: 0 0 0 20px;
+    padding: direction-sides(0 0 0 20px);
     margin: 0;
     background: transparent url(/images/messages/attach-gray.png) left center no-repeat;
   }
@@ -368,11 +385,11 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .discussion-reply-attachments-container {
-  float: left;
+  float: direction(left);
 }
 
 .discussion-reply-buttons {
-  float: right;
+  float: direction(right);
 }
 
 .message-notification, .notification {
@@ -385,7 +402,6 @@ $discussion-dark-text: $ic-color-dark;
   }
   .discussion-title {
     @include fontSize(12px);
-    font-style: italic;
   }
 }
 
@@ -398,31 +414,31 @@ $discussion-dark-text: $ic-color-dark;
   margin: 0;
   border-top: 1px solid $border;
   background: white;
-  padding: 10px 10px 13px 10px;
+  padding: 10px 10px 13px;
   @include fontSize(10px);
   font-weight: bold;
   @include clearfix;
   a {
-    float: left;
+    float: direction(left);
     text-transform: uppercase;
     &:after {
       content: "";
       display: inline-block;
       position: relative;
-      left: 4px;
+      #{direction(left)}: 4px;
       top: 2px;
       bottom: 2px;
       height: 0px;
       width: 0px;
       border-style: solid;
-      border-color: #396eb2 transparent transparent transparent;
+      border-color: #396eb2 transparent transparent;
       border-width: 5px;
       vertical-align: middle;
     }
   }
   .new-and-total-badge {
     margin-top: 0;
-    float: right;
+    float: direction(right);
   }
 }
 
@@ -440,7 +456,7 @@ $discussion-dark-text: $ic-color-dark;
   @include fontSize(12px);
 
   .new-and-total-badge {
-    float: left;
+    float: direction(left);
     margin: 0;
   }
 }
@@ -451,8 +467,8 @@ $discussion-dark-text: $ic-color-dark;
 
   .entry-content {
     padding: $ic-sp;
-    border-left: 1px solid $ic-border-light;
-    border-right: 1px solid $ic-border-light;
+    border-#{direction(left)}: 1px solid $ic-border-light;
+    border-#{direction(right)}: 1px solid $ic-border-light;
   }
 }
 
@@ -461,7 +477,7 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .discussion_subentries {
-  padding: $ic-sp 0 $ic-sp $ic-sp;
+  padding: direction-sides($ic-sp 0 $ic-sp $ic-sp);
 }
 
 .discussion-page-nav {
@@ -470,7 +486,7 @@ $discussion-dark-text: $ic-color-dark;
     margin: 0;
     padding-bottom: 20px;
     list-style: none;
-    text-align: right;
+    text-align: direction(right);
     height: 1em;
   }
   li {
@@ -478,11 +494,11 @@ $discussion-dark-text: $ic-color-dark;
   }
   .item {
     display: block;
-    padding: 4px 12px 4px 8px;
-    border-right: 1px solid $border;
+    padding: direction-sides(4px 12px 4px 8px);
+    border-#{direction(right)}: 1px solid $border;
   }
   li:last-child .item {
-    border-right: none;
+    border-#{direction(right)}: none;
   }
 }
 
@@ -494,7 +510,7 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .highlight .entry-content {
-  outline: 3px solid $ic-brand-primary;
+  outline: 3px solid var(--ic-brand-primary);
 }
 
 .highlight .entry .entry-content {
@@ -515,12 +531,12 @@ $discussion-dark-text: $ic-color-dark;
   &:hover, &:focus {
     color: #444;
     text-decoration: none;
-    border-color: lighten($ic-link-color, 5%);
+    border-color: var(--ic-link-color);
   }
 }
 
 .add-side-comment-wrap {
-  padding: 10px 10px 10px 41px;
+  padding: direction-sides(10px 10px 10px 41px);
   border-top: solid 1px #e4e5e7;
 }
 
@@ -529,6 +545,7 @@ $discussion-dark-text: $ic-color-dark;
 }
 
 .message_wrapper {
+  word-break: break-word;
   padding-top: 2px;
   padding-bottom: 2px;
 }
@@ -556,11 +573,11 @@ $discussion-dark-text: $ic-color-dark;
     content: "";
     position: absolute;
     top: 2px;
-    left: 50%;
+    #{direction(left)}: 50%;
     height: 0px;
     width: 0px;
     border-style: solid;
-    border-color: transparent transparent #396eb2 transparent;
+    border-color: transparent transparent #396eb2;
     border-width: 8px;
   }
 }
@@ -575,7 +592,7 @@ $discussion-dark-text: $ic-color-dark;
 
 .collapsed .collapsable:before {
   top: 10px;
-  border-color: #396eb2 transparent transparent transparent;
+  border-color: #396eb2 transparent transparent;
 }
 
 .bootstrap-form {
@@ -591,7 +608,7 @@ $discussion-dark-text: $ic-color-dark;
   }
 
   #keyboard-shortcut-modal-info {
-    padding: 4px 0px 3px 0px;
+    padding: 4px 0px 3px;
 
     .accessibility-warning {
       display: none;
@@ -628,12 +645,12 @@ $discussion-dark-text: $ic-color-dark;
     + .discussion-entry-reply-area { margin-top: -1px; }
   }
   .admin-links {
-    text-align: left;
+    text-align: direction(left);
     float: none;
     display: inline;
   }
   .al-trigger {
-    margin-left: 4px;
+    margin-#{direction(left)}: 4px;
   }
   .headerBar {
     min-height: 53px;
@@ -650,13 +667,13 @@ $discussion-dark-text: $ic-color-dark;
   }
   .sticky {
     position: fixed;
-    top: 0; left: 0; right: 0;
+    top: 0; #{direction(left)}: 0; #{direction(right)}: 0;
     z-index: 15; // increase for discussions sticky toolbar
     border-color: $ic-border-light;
     background: $lightBackground;
     min-height: 53px;
-    margin-left: $ic-header-primary-width + ($ic-sp*2);
-    margin-right: $ic-sp*2;
+    margin-#{direction(left)}: $ic-header-primary-width + ($ic-sp*2);
+    margin-#{direction(right)}: $ic-sp*2;
     box-shadow: 0 2px 3px rgba(black, 0.1);
   }
   [disabled] {
@@ -670,7 +687,7 @@ $discussion-dark-text: $ic-color-dark;
   width: 100%;
   th {
     font-weight: bold;
-    text-align: left;
+    text-align: direction(left);
   }
 }
 

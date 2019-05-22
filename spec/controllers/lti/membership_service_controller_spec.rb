@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,6 +21,56 @@ require_dependency "lti/membership_service_controller"
 
 module Lti
   describe MembershipServiceController do
+    context 'lti tool access', type: :request do
+      before(:each) do
+        course_with_teacher
+        @course.offer!
+        @tool = external_tool_model(context: @course)
+        @tool.allow_membership_service_access = true
+        @tool.save!
+      end
+
+      it 'returns the members' do
+        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
+        consumer = OAuth::Consumer.new(@tool.consumer_key, @tool.shared_secret, :site => "http://www.example.com/")
+        path = "/api/lti/courses/#{@course.id}/membership_service"
+        req = consumer.create_signed_request(:get, path)
+        get path, headers: { 'Authorization' => req.get_fields('authorization').first }
+        assert_status(200)
+        hash = json_parse.with_indifferent_access
+        @teacher.reload
+        expect(hash.dig('pageOf', 'membershipSubject', 'membership').first.dig('member', 'userId')).to eq @teacher.lti_context_id
+      end
+
+      it 'returns unauthorized if the tool is not found' do
+        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
+        consumer = OAuth::Consumer.new(@tool.consumer_key+"1", @tool.shared_secret, :site => "http://www.example.com/")
+        path = "/api/lti/courses/#{@course.id}/membership_service"
+        req = consumer.create_signed_request(:get, path)
+        get path, headers: { 'Authorization' => req.get_fields('authorization').first }
+        assert_unauthorized
+      end
+
+      it 'returns unauthorized if the tool does not have access to the api' do
+        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
+        @tool.allow_membership_service_access = false
+        @tool.save!
+        consumer = OAuth::Consumer.new(@tool.consumer_key, @tool.shared_secret, :site => "http://www.example.com/")
+        path = "/api/lti/courses/#{@course.id}/membership_service"
+        req = consumer.create_signed_request(:get, path)
+        get path, headers: { 'Authorization' => req.get_fields('authorization').first }
+        assert_unauthorized
+      end
+
+      it 'returns unauthorized if the membership service access feature flag is disabled' do
+        consumer = OAuth::Consumer.new(@tool.consumer_key, @tool.shared_secret, :site => "http://www.example.com/")
+        path = "/api/lti/courses/#{@course.id}/membership_service"
+        req = consumer.create_signed_request(:get, path)
+        get path, headers: { 'Authorization' => req.get_fields('authorization').first }
+        assert_unauthorized
+      end
+    end
+
     context 'user not enrolled in course' do
       before(:each) do
         course_model
@@ -33,7 +83,7 @@ module Lti
 
       describe '#course_index' do
         it 'returns 401 if user is not part of course' do
-          get 'course_index', course_id: @course.id
+          get 'course_index', params: {course_id: @course.id}
           assert_unauthorized
         end
       end
@@ -43,12 +93,13 @@ module Lti
       before(:each) do
         course_with_teacher
         @course.offer!
+        enable_default_developer_key!
       end
 
       describe "#course_index" do
         context 'without access token' do
           it 'requires a user' do
-            get 'course_index', course_id: @course.id
+            get 'course_index', params: {course_id: @course.id}
             assert_unauthorized
           end
         end
@@ -62,7 +113,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the top level' do
-            get 'course_index', course_id: @course.id
+            get 'course_index', params: {course_id: @course.id}
             hash = json_parse.with_indifferent_access
             expect(hash.keys.size).to eq(6)
 
@@ -75,7 +126,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the container level' do
-            get 'course_index', course_id: @course.id
+            get 'course_index', params: {course_id: @course.id}
             hash = json_parse.with_indifferent_access
             container = hash[:pageOf]
 
@@ -88,7 +139,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the context level' do
-            get 'course_index', course_id: @course.id
+            get 'course_index', params: {course_id: @course.id}
             hash = json_parse.with_indifferent_access
             @course.reload
             context = hash[:pageOf][:membershipSubject]
@@ -102,7 +153,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the membership level' do
-            get 'course_index', course_id: @course.id
+            get 'course_index', params: {course_id: @course.id}
             hash = json_parse.with_indifferent_access
             @teacher.reload
             memberships = hash[:pageOf][:membershipSubject][:membership]
@@ -135,7 +186,7 @@ module Lti
             end
 
             it 'outputs the expected data in the expected format at the membership level' do
-              get 'course_index', course_id: @course.id, role: IMS::LIS::ContextType::URNs::Group
+              get 'course_index', params: {course_id: @course.id, role: IMS::LIS::ContextType::URNs::Group}
               hash = json_parse.with_indifferent_access
               @group.reload
               memberships = hash[:pageOf][:membershipSubject][:membership]
@@ -161,6 +212,7 @@ module Lti
 
     context 'course with multiple enrollments' do
       before(:each) do
+        enable_default_developer_key!
         course_with_teacher
         @course.enroll_user(@teacher, 'TeacherEnrollment', enrollment_state: 'active')
         @ta = user_model
@@ -176,8 +228,8 @@ module Lti
 
       describe '#as_json' do
         it 'provides the right next_page url when no page/per_page/role params are given' do
-          Api.stubs(:per_page).returns(1)
-          get 'course_index', course_id: @course.id
+          allow(Api).to receive(:per_page).and_return(1)
+          get 'course_index', params: {course_id: @course.id}
           hash = json_parse.with_indifferent_access
 
           uri = URI(hash.fetch(:nextPage))
@@ -188,8 +240,8 @@ module Lti
         end
 
         it 'provides the right next_page url when page/per_page/role params are given' do
-          Api.stubs(:per_page).returns(1)
-          get 'course_index', course_id: @course.id, page: 2, per_page: 1, role: 'Instructor'
+          allow(Api).to receive(:per_page).and_return(1)
+          get 'course_index', params: {course_id: @course.id, page: 2, per_page: 1, role: 'Instructor'}
           hash = json_parse.with_indifferent_access
 
           uri = URI(hash.fetch(:nextPage))
@@ -200,8 +252,8 @@ module Lti
         end
 
         it 'returns nil for the next page url when the last page in the collection was requested' do
-          Api.stubs(:per_page).returns(1)
-          get 'course_index', course_id: @course.id, page: 3, per_page: 1, role: 'Instructor'
+          allow(Api).to receive(:per_page).and_return(1)
+          get 'course_index', params: {course_id: @course.id, page: 3, per_page: 1, role: 'Instructor'}
           hash = json_parse.with_indifferent_access
 
           expect(hash.fetch(:nextPage)).to be_nil
@@ -211,6 +263,7 @@ module Lti
 
     context 'user not in course group' do
       before(:each) do
+        enable_default_developer_key!
         course_with_teacher
         @course.offer!
         user_model
@@ -225,7 +278,7 @@ module Lti
 
       describe '#group_index' do
         it 'returns 401 if user is not part of group' do
-          get 'group_index', group_id: @group.id
+          get 'group_index', params: {group_id: @group.id}
           assert_unauthorized
         end
       end
@@ -243,7 +296,7 @@ module Lti
 
       describe '#group_index' do
         it 'returns 401 if user is not part of group' do
-          get 'group_index', group_id: @group.id
+          get 'group_index', params: {group_id: @group.id}
           assert_unauthorized
         end
       end
@@ -263,13 +316,14 @@ module Lti
       describe "#group_index" do
         context 'without access token' do
           it 'requires a user' do
-            get 'group_index', group_id: @group.id
+            get 'group_index', params: {group_id: @group.id}
             assert_unauthorized
           end
         end
 
         context 'with access token' do
           before(:each) do
+            enable_default_developer_key!
             pseudonym(@student)
             @student.save!
             token = @student.access_tokens.create!(purpose: 'test').full_token
@@ -277,7 +331,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the top level' do
-            get 'group_index', group_id: @group.id
+            get 'group_index', params: {group_id: @group.id}
             hash = json_parse.with_indifferent_access
             expect(hash.keys.size).to eq(6)
 
@@ -290,7 +344,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the container level' do
-            get 'group_index', group_id: @group.id
+            get 'group_index', params: {group_id: @group.id}
             hash = json_parse.with_indifferent_access
             container = hash[:pageOf]
 
@@ -303,7 +357,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the context level' do
-            get 'group_index', group_id: @group.id
+            get 'group_index', params: {group_id: @group.id}
             hash = json_parse.with_indifferent_access
             @group.reload
             context = hash[:pageOf][:membershipSubject]
@@ -317,7 +371,7 @@ module Lti
           end
 
           it 'outputs the expected data in the expected format at the membership level' do
-            get 'group_index', group_id: @group.id
+            get 'group_index', params: {group_id: @group.id}
             hash = json_parse.with_indifferent_access
             @student.reload
             memberships = hash[:pageOf][:membershipSubject][:membership]
@@ -348,6 +402,7 @@ module Lti
 
     context 'group with multiple students' do
       before(:each) do
+        enable_default_developer_key!
         course_with_teacher
         @course.offer!
         @student1 = user_model
@@ -371,8 +426,8 @@ module Lti
 
       describe '#as_json' do
         it 'provides the right next_page url when no page/per_page/role params are given' do
-          Api.stubs(:per_page).returns(1)
-          get 'group_index', group_id: @group.id
+          allow(Api).to receive(:per_page).and_return(1)
+          get 'group_index', params: {group_id: @group.id}
           hash = json_parse.with_indifferent_access
 
           uri = URI(hash.fetch(:nextPage))
@@ -383,8 +438,8 @@ module Lti
         end
 
         it 'provides the right next_page url when page/per_page/role params are given' do
-          Api.stubs(:per_page).returns(1)
-          get 'group_index', group_id: @group.id, page: 2, per_page: 1, role: 'Instructor'
+          allow(Api).to receive(:per_page).and_return(1)
+          get 'group_index', params: {group_id: @group.id, page: 2, per_page: 1, role: 'Instructor'}
           hash = json_parse.with_indifferent_access
 
           uri = URI(hash.fetch(:nextPage))
@@ -395,8 +450,8 @@ module Lti
         end
 
         it 'returns nil for the next page url when the last page in the collection was requested' do
-          Api.stubs(:per_page).returns(1)
-          get 'group_index', group_id: @group.id, page: 3, per_page: 1, role: 'Instructor'
+          allow(Api).to receive(:per_page).and_return(1)
+          get 'group_index', params: {group_id: @group.id, page: 3, per_page: 1, role: 'Instructor'}
           hash = json_parse.with_indifferent_access
 
           expect(hash.fetch(:nextPage)).to be_nil

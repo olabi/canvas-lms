@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,14 +12,13 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'jquery' /* $ */,
-  'str/htmlEscape',
-  'jquery.instructure_misc_helpers' /* replaceTags */
-], function($, htmlEscape) {
+
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import './jquery.instructure_misc_helpers' /* replaceTags */
 
   // Fills the selected object(s) with data values as specified.  Plaintext values should be specified in the
   //  data: data used to fill template.
@@ -166,5 +165,3 @@ define([
     var opts = $.extend({}, options, {textValues: [value]});
     return this.getTemplateData(opts)[value];
   };
-
-});

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/files_common')
 
@@ -18,17 +35,23 @@ describe "better_file_browsing, folders" do
       expect(f("form.ef-edit-name-form")).to be_displayed
     end
 
-    it "should create a new folder", priority: "1", test_id: 133121 do
-      expect(fln("new test folder")).to be_present
+    it "should create a new folder", :xbrowser, priority: "1", test_id: 133121 do
+      # locator was changed from fln in this test due to an issue with edgedriver
+      # We can not use fln here
+      expect(fj("a:contains('new test folder')")).to be_present
     end
 
     it "should display all cog icon options", priority: "1", test_id: 133124 do
+      # locators were changed from fln in this test due to an issue with edgedriver
+      # We can not use fln here
       create_new_folder
-      ff('.al-trigger')[0].click
-      expect(fln("Download")).to be_displayed
-      expect(fln("Rename")).to be_displayed
-      expect(fln("Move")).to be_displayed
-      expect(fln("Delete")).to be_displayed
+      row = ff('.ef-item-row')[0] # get row of newly created folder
+      f('.al-trigger', row).click
+      id = f('.al-trigger', row).attribute("aria-owns") # get id of ul of options that should be displayed
+      expect(fj("a:contains('Download')", f("##{id}"))).to be_displayed
+      expect(fj("a:contains('Rename')", f("##{id}"))).to be_displayed
+      expect(fj("a:contains('Move')", f("##{id}"))).to be_displayed
+      expect(fj("a:contains('Delete')", f("##{id}"))).to be_displayed
     end
 
     it "should edit folder name", priority: "1", test_id: 223501 do
@@ -55,6 +78,7 @@ describe "better_file_browsing, folders" do
     end
 
     it "should delete a folder from cog icon", priority: "1", test_id: 223502 do
+      skip_if_safari(:alert)
       delete(0, :cog_icon)
       expect(f("#content")).not_to contain_link("new test folder")
     end
@@ -77,8 +101,9 @@ describe "better_file_browsing, folders" do
     end
 
     it "should delete folder from toolbar", priority: "1", test_id: 133105 do
+      skip_if_safari(:alert)
       delete(0, :toolbar_menu)
-      expect(all_files_folders.count).to eq 0
+      expect(f("body")).not_to contain_css('.ef-item-row')
     end
 
     it "should be able to create and view a new folder with uri characters", priority: "2", test_id: 193153 do

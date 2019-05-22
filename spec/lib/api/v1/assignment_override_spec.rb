@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 require File.expand_path(File.dirname(__FILE__) + '/../../../sharding_spec_helper.rb')
 
@@ -20,8 +37,8 @@ describe Api::V1::AssignmentOverride do
                   :unlock_at => nil,
                   :lock_at => nil
       }
-      subject.stubs(:api_find_all).returns []
-      assignment = stub(:context => stub(:students => stub(:active)))
+      allow(subject).to receive(:api_find_all).and_return []
+      assignment = double(context: double(all_students: []))
       result = subject.interpret_assignment_override_data(assignment, override,'ADHOC')
       expect(result.first[:due_at]).to eq nil
       expect(result.first[:unlock_at]).to eq nil
@@ -40,8 +57,8 @@ describe Api::V1::AssignmentOverride do
 
         override = { :student_ids => [@student.global_id] }
 
-        subject.stubs(:api_find_all).returns [@student]
-        assignment = stub(:context => stub(:students => stub(:active)))
+        allow(subject).to receive(:api_find_all).and_return [@student]
+        assignment = double(context: double(all_students: []))
         result = subject.interpret_assignment_override_data(assignment, override,'ADHOC')
         expect(result[1]).to be_nil
         expect(result.first[:students]).to eq [@student]
@@ -237,8 +254,25 @@ describe Api::V1::AssignmentOverride do
     subject(:assignment_overrides_json) { test_class.new.assignment_overrides_json([@override], @student) }
 
     it 'delegates to AssignmentOverride.visible_enrollments_for' do
-      AssignmentOverride.expects(:visible_enrollments_for).once.returns(Enrollment.none)
+      expect(AssignmentOverride).to receive(:visible_enrollments_for).once.and_return(Enrollment.none)
       assignment_overrides_json
+    end
+  end
+
+  describe "perform_batch_update_assignment_overrides" do
+    before :once do
+      course_with_teacher(active_all: true)
+      assignment_model(course: @course)
+    end
+
+    it "touches the assignment" do
+      expect(@assignment).to receive(:touch)
+      subject.perform_batch_update_assignment_overrides(@assignment, {
+        overrides_to_create: [],
+        overrides_to_update: [],
+        overrides_to_delete: [],
+        override_errors: []
+      })
     end
   end
 end

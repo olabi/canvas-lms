@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -108,10 +108,8 @@ class ConversationMessage < ActiveRecord::Base
   end
 
   def after_participants_created_broadcast
-    conversation_message_participants(true) # reload this association so we get latest data
-    skip_broadcasts = false
+    conversation_message_participants.reload # reload this association so we get latest data
     @re_send_message = true
-    set_broadcast_flags
     broadcast_notifications
     queue_create_stream_items
     generate_user_note!
@@ -291,7 +289,13 @@ class ConversationMessage < ActiveRecord::Base
     # It would be nice to have group conversations via e-mail, but if so, we need to make it much more obvious
     # that replies to the e-mail will be sent to multiple recipients.
     recipients = [author]
-    conversation.reply_from(opts.merge(:root_account_id => self.root_account_id, :only_users => recipients))
+    tags = conversation.conversation_participants.where(user_id: author.id).pluck(:tags)
+    opts = opts.merge(
+      :root_account_id => self.root_account_id,
+      :only_users => recipients,
+      :tags => tags
+    )
+    conversation.reply_from(opts)
   end
 
   def forwarded_messages

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 describe RuboCop::Cop::Specs::EnsureSpecExtension do
   subject(:cop) { described_class.new }
 
@@ -8,8 +25,8 @@ describe RuboCop::Cop::Specs::EnsureSpecExtension do
 
     context "top level context" do
       it 'does not warn for *_spec.rb extension' do
-        inspect_source(cop, %{
-          context AccountAuthorizationConfig::BlueDragoon do
+        inspect_source(%{
+          context AuthenticationProvider::BlueDragoon do
             describe '#fire' do
               it 'rains fire' do
                 expect(1).to eq(1)
@@ -23,8 +40,8 @@ describe RuboCop::Cop::Specs::EnsureSpecExtension do
 
     context "top level describe" do
       it 'does not warn for *_spec.rb extension' do
-        inspect_source(cop, %{
-          describe AccountAuthorizationConfig::GreenDragoon do
+        inspect_source(%{
+          describe AuthenticationProvider::GreenDragoon do
             describe '#green' do
               it 'smells bad' do
                 expect(1).to eq(1)
@@ -44,8 +61,8 @@ describe RuboCop::Cop::Specs::EnsureSpecExtension do
 
     context "top level context" do
       it 'warns for *_spec.rb extension' do
-        inspect_source(cop, %{
-          context AccountAuthorizationConfig::BlueDragoon do
+        inspect_source(%{
+          context AuthenticationProvider::BlueDragoon do
             describe '#fire' do
               it 'rains fire' do
                 expect(1).to eq(1)
@@ -61,8 +78,8 @@ describe RuboCop::Cop::Specs::EnsureSpecExtension do
 
     context "top level describe" do
       it 'warns for *_spec.rb extension' do
-        inspect_source(cop, %{
-          describe AccountAuthorizationConfig::GreenDragoon do
+        inspect_source(%{
+          describe AuthenticationProvider::GreenDragoon do
             describe '#green' do
               it 'smells bad' do
                 expect(1).to eq(1)

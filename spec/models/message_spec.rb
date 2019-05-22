@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,7 +42,7 @@ describe Message do
     end
 
     it 'should sanitize html' do
-      expect_any_instance_of(Message).to receive(:load_html_template).and_return <<-ZOMGXSS
+      expect_any_instance_of(Message).to receive(:load_html_template).and_return [<<-ZOMGXSS, 'template.html.erb']
         <b>Your content</b>: <%= "<script>alert()</script>" %>
       ZOMGXSS
       user         = user_factory(active_all: true)
@@ -67,7 +67,7 @@ describe Message do
       @au = AccountUser.create(:account => account_model)
       msg = generate_message(:account_user_notification, :email, @au)
       expect(msg.html_body.scan(/<html>/).length).to eq 1
-      expect(msg.html_body.index('<html>')).to eq 0
+      expect(msg.html_body.index('<!DOCTYPE')).to eq 0
     end
 
     it "should not html escape the subject" do
@@ -157,6 +157,19 @@ describe Message do
     end
   end
 
+  it "should raise an error when trying to re-save an existing message" do
+    message_model
+    @message.body = "something else"
+    expect(@message.save).to be_falsey
+  end
+
+  it "should still set new attributes defined in workflow transitions" do
+    message_model(:workflow_state => "sending", :user => user_factory)
+    @message.complete_dispatch
+    expect(@message.reload.workflow_state).to eq "sent"
+    expect(@message.sent_at).to be_present
+  end
+
   context "named scopes" do
     it "should be able to get messages in any state" do
       m1 = message_model(:workflow_state => 'bounced', :user => user_factory)
@@ -169,8 +182,7 @@ describe Message do
 
     it "should be able to search on its context" do
       user_model
-      message_model
-      @message.update_attribute(:context, @user)
+      message_model(:context => @user)
       expect(Message.for(@user)).to eq [@message]
     end
 
@@ -253,7 +265,7 @@ describe Message do
         path_type: 'email'
       })
       message.workflow_state = "staged"
-      allow(Mailer).to receive(:create_message).and_return(double(deliver: "Response!"))
+      allow(Mailer).to receive(:create_message).and_return(double(deliver_now: "Response!"))
       expect(message.workflow_state).to eq("staged")
       expect{ message.deliver }.not_to raise_error
     end
@@ -264,7 +276,7 @@ describe Message do
       end
 
       it "deletes unreachable push endpoints" do
-        ne = mock()
+        ne = double()
         expect(ne).to receive(:push_json).and_return(false)
         expect(ne).to receive(:destroy)
         expect(@user).to receive(:notification_endpoints).and_return([ne])
@@ -274,7 +286,7 @@ describe Message do
       end
 
       it "delivers to each of a user's push endpoints" do
-        ne = mock()
+        ne = double()
         expect(ne).to receive(:push_json).twice.and_return(true)
         expect(ne).to receive(:destroy).never
         expect(@user).to receive(:notification_endpoints).and_return([ne, ne])
@@ -433,35 +445,28 @@ describe Message do
         expect(message.root_account).to eq Account.default
       end
 
-      it 'pulls the reply_to_name from the asset_context if there is one' do
+      it 'pulls the reply_to_name from the asset if there is one' do
         with_reply_to_name = build_conversation_message
         without_reply_to_name = course_model
-        expect(message_model(asset_context: without_reply_to_name, context: without_reply_to_name).
+        expect(message_model(context: without_reply_to_name).
           reply_to_name).to be_nil
-        reply_to_message = message_model(asset_context: with_reply_to_name,
-                                         context: with_reply_to_name,
+        reply_to_message = message_model(context: with_reply_to_name,
                                          notification_name: "Conversation Message")
         expect(reply_to_message.reply_to_name).to eq "#{user1.short_name} via Canvas Notifications"
       end
 
       describe ":from_name" do
-        it 'pulls from the asset_context if there is one' do
+        it 'pulls from the assets directly, if possible' do
           convo_message = build_conversation_message
-          message = message_model(:context => convo_message,
-            :asset_context => convo_message, notification_name: "Conversation Message")
+          message = message_model(:context => convo_message, notification_name: "Conversation Message")
           expect(message.from_name).to eq user1.short_name
         end
 
-        it "can differentiate when the context and asset_context are different" do
-          submission = build_submission
-          message = message_model(context: submission,
-            asset_context: submission.context, notification_name: "Assignment Submitted")
-          expect(message.from_name).to eq submission.user.short_name
-        end
-
-        it 'uses the default host url if the asset context wont override it' do
-          message = message_model()
-          expect(message.from_name).to eq HostUrl.outgoing_email_default_name
+        it "pulls from the asset's context, if possible" do
+          assign = assignment_model
+          notification = Notification.create(:name => 'Assignment Changed')
+          message = message_model(:context => assign, notification: notification)
+          expect(message.from_name).to eq assign.context.name
         end
 
         it 'uses the root_account override if there is one' do
@@ -469,10 +474,40 @@ describe Message do
           account.settings[:outgoing_email_default_name] = "OutgoingName"
           account.save!
           expect(account.reload.settings[:outgoing_email_default_name]).to eq "OutgoingName"
-          mesage = message_model(:context => course_model)
+          message = message_model(:context => course_model)
           expect(message.from_name).to eq "OutgoingName"
         end
 
+        it 'uses the default host url if the asset context wont override it' do
+          message = message_model()
+          expect(message.from_name).to eq HostUrl.outgoing_email_default_name
+        end
+
+        it 'uses a course nickname if exists' do
+          assign = assignment_model
+          user = user_model(preferences: { course_nicknames: { assign.context.id => 'nickname' }})
+          notification = Notification.create(:name => 'Assignment Changed')
+          message = message_model(:context => assign, notification: notification, user: user)
+          expect(message.from_name).to eq 'nickname'
+        end
+
+        it 'uses a course appointment group if exists' do
+          @account = Account.create!
+          @account.settings[:allow_invitation_previews] = false
+          @account.save!
+          course_with_student(:account => @account, :active_all => true, :name => 'Unnamed Course')
+          cat = @course.group_categories.create(:name => 'teh category')
+          ag = appointment_group_model(:contexts => [@course], :sub_context => cat)
+          assign = assignment_model
+          @course.offer!
+          user = user_model(preferences: { course_nicknames: { assign.context.id => 'test_course' }})
+          user.register!
+          enroll = @course.enroll_user(user)
+          enroll.accept!
+          notification = Notification.create(:name => 'Assignment Group Published')
+          message = message_model(:context => ag, notification: notification, user: user)
+          expect(message.from_name).to eq "Unnamed Course"
+        end
       end
     end
 
@@ -508,7 +543,7 @@ describe Message do
       message = Message.create!(context: submission)
       expect(message.author_short_name).to eq user.short_name
       expect(message.author_email_address).to eq user.email
-      expect(message.author_avatar_url).to match /secure.gravatar.com/
+      expect(message.author_avatar_url).to match 'http://localhost/images/messages/avatar-50.png'
     end
 
     it 'loads attributes from an author owned asset' do
@@ -518,7 +553,7 @@ describe Message do
       message = Message.create!(context: convo_message)
       expect(message.author_short_name).to eq user.short_name
       expect(message.author_email_address).to eq user.email
-      expect(message.author_avatar_url).to match /secure.gravatar.com/
+      expect(message.author_avatar_url).to match 'http://localhost/images/messages/avatar-50.png'
     end
 
     it "doesn't reveal the author's email address when the account setting is not set" do
@@ -528,7 +563,7 @@ describe Message do
       message = Message.create!(context: convo_message)
       expect(message.author_short_name).to eq user.short_name
       expect(message.author_email_address).to eq nil
-      expect(message.author_avatar_url).to match /secure.gravatar.com/
+      expect(message.author_avatar_url).to match 'http://localhost/images/messages/avatar-50.png'
     end
 
     it 'doesnt break when there is no author' do
@@ -591,5 +626,25 @@ describe Message do
     msg = Message.new
     msg.url = url
     msg.save!
+  end
+
+  describe "#context_context" do
+    it "finds context for an assignment" do
+      assign = assignment_model
+      message = Message.new(context: assign)
+      expect(message.context_context).to eq assign.context
+    end
+
+    it "finds context for a submission" do
+      sub = submission_model
+      message = Message.new(context: sub)
+      expect(message.context_context).to eq sub.assignment.context
+    end
+
+    it "finds context for a discussion" do
+      dt = discussion_topic_model
+      message = Message.new(context: dt)
+      expect(message.context_context).to eq dt.context
+    end
   end
 end

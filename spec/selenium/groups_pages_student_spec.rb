@@ -1,5 +1,25 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
+require_relative 'announcements/pages/announcement_index_page'
+require_relative 'announcements/pages/announcement_new_edit_page'
 require_relative 'helpers/announcements_common'
+require_relative 'helpers/legacy_announcements_common'
 require_relative 'helpers/conferences_common'
 require_relative 'helpers/course_common'
 require_relative 'helpers/discussions_common'
@@ -47,6 +67,52 @@ describe "groups" do
         verify_no_course_user_access(url)
       end
 
+      describe "for concluded course" do
+        it "should not be accessible to students" do
+          course = Course.create!(name: "course 1")
+          teacher = User.create!(name: "Teacher 1")
+          course.enroll_teacher(teacher).accept!
+          student = User.create!(name: "Student 1")
+          en = course.enroll_student(student)
+          en.workflow_state = 'active'
+          en.save!
+          course.reload
+
+          category = course.group_categories.create!(name: 'category')
+          course.groups.create!(name: "Test Group", group_category: category)
+          course.groups.first.add_user student
+          course.update_attributes(conclude_at: 1.day.ago, workflow_state: 'completed')
+
+          user_session(student)
+          get "/groups/#{course.groups.first.id}"
+
+          expect(driver.current_url).to eq dashboard_url
+          expect(f('.ic-flash-error')).to be_displayed
+        end
+
+        it "should be accessible to teachers" do
+          course = Course.create!(name: "course 1")
+          teacher = User.create!(name: "Teacher 1")
+          course.enroll_teacher(teacher).accept!
+          student = User.create!(name: "Student 1")
+          en = course.enroll_student(student)
+          en.workflow_state = 'active'
+          en.save!
+          course.reload
+
+          category = course.group_categories.create!(name: 'category')
+          course.groups.create!(name: "Test Group", group_category: category)
+          course.groups.first.add_user student
+          course.update_attributes(conclude_at: 1.day.ago, workflow_state: 'completed')
+
+          user_session(teacher)
+          url = "/groups/#{course.groups.first.id}"
+          get url
+
+          expect(driver.current_url).to end_with url
+        end
+      end
+
       it "hides groups for inaccessible courses in groups list", priority: "2", test_id: 927757 do
         term = EnrollmentTerm.find(@course.enrollment_term_id)
         term.end_at = Time.zone.now-2.days
@@ -58,64 +124,93 @@ describe "groups" do
       end
     end
 
-    #-------------------------------------------------------------------------------------------------------------------
-    describe "announcements page" do
-      it_behaves_like 'announcements_page', :student
+    describe "announcements page v2" do
+      it_behaves_like 'announcements_page_v2', :student
 
-      it "should allow group members to delete their own announcements", priority: "1", test_id: 326521 do
-        create_group_announcement_manually("Announcement by #{@students.first.name}",'yo ho, yo ho')
-        expect(ff('.discussion-topic').size).to eq 1
-        delete_via_gear_menu
-        expect(f("#content")).not_to contain_css('.discussion-topic')
-      end
-
-      it "should allow any group member to create an announcement", priority: "1", test_id: 273607 do
-
-        # Checks that initial user can create an announcement
-        create_group_announcement_manually("Announcement by #{@user.name}",'sup')
-
-        # Log in as a new student to verify the last group was created and that they can also create a group
-        user_session(@students.first)
-        expect(ff('.discussion-topic').size).to eq 1
-        create_group_announcement_manually("Announcement by #{@students.first.name}",'yo')
-        expect(ff('.discussion-topic').size).to eq 2
-      end
-
-      it "should allow group members to edit their own announcements", priority: "1", test_id: 312867 do
-        create_group_announcement_manually("Announcement by #{@students.first.name}",'The Force Awakens')
-        expect(ff('.discussion-topic').size).to eq 1
-        f('.discussion-title').click
-        f('.edit-btn').click
-        expect(driver.title).to eq 'Edit Announcement'
-        type_in_tiny('textarea[name=message]','Rey is Yodas daughter')
-        f('.btn-primary').click
-        wait_for_ajaximations
+      it "should allow group members to delete their own announcements" do
+        announcement = @testgroup.first.announcements.create!(
+          title: "Announcement by #{@student.name}",
+          message: 'sup',
+          user: @student
+        )
         get announcements_page
-        expect(ff('.discussion-topic').size).to eq 1
-        expect(f('.discussion-summary')).to include_text('Rey is Yodas daughter')
+        expect(ff('.ic-announcement-row').size).to eq 1
+        AnnouncementIndex.delete_announcement_manually(announcement.title)
+        expect(f(".announcements-v2__wrapper")).not_to contain_css('.ic-announcement-row')
       end
 
-      it "should not allow group members to edit someone else's announcement", priority: "1", test_id: 327111 do
-        create_group_announcement_manually("Announcement by #{@user.name}",'sup')
+      it "should allow any group member to create an announcement" do
+        @testgroup.first.announcements.create!(
+          title: "Announcement by #{@user.name}",
+          message: 'sup',
+          user: @user
+        )
+        # Log in as a new student to see if we can make an announcement
+        user_session(@students.first)
+        AnnouncementNewEdit.visit_new(@testgroup.first)
+        AnnouncementNewEdit.add_message("New Announcement")
+        AnnouncementNewEdit.add_title("New Title")
+        AnnouncementNewEdit.submit_announcement_form
+        expect(driver.current_url).to include(AnnouncementNewEdit.
+                                              individual_announcement_url(Announcement.last))
+      end
+
+      it "should allow group members to edit their own announcements" do
+        announcement = @testgroup.first.announcements.create!(
+          title: "Announcement by #{@user.name}",
+          message: 'The Force Awakens',
+          user: @user
+        )
+        get announcements_page
+        expect_new_page_load { AnnouncementIndex.click_on_announcement(announcement.title) }
+        expect(driver.current_url).to include AnnouncementNewEdit.individual_announcement_url(announcement)
+      end
+
+      it "edit page should succeed for their own announcements" do
+        announcement = @testgroup.first.announcements.create!(
+          title: "Announcement by #{@user.name}",
+          message: 'The Force Awakens',
+          user: @user
+        )
+        # note announcement_url includes a leading '/'
+        AnnouncementNewEdit.edit_group_announcement(@testgroup.first, announcement,
+          "Canvas will be rewritten in chicken")
+        announcement.reload
+        # Editing *appends* to existing message, and the resulting announcement's
+        # message is wrapped in paragraph tags
+        expect(announcement.message).to eq(
+          "<p>The Force AwakensCanvas will be rewritten in chicken</p>"
+        )
+      end
+
+      it "should not allow group members to edit someone else's announcement" do
+        announcement = @testgroup.first.announcements.create!(
+          title: "Announcement by #{@user.name}",
+          message: 'sup',
+          user: @user
+        )
         user_session(@students.first)
         get announcements_page
-        expect(ff('.discussion-topic').size).to eq 1
-        f('.discussion-title').click
-        expect(f("#content")).not_to contain_css('.edit-btn')
+        expect(ff('.ic-announcement-row').size).to eq 1
+        expect_new_page_load { AnnouncementIndex.click_on_announcement(announcement.title) }
+        expect(f('#content-wrapper')).not_to contain_css('.edit-btn')
       end
 
-      it "should allow all group members to see announcements", priority: "1", test_id: 273613 do
-        @announcement = @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group',user: @teacher)
-        # Verifying with a few different group members should be enough to ensure all group members can see it
-        verify_member_sees_announcement
-
+      it "student in group can see teachers announcement in index" do
+        announcement = @testgroup.first.announcements.create!(
+          title: 'Group Announcement',
+          message: 'Group',
+          user: @teacher
+        )
         user_session(@students.first)
-        verify_member_sees_announcement
+        AnnouncementIndex.visit_groups_index(@testgroup.first)
+        expect_new_page_load { AnnouncementIndex.click_on_announcement(announcement.title) }
+        expect(f('.discussion-title').text).to eq 'Group Announcement'
+        expect(f('.message').text).to eq 'Group'
       end
 
-      it "should only allow group members to access announcements", priority: "1", test_id: 315329 do
+      it "should only allow group members to access announcements" do
         get announcements_page
-        expect(fj('.btn-primary:contains("Announcement")')).to be_displayed
         verify_no_course_user_access(announcements_page)
       end
     end
@@ -155,7 +250,7 @@ describe "groups" do
 
       it "should allow discussions to be created within a group", priority: "1", test_id: 273615 do
         get discussions_page
-        expect_new_page_load { f('#new-discussion-btn').click }
+        expect_new_page_load { f('#add_discussion').click }
         # This creates the discussion and also tests its creation
         edit_topic('from a student', 'tell me a story')
       end
@@ -171,7 +266,7 @@ describe "groups" do
 
       it "should have two options when creating a discussion", priority: "1", test_id: 273617 do
         get discussions_page
-        expect_new_page_load { f('#new-discussion-btn').click }
+        expect_new_page_load { f('#add_discussion').click }
         expect(f('#threaded')).to be_displayed
         expect(f('#allow_rating')).to be_displayed
         # Shouldn't be Enable Podcast Feed option
@@ -180,16 +275,20 @@ describe "groups" do
 
       it "should only allow group members to access discussions", priority: "1", test_id: 315332 do
         get discussions_page
-        expect(f('#new-discussion-btn')).to be_displayed
+        expect(f('#add_discussion')).to be_displayed
         verify_no_course_user_access(discussions_page)
       end
 
       it "should allow discussions to be deleted by their creator", priority: "1", test_id: 329626 do
         DiscussionTopic.create!(context: @testgroup.first, user: @user, title: 'Delete Me', message: 'Discussion text')
         get discussions_page
-        expect(ff('.discussion-title-block').size).to eq 1
-        delete_via_gear_menu
-        expect(f("#content")).not_to contain_css('.discussion-title-block')
+        expect(ff('.discussion-title').size).to eq 1
+        f('.discussions-index-manage-menu').click
+        wait_for_animations
+        f('#delete-discussion-menu-option').click
+        f('#confirm_delete_discussions').click
+        wait_for_ajaximations
+        expect(f(".discussions-container__wrapper")).not_to contain_css('.discussion-title')
       end
 
       it "should not be able to delete a discussion by a different creator", priority: "1", test_id: 420009 do
@@ -198,8 +297,8 @@ describe "groups" do
                                 title: 'Back to the Future day',
                                 message: 'There are no hover boards!')
         get discussions_page
-        expect(ff('.discussion-title-block').size).to eq 1
-        expect(f("#content")).not_to contain_css('#manage_link')
+        expect(ff('.discussion-title').size).to eq 1
+        expect(f(".discussions-container__wrapper")).not_to contain_css('#discussions-index-manage-menu')
       end
 
       it "should allow group members to edit their discussions", priority: "1", test_id: 312866 do
@@ -234,12 +333,13 @@ describe "groups" do
       it_behaves_like 'pages_page', :student
 
       it "should allow group members to create a page", priority: "1", test_id: 273611 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         get pages_page
         manually_create_wiki_page('yo','this be a page')
       end
 
       it "should allow all group members to access a page", priority: "1", test_id: 273612 do
-        @page = @testgroup.first.wiki.wiki_pages.create!(title: "Page", user: @teacher)
+        @page = @testgroup.first.wiki_pages.create!(title: "Page", user: @teacher)
         # Verifying with a few different group members should be enough to ensure all group members can see it
         verify_member_sees_group_page
 
@@ -265,10 +365,11 @@ describe "groups" do
       end
 
       it "should allow group members to delete a folder", priority: "1", test_id: 273631 do
+        skip_if_safari(:alert)
         get files_page
         add_folder
         delete(0, :cog_icon)
-        expect(all_files_folders.count).to eq 0
+        expect(f("body")).not_to contain_css('.ef-item-row')
       end
 
       it "should allow group members to move a folder", priority: "1", test_id: 273632 do
@@ -283,6 +384,7 @@ describe "groups" do
       end
 
       it "should allow a group member to delete a file", priority: "1", test_id: 273630 do
+        skip_if_safari(:alert)
         add_test_files(false)
         get files_page
         delete(0, :cog_icon)
@@ -290,7 +392,7 @@ describe "groups" do
         expect(all_files_folders.count).to eq 1
         # Now try to delete the other one using toolbar menu
         delete(0, :toolbar_menu)
-        expect(all_files_folders.count).to eq 0
+        expect(f("body")).not_to contain_css('.ef-item-row')
       end
 
       it "should allow group members to move a file", priority: "1", test_id: 273633 do
@@ -327,6 +429,21 @@ describe "groups" do
         get conferences_page
         expect(f('.new-conference-btn')).to be_displayed
         verify_no_course_user_access(conferences_page)
+      end
+
+      it "should not allow inviting users with inactive enrollments" do
+        inactive_student = @students.first
+        inactive_student.update_attribute(:name, "inactivee")
+        inactive_student.enrollments.first.deactivate
+        active_student = @students.last
+        active_student.update_attribute(:name, "imsoactive")
+
+        get conferences_page
+        f('.new-conference-btn').click
+        f('.all_users_checkbox').click
+
+        expect(f('#members_list')).to_not include_text(inactive_student.name)
+        expect(f('#members_list')).to include_text(active_student.name)
       end
     end
     #-------------------------------------------------------------------------------------------------------------------
@@ -368,6 +485,15 @@ describe "groups" do
         @students.each do |student|
           expect(users).not_to contain_jqcss("li:contains(#{student.sortable_name}) .icon-user")
         end
+      end
+
+      it 'cannot invite students with inactive enrollments' do
+        inactive_student = @students.first
+        inactive_student.update_attribute(:name, "inactivee")
+        inactive_student.enrollments.first.deactivate
+
+        get collaborations_page
+        expect(f(".available-users")).not_to contain_jqcss("li:contains(#{inactive_student.sortable_name}) .icon-user")
       end
 
       it "should only allow group members to access the group collaborations page", priority: "1", test_id: 319904 do

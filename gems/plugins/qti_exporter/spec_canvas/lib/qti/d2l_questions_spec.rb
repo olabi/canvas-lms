@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../qti_helper')
 if Qti.migration_executable
 describe "Converting D2L QTI" do
@@ -51,6 +68,10 @@ describe "Converting D2L QTI" do
     expect(get_question_hash(d2l_question_dir, 'math', true, @opts)).to eq D2LExpected::MATH
   end
 
+  it "should convert a simple math question to a numeric question" do
+    expect(get_question_hash(d2l_question_dir, 'simple_math', true, @opts)).to eq D2LExpected::SIMPLE_MATH
+  end
+
   it "should convert long answer" do
     expect(get_question_hash(d2l_question_dir, 'long_answer', true, @opts)).to eq D2LExpected::LONG_ANSWER
   end
@@ -60,11 +81,11 @@ describe "Converting D2L QTI" do
   end
 
   it "should convert the assessment into a quiz" do
-    Qti::AssessmentTestConverter.any_instance.stubs(:unique_local_id).returns("random")
+    allow_any_instance_of(Qti::AssessmentTestConverter).to receive(:unique_local_id).and_return("random")
     expect(get_quiz_data(d2l_question_dir, 'assessment', @opts).last.first).to eq D2LExpected::ASSESSMENT
   end
 
-  it "should convert the assessment into a quiz" do
+  it "should convert the assessment references into a quiz" do
     expect(get_quiz_data(d2l_question_dir, 'assessment_references', @opts).last.first).to eq D2LExpected::ASSESSMENT_REFS
   end
 
@@ -269,6 +290,19 @@ module D2LExpected
                    {:scale=>1, :min=>0.1, :max=>0.9, :name=>"y"},
                    {:scale=>0, :min=>100, :max=>150, :name=>"z"}],
           :correct_comments=>""}
+
+  SIMPLE_MATH = {
+    :question_type=>"numerical_question",
+    :question_bank_id=>"SECT_3981973",
+    :incorrect_comments=>"",
+    :points_possible=>3.0,
+    :question_bank_name=>"02gilback",
+    :question_text=>"whats 1 plus 1",
+    :question_name=>"single variable math",
+    :migration_id=>"QUES_979792_1194510",
+    :answers=>
+      [{:weight=>100, :text=>"answer_text", :numerical_answer_type=>"exact_answer", :exact=>10.0}],
+    :correct_comments=>""}
 
   FIB = {:migration_id=>"QUES_979782_1194494",
          :answers=>

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 
 describe "assignments" do
@@ -6,6 +23,7 @@ describe "assignments" do
   context "peer reviews" do
 
     it "allows deleting a peer review", priority: "2", test_id: 216382 do
+      skip_if_safari(:alert)
       course_with_teacher_logged_in
       @student1 = student_in_course.user
       @student2 = student_in_course.user
@@ -53,6 +71,54 @@ describe "assignments" do
       expect(f('#intra_group_peer_reviews')).to be_displayed
     end
 
+    context "rubric assessments" do
+      before :once do
+        course_factory(active_course: true)
+        user_factory(:active_all => true)
+        @student1 = @user
+        student_in_course(:user => @student1, :active_all => true)
+        @student2 = student_in_course(:active_all => true).user
+
+        @assignment = assignment_model({course: @course, peer_reviews: true, automatic_peer_reviews: false})
+      end
+
+      before :each do
+        user_session(@student1)
+      end
+
+      it "should not let a student submit a rubric review if the request is completed" do
+        rubric_association_model(purpose: 'grading', association_object: @assignment)
+        req = @assignment.assign_peer_review(@student1, @student2)
+        req.complete!
+
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student2.id}"
+
+        f('.assess_submission_link').click
+        wait_for_animations
+        expect(f("#rubric_holder")).to_not contain_css(".save_rubric_button")
+      end
+
+      it "should let a student submit a rubric review even if already completed if a rubric is added afterwards" do
+        req = @assignment.assign_peer_review(@student1, @student2)
+        req.complete!
+        rubric_association_model(purpose: 'grading', association_object: @assignment)
+        expect(req.reload.rubric_association).to eq @rubric_association # set it after the fact
+        expect(req).to be_assigned
+
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student2.id}"
+
+        f('.assess_submission_link').click
+        wait_for_animations
+        f('.rating-description').click
+        f('#rubric_holder .save_rubric_button').click
+        wait_for_ajaximations
+
+        expect(req.reload).to be_completed
+        assessment = @assignment.submissions.where(user_id: @student).first.rubric_assessments.first
+        expect(assessment.assessment_type).to eq 'peer_review'
+      end
+    end
+
     it "allows an account admin who is also a student to submit a peer review", priority: "2", test_id: 216383 do
       course_factory(active_course: true)
       admin_logged_in(account: @course.root_account)
@@ -71,7 +137,7 @@ describe "assignments" do
 
       f('.assess_submission_link').click
       wait_for_animations
-      f('.rubric_table .criterion .rating').click
+      f('.rating-description').click
       f('.save_rubric_button').click
       wait_for_ajaximations
 
@@ -167,15 +233,8 @@ describe "assignments" do
       before(:each) { user_logged_in(user: reviewer) }
 
       it 'should show comment reviewer name on submission page', priority: "1", test_id: 216387 do
-        get "/courses/#{review_course.id}/assignments/#{assignment.id}/submissions/#{reviewed.id}"
+        get "/courses/#{review_course.id}/assignments/#{assignment.id}/anonymous_submissions/#{submission.anonymous_id}"
         expect(f("#submission_comment_#{comment.id} .author_name")).to include_text(comment.author_name)
-      end
-
-      it 'should show comment reviewer name on rubric popup', priority: "1", test_id: 216388 do
-        get "/courses/#{review_course.id}/assignments/#{assignment.id}/submissions/#{reviewed.id}"
-        f('.assess_submission_link').click
-        wait_for_animations
-        expect(f("#rubric_assessment_option_#{assessment.id}")).to include_text(reviewer.email)
       end
     end
 
@@ -229,7 +288,7 @@ describe "assignments" do
         submission.save!
       }
       it 'should show the plagiarism report link for reviewer', priority: "1", test_id: 216392 do
-        get "/courses/#{review_course.id}/assignments/#{assignment.id}/submissions/#{reviewed.id}"
+        get "/courses/#{review_course.id}/assignments/#{assignment.id}/anonymous_submissions/#{submission.anonymous_id}"
         expect(f(".turnitin_similarity_score")).to be_displayed
       end
     end

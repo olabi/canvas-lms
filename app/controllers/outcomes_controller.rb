@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,10 +18,10 @@
 
 class OutcomesController < ApplicationController
   include Api::V1::Outcome
-  before_filter :require_context, :except => [:build_outcomes]
+  before_action :require_context, :except => [:build_outcomes]
   add_crumb(proc { t "#crumbs.outcomes", "Outcomes" }, :except => [:destroy, :build_outcomes]) { |c| c.send :named_context_url, c.instance_variable_get("@context"), :context_outcomes_path }
-  before_filter { |c| c.active_tab = "outcomes" }
-  before_filter :rich_content_service_config, only: [:show, :index]
+  before_action { |c| c.active_tab = "outcomes" }
+  before_action :rce_js_env, only: [:show, :index]
 
   def index
     return unless authorized_action(@context, @current_user, :read)
@@ -209,11 +209,10 @@ class OutcomesController < ApplicationController
       if @asset.is_a?(Quizzes::Quiz) && @result.alignment && @result.alignment.content_type == 'AssessmentQuestionBank'
         # anchor to first question in aligned bank
         question_bank_id = @result.alignment.content_id
-        first_aligned_question = Quizzes::QuizQuestion.where(quiz_id: @asset.id)
-          .joins(:assessment_question)
-          .where(assessment_questions: { assessment_question_bank_id: question_bank_id })
-          .order(:position)
-          .first
+        first_aligned_question = Quizzes::QuizQuestion.where(quiz_id: @asset.id).
+          joins(:assessment_question).
+          where(assessment_questions: { assessment_question_bank_id: question_bank_id }).
+          order(:position).first
         anchor = first_aligned_question ? "question_#{first_aligned_question.id}" : nil
       elsif @asset.is_a? AssessmentQuestion
         question = @submission.quiz_data.detect{|q| q['assessment_question_id'] == @asset.data[:id] }
@@ -305,10 +304,6 @@ class OutcomesController < ApplicationController
   end
 
   protected
-  def rich_content_service_config
-    rce_js_env(:basic)
-  end
-
   def learning_outcome_params
     params.require(:learning_outcome).permit(:description, :short_description, :title, :display_name, :vendor_guid)
   end

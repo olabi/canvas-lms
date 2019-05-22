@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,12 +16,54 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+# @API Rubrics
+# @subtopic RubricAssociations
+#
 class RubricAssociationsController < ApplicationController
-  before_filter :require_context
+  before_action :require_context
+
+  # @API Create a RubricAssociation
+  #
+  # Returns the rubric with the given id.
+  #
+  # @argument rubric_association[rubric_id] [Integer]
+  #   The id of the Rubric
+  # @argument rubric_association[association_id] [Integer]
+  #   The id of the object with which this rubric is associated
+  # @argument rubric_association[association_type] ["Assignment"|"Course"|"Account"]
+  #   The type of object this rubric is associated with
+  # @argument rubric_association[title] [String]
+  # @argument rubric_association[use_for_grading] [Boolean]
+  # @argument rubric_association[hide_score_total] [Boolean]
+  # @argument rubric_association[purpose] [String]
+  # @argument rubric_association[url] [String]
+  # @argument rubric_association[bookmarked] [Boolean]
+  #
+  # @returns RubricAssociation
   def create
     update
   end
 
+  # @API Update a RubricAssociation
+  #
+  # Returns the rubric with the given id.
+  #
+  # @argument id [Integer]
+  #   The id of the RubricAssociation to update
+  # @argument rubric_association[rubric_id] [Integer]
+  #   The id of the Rubric
+  # @argument rubric_association[association_id] [Integer]
+  #   The id of the object with which this rubric is associated
+  # @argument rubric_association[association_type] ["Assignment"|"Course"|"Account"]
+  #   The type of object this rubric is associated with
+  # @argument rubric_association[title] [String]
+  # @argument rubric_association[use_for_grading] [Boolean]
+  # @argument rubric_association[hide_score_total] [Boolean]
+  # @argument rubric_association[purpose] [String]
+  # @argument rubric_association[url] [String]
+  # @argument rubric_association[bookmarked] [Boolean]
+  #
+  # @returns RubricAssociation
   def update
     association_params = params[:rubric_association] ?
       params[:rubric_association].permit(:use_for_grading, :title, :purpose, :url, :hide_score_total, :bookmarked, :rubric_id) : {}
@@ -32,37 +74,59 @@ class RubricAssociationsController < ApplicationController
     rubric_id = association_params.delete(:rubric_id)
     @rubric = @association ? @association.rubric : Rubric.find(rubric_id)
     # raise "User doesn't have access to this rubric" unless @rubric.grants_right?(@current_user, session, :read)
-    if !@association && !authorized_action(@context, @current_user, :manage_rubrics)
-      return
-    elsif !@association || authorized_action(@association, @current_user, :update)
-      if params[:rubric] && @rubric.grants_right?(@current_user, session, :update)
-        @rubric.update_criteria(params[:rubric])
-      end
-      association_params[:association_object] = @association.association_object if @association
-      association_params[:association_object] ||= @association_object
-      association_params[:id] = @association.id if @association
-      @association = RubricAssociation.generate(@current_user, @rubric, @context, association_params)
-      json_res = {
-        :rubric => @rubric.as_json(:methods => :criteria, :include_root => false, :permissions => {:user => @current_user, :session => session}),
-        :rubric_association => @association.as_json(:include_root => false, :include => [:rubric_assessments, :assessment_requests], :methods => :assessor_name, :permissions => {:user => @current_user, :session => session})
-      }
-      render :json => json_res
+    return unless can_manage_rubrics_or_association_object?(@assocation, @association_object)
+    return unless can_update_association?(@association)
+    if params[:rubric] && @rubric.grants_right?(@current_user, session, :update)
+      @rubric.update_criteria(params[:rubric])
     end
+    association_params[:association_object] = @association.association_object if @association
+    association_params[:association_object] ||= @association_object
+    association_params[:id] = @association.id if @association
+    @association = RubricAssociation.generate(@current_user, @rubric, @context, association_params)
+    json_res = {
+      :rubric => @rubric.as_json(:methods => :criteria, :include_root => false, :permissions => {:user => @current_user,
+                                                                                                 :session => session}),
+      :rubric_association => @association.as_json(:include_root => false,
+                                                  :include => %i{rubric_assessments assessment_requests},
+                                                  :permissions => {:user => @current_user, :session => session})
+    }
+    render :json => json_res
   end
 
+  # @API Delete a RubricAssociation
+  #
+  # Delete the RubricAssociation with the given ID
+  #
+  # @returns RubricAssociation
   def destroy
     @association = @context.rubric_associations.find(params[:id])
     @rubric = @association.rubric
     if authorized_action(@association, @current_user, :delete)
+      @association.updating_user = @current_user
       @association.destroy
       # If the rubric wasn't created as a general course rubric,
       # and this was the last place it was being used in the course,
       # go ahead and delete the rubric from the course.
       association_count = RubricAssociation.where(:context_id => @context, :context_type => @context.class.to_s, :rubric_id => @rubric).for_grading.count
       if !RubricAssociation.for_purpose('bookmark').where(rubric_id: @rubric).first && association_count == 0
-        @rubric.destroy_for(@context)
+        @rubric.destroy_for(@context, current_user: @current_user)
       end
       render :json => @association
     end
   end
+
+  private
+
+  def can_manage_rubrics_or_association_object?(association, association_object)
+    return true if association ||
+                   @context.grants_right?(@current_user, session, :manage_rubrics) ||
+                   association_object && association_object.grants_right?(@current_user, session, :update)
+    render_unauthorized_action
+    false
+  end
+
+  def can_update_association?(association)
+    !association || authorized_action(association, @current_user, :update)
+  end
+
 end

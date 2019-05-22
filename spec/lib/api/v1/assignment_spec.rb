@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../../spec_helper.rb'
 
 class AssignmentApiHarness
@@ -26,6 +43,10 @@ class AssignmentApiHarness
   def course_quiz_quiz_submissions_url(course, quiz, _options)
     "/course/#{course.id}/quizzes/#{quiz.id}/submissions?zip=1"
   end
+
+  def strong_anything
+    ArbitraryStrongishParams::ANYTHING
+  end
 end
 
 describe "Api::V1::Assignment" do
@@ -37,18 +58,57 @@ describe "Api::V1::Assignment" do
     let(:session) { Object.new }
 
     it "returns json" do
-      assignment.context.stubs(:grants_right?).returns(true)
+      allow(assignment.context).to receive(:grants_right?).and_return(true)
       json = api.assignment_json(assignment, user, session, {override_dates: false})
       expect(json["needs_grading_count"]).to eq(0)
       expect(json["needs_grading_count_by_section"]).to be_nil
     end
 
     it "includes section-based counts when grading flag is passed" do
-      assignment.context.stubs(:grants_right?).returns(true)
+      allow(assignment.context).to receive(:grants_right?).and_return(true)
       json = api.assignment_json(assignment, user, session,
                                  {override_dates: false, needs_grading_count_by_section: true})
       expect(json["needs_grading_count"]).to eq(0)
       expect(json["needs_grading_count_by_section"]).to eq []
+    end
+
+    it "includes an associated planner override when flag is passed" do
+      assignment.context.root_account.enable_feature!(:student_planner)
+      po = planner_override_model(user: user, plannable: assignment)
+      json = api.assignment_json(assignment, user, session,
+                                 {include_planner_override: true})
+      expect(json.key?('planner_override')).to be_present
+      expect(json['planner_override']['id']).to eq po.id
+    end
+
+    it "returns nil for planner override when flag is passed and there is no override" do
+      json = api.assignment_json(assignment, user, session, {include_planner_override: true})
+      expect(json.key?('planner_override')).to be_present
+      expect(json['planner_override']).to be_nil
+    end
+
+    describe "the allowed_attempts attribute" do
+      it "returns -1 if set to nil" do
+        assignment.update_attribute(:allowed_attempts, nil)
+        json = api.assignment_json(assignment, user, session, {override_dates: false})
+        expect(json["allowed_attempts"]).to eq(-1)
+      end
+
+      it "returns -1 if set to -1" do
+        assignment.update_attribute(:allowed_attempts, -1)
+        json = api.assignment_json(assignment, user, session, {override_dates: false})
+        expect(json["allowed_attempts"]).to eq(-1)
+      end
+
+      it "returns any other values as set in the databse" do
+        assignment.update_attribute(:allowed_attempts, 1)
+        json = api.assignment_json(assignment, user, session, {override_dates: false})
+        expect(json["allowed_attempts"]).to eq(1)
+
+        assignment.update_attribute(:allowed_attempts, 2)
+        json = api.assignment_json(assignment, user, session, {override_dates: false})
+        expect(json["allowed_attempts"]).to eq(2)
+      end
     end
 
     context "for an assignment" do
@@ -56,6 +116,16 @@ describe "Api::V1::Assignment" do
         json = api.assignment_json(assignment, user, session)
 
         expect(json['submissions_download_url']).to eq "/course/#{@course.id}/assignment/#{assignment.id}/submissions?zip=1"
+      end
+
+      it "optionally includes 'grades_published' for moderated assignments" do
+        json = api.assignment_json(assignment, user, session, {include_grades_published: true})
+        expect(json["grades_published"]).to eq(true)
+      end
+
+      it "excludes 'grades_published' by default" do
+        json = api.assignment_json(assignment, user, session)
+        expect(json).not_to have_key "grades_published"
       end
     end
 
@@ -109,6 +179,57 @@ describe "Api::V1::Assignment" do
       json = api.assignment_json(assignment, user, session, params)
       expect(json).not_to have_key "needs_grading_count"
     end
+
+
+    context 'rubrics' do
+      before do
+        rubric_model({
+          context: assignment.course,
+          title: "test rubric",
+          data: [{
+            description: "Some criterion",
+            points: 10,
+            id: 'crit1',
+            ignore_for_scoring: true,
+            ratings: [
+              {description: "Good", points: 10, id: 'rat1', criterion_id: 'crit1'}
+            ]
+          }]
+        })
+        @rubric.associate_with(assignment, assignment.course, purpose: 'grading')
+      end
+
+      it "includes ignore_for_scoring when it is on the rubric" do
+        json = api.assignment_json(assignment, user, session)
+        expect(json['rubric'][0]['ignore_for_scoring']).to eq true
+      end
+
+      it "includes hide_score_total setting in rubric_settings" do
+        json = api.assignment_json(assignment, user, session)
+        expect(json['rubric_settings']['hide_score_total']).to eq false
+      end
+
+      it "returns true for hide_score_total if set to true on the rubric association" do
+        ra = assignment.rubric_association
+        ra.hide_score_total = true
+        ra.save!
+        json = api.assignment_json(assignment, user, session)
+        expect(json['rubric_settings']['hide_score_total']).to eq true
+      end
+
+      it "includes hide_points setting in rubric_settings" do
+        json = api.assignment_json(assignment, user, session)
+        expect(json['rubric_settings']['hide_points']).to eq false
+      end
+
+      it "returns true for hide_points if set to true on the rubric association" do
+        ra = assignment.rubric_association
+        ra.hide_points = true
+        ra.save!
+        json = api.assignment_json(assignment, user, session)
+        expect(json['rubric_settings']['hide_points']).to eq true
+      end
+    end
   end
 
   describe "*_settings_hash methods" do
@@ -144,7 +265,7 @@ describe "Api::V1::Assignment" do
 
     context "given a user who is an admin" do
       before do
-        course.expects(:account_membership_allows).returns(true)
+        expect(course).to receive(:account_membership_allows).and_return(true)
       end
 
       it "is valid when user is an account admin" do
@@ -154,11 +275,11 @@ describe "Api::V1::Assignment" do
 
     context "given a user who is not an admin" do
       before do
-        assignment.course.expects(:account_membership_allows).returns(false)
+        expect(assignment.course).to receive(:account_membership_allows).and_return(false)
       end
 
       it "is valid when not in a closed grading period" do
-        assignment.expects(:in_closed_grading_period?).returns(false)
+        expect(assignment).to receive(:in_closed_grading_period?).and_return(false)
         is_expected.to be_assignment_editable_fields_valid(assignment, user)
       end
 
@@ -169,7 +290,7 @@ describe "Api::V1::Assignment" do
         end
 
         before do
-          assignment.expects(:in_closed_grading_period?).returns(true)
+          expect(assignment).to receive(:in_closed_grading_period?).and_return(true)
         end
 
         it "is valid when it was not gradeable and is still not gradeable " \
@@ -227,6 +348,11 @@ describe "Api::V1::Assignment" do
           expect(api).to be_assignment_editable_fields_valid(assignment, user)
         end
 
+        it "is valid if time_zone_edited changed" do
+          assignment.time_zone_edited = 'Some New Time Zone'
+          expect(api).to be_assignment_editable_fields_valid(assignment, user)
+        end
+
         it "is valid if anonymous_peer_reviews changed" do
           assignment.toggle(:anonymous_peer_reviews)
           expect(api).to be_assignment_editable_fields_valid(assignment, user)
@@ -246,6 +372,56 @@ describe "Api::V1::Assignment" do
           assignment.allowed_extensions = ["docx"]
           expect(api).to be_assignment_editable_fields_valid(assignment, user)
         end
+      end
+    end
+  end
+
+  describe "muting and unmuting assignments" do
+    let(:course) { Course.create! }
+    let(:teacher) { course.enroll_teacher(User.create!, enrollment_state: 'active').user }
+
+    let(:mute_params) { ActionController::Parameters.new({"muted" => "true"}) }
+    let(:unmute_params) { ActionController::Parameters.new({"muted" => "false"}) }
+
+    before(:each) do
+      allow(course).to receive(:account_membership_allows).and_return(false)
+    end
+
+    context "with a moderated assignment" do
+      let(:assignment) do
+        course.assignments.create!(
+          title: 'hi',
+          moderated_grading: true,
+          grader_count: 1,
+          final_grader: teacher
+        )
+      end
+
+      it "allows the assignment to be unmuted when grades are published" do
+        assignment.update!(grades_published_at: Time.zone.now)
+        expect(api.update_api_assignment(assignment, unmute_params, teacher)).to be :ok
+      end
+
+      it "does not allow the assignment to be unmuted when grades are not published" do
+        expect(api.update_api_assignment(assignment, unmute_params, teacher)).to be false
+      end
+
+      it "allows the assignment to be muted when grades are not published" do
+        assignment.unmute!
+        expect(api.update_api_assignment(assignment, mute_params, teacher)).to be :ok
+      end
+    end
+
+    context "with a non-moderated assignment" do
+      let(:assignment) { course.assignments.create!(title: 'hi2') }
+
+      it "always allows a non-moderated assignment to be unmuted" do
+        assignment.mute!
+        expect(api.update_api_assignment(assignment, unmute_params, teacher)).to be :ok
+      end
+
+      it "always allows a non-moderated assignment to be muted" do
+        expect(api.update_api_assignment(assignment, mute_params, teacher)).to be :ok
       end
     end
   end

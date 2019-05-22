@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,9 +23,13 @@ describe "/users/new" do
   it "should render" do
     course_with_student
     view_context
-    assigns[:user] = User.new
-    assigns[:pseudonym] = Pseudonym.new
-    
+    terms_of_service_content = TermsOfServiceContent.create!(content: "default content")
+    terms_of_service = TermsOfService.create!(terms_type: "default",
+                                               terms_of_service_content: terms_of_service_content,
+                                               account: @course.account)
+    assign(:user, User.new)
+    assign(:pseudonym, Pseudonym.new)
+
     render "users/new"
     expect(response).not_to be_nil
   end

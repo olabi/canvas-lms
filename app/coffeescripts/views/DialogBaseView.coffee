@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -44,6 +44,7 @@ define [
       width: 420
       resizable: false
       buttons: []
+      destroy: false
 
     initDialog: () ->
       opts = _.extend {}, @defaultOptions(),
@@ -57,7 +58,6 @@ define [
           click: @update
         ],
         _.result(this, 'dialogOptions')
-
       @dialog = $("<div id=\"#{ opts.id }\"></div>").appendTo('body').dialog opts
       @dialog.parent().attr('id', opts.containerId) if opts.containerId
       $('.ui-resizable-handle').attr('aria-hidden', true)
@@ -75,7 +75,10 @@ define [
       @dialog.dialog('open')
 
     close: ->
-      @dialog.dialog('close')
+      if (@options.destroy)
+        @dialog.dialog('destroy')
+      else
+        @dialog.dialog('close')
 
     update: (e) ->
       throw 'Not yet implemented'

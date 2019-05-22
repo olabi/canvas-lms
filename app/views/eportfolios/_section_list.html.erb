@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <ul id="section_list">
   <% @categories.each do |c| %>
     <li id="section_<%= c.id %>" class="section <%= "active" if c == @category %>">
@@ -16,7 +34,7 @@
     <a class="rename_section_url" style="display: none;" href="<%= eportfolio_category_path(@portfolio, "{{ id }}") %>"></a>
   </li>
 </ul>
-<ul style="font-size: 0.8em;line-height: 1.85em; font-style: italic; margin-left: 10px;" id="section_list_manage">
+<ul style="font-size: 0.8em;line-height: 1.85em; font-style: italic; margin-<%= direction('left') %>: 10px;" id="section_list_manage">
   <li style="display: none;" class="add_section"><button type="button" class="Button Button--link add_section_link no-hover icon-add"><%= t("Add Section") %></button></li>
   <li style="display: none;">
     <a href="<%= eportfolio_categories_path(@portfolio) %>" class="add_section_url"></a>

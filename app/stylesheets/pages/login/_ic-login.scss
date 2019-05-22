@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // Shared between:
 // - bundles/login.scss
 // - bundles/otp_login.scss
@@ -21,8 +39,6 @@
 // ic-brand-Login-Content-inner-body-border
 // ic-brand-Login-Content-label-text-color
 // ic-brand-Login-Content-password-text-color
-// ic-brand-Login-Content-button-bgd
-// ic-brand-Login-Content-button-text
 // ic-brand-Login-footer-link-color
 // ic-brand-Login-footer-link-color-hover
 // ic-brand-Login-instructure-logo
@@ -40,10 +56,10 @@ $ic-Login-confirmation-bgd: #34444f;
 }
 
 body.ic-Login-Body { // apply the background to the body element so that you don't see white bg as you scroll
-  background-color: $ic-brand-Login-body-bgd-color;
+  background-color: var(--ic-brand-Login-body-bgd-color);
   background-image:
-    linear-gradient(transparent, transparent 80%, $ic-brand-Login-body-bgd-shadow-color),
-    $ic-brand-Login-body-bgd-image; // if there is a custom image
+    linear-gradient(transparent, transparent 80%, var(--ic-brand-Login-body-bgd-shadow-color)),
+    var(--ic-brand-Login-body-bgd-image); // if there is a custom image
   background-size: cover;
   background-attachment: fixed;
   height: 100vh; // enable full height
@@ -59,45 +75,46 @@ body.ic-Login-Body { // apply the background to the body element so that you don
 .ic-Login__content {
   width: 400px;
   margin: 0 auto;
-  background: $ic-brand-Login-Content-bgd-color;
-  border: 5px solid $ic-brand-Login-Content-border-color;
+  background: var(--ic-brand-Login-Content-bgd-color);
+  border: 5px solid var(--ic-brand-Login-Content-border-color);
   padding: $ic-sp;
   border-radius: $ic-Login-border-radius;
 }
 .ic-Login__innerContent {
   padding-top: $ic-sp*2;
-  background: $ic-brand-Login-Content-inner-bgd;
-  border: 2px solid $ic-brand-Login-Content-inner-border;
+  background: var(--ic-brand-Login-Content-inner-bgd);
+  border: 2px solid var(--ic-brand-Login-Content-inner-border);
   border-radius: $ic-Login-border-radius;
 }
 .ic-Login__title {
-  color: $ic-brand-Login-Content-label-text-color;
+  color: var(--ic-brand-Login-Content-label-text-color);
 }
 .ic-Login__text {
-  color: $ic-brand-Login-Content-label-text-color;
+  color: var(--ic-brand-Login-Content-label-text-color);
 }
 //////////
 // Login Body
 //////////
 .ic-Login__body {
-  background: $ic-brand-Login-Content-inner-body-bgd;
-  border: 2px solid $ic-brand-Login-Content-inner-body-border;
-  padding: $ic-sp*1.5 $ic-sp*1.5 $ic-sp $ic-sp*1.5;
+  background: var(--ic-brand-Login-Content-inner-body-bgd);
+  border: 2px solid var(--ic-brand-Login-Content-inner-body-border);
+  padding: direction-sides($ic-sp*1.5 $ic-sp*1.5 $ic-sp $ic-sp*1.5);
   margin-top: $ic-sp;
 }
 // these have !important because Canvas specificity on labels and
 // links will override these if we don't
 .ic-Form-control--login .ic-Label {
-  color: $ic-brand-Login-Content-label-text-color !important;
+  color: var(--ic-brand-Login-Content-label-text-color) !important;
 }
 .ic-Login__link {
-  color: $ic-brand-Login-Content-password-text-color !important;
+  color: var(--ic-brand-Login-Content-password-text-color) !important;
+  text-decoration: underline;
 }
 .ic-Login__body__error {
   display: block;
   position:relative;
   top: auto;
-  left: auto;
+  #{direction(left)}: auto;
   max-width: 400px;
 }
 
@@ -120,11 +137,11 @@ body.ic-Login-Body { // apply the background to the body element so that you don
 
 .ic-Login-header__links {
   flex: 1;
-  text-align: right;
+  text-align: direction(right);
   @include fontSize(13px);
   line-height: 1.3;
   box-sizing: border-box;
-  padding-left: $ic-sp;
+  padding-#{direction(left)}: $ic-sp;
 
   .ic-Login__link {
     display: block;
@@ -142,7 +159,14 @@ body.ic-Login-Body { // apply the background to the body element so that you don
   .ic-Login__actions-timeout {
     flex: 1;
     label {
-      color: $ic-brand-Login-Content-label-text-color;
+      color: var(--ic-brand-Login-Content-label-text-color);
+    }
+
+    input[type="checkbox"] {
+      &:focus {
+        outline: 1px solid var(--ic-brand-Login-Content-password-text-color);
+        outline-offset: 1px;
+      }
     }
   }
   .ic-Login__actions--right {
@@ -152,23 +176,61 @@ body.ic-Login-Body { // apply the background to the body element so that you don
   }
   .ic-Login__actions--left {
     flex: 1;
-    text-align: left;
+    text-align: direction(left);
   }
   .ic-Form-control {
     margin-bottom: 0; // override to help vertical alignment
   }
-  button.Button--login {
+  // simulating a ghost button to work for default high contrast login screen
+  .Button--login {
     padding: $ic-sp/2 $ic-sp*3;
-    @include canvas-button($ic-brand-Login-Content-button-bgd,  $ic-brand-Login-Content-button-text);
+    background: transparent;
+    color: var(--ic-brand-Login-Content-password-text-color);
+    border: 1px solid var(--ic-brand-Login-Content-password-text-color);
+    overflow: visible;
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: -0.375rem;
+      #{direction(left)}: -0.375rem;
+      #{direction(right)}: -0.375rem;
+      bottom: -0.375rem;
+      border: 1px solid var(--ic-brand-Login-Content-password-text-color);
+      border-radius: 0.375rem;
+      opacity: 0;
+    }
+
+    &:focus {
+      box-shadow: none;
+      &::before {
+        opacity: 1;
+      }
+    }
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      #{direction(left)}: 0;
+      #{direction(right)}: 0;
+      bottom: 0;
+      border-radius: 0.175rem;
+    }
+
+    &:hover::after {
+      background: var(--ic-brand-Login-Content-password-text-color);
+      opacity: 0.1;
+    }
   }
 }
 //////////
 // Forgot Password
 //////////
 .ic-Login__forgot-text {
-  color: $ic-brand-Login-Content-password-text-color;
+  color: var(--ic-brand-Login-Content-password-text-color);
   @include fontSize($ic-font-size--small);
-  padding: 0 0 $ic-sp*2 0;
+  padding: direction-sides(0 0 $ic-sp*2 0);
   margin: 0;
   line-height: $ic-sp*2;
 }
@@ -191,14 +253,27 @@ body.ic-Login-Body #footer.ic-app-footer {
 body.ic-Login-Body #footer.ic-Login-footer {
   display: block !important;
 }
-
 // end
+
+#terms_link {
+  @include ic-focus-base;
+  &:focus {
+    @include ic-focus-variant;
+  }
+}
+
 .ic-Login-footer {
   .ic-Login-footer__logo-link {
     display: block;
     text-align: center;
     .ic-Instructure-Logo {
-      fill: $ic-brand-Login-instructure-logo;
+      fill: var(--ic-brand-Login-instructure-logo);
+    }
+    &:hover,
+    &:focus {
+      span {
+      border-bottom: 1px solid var(--ic-brand-Login-footer-link-color);
+      }
     }
   }
   // hide icon that gets added thru jquery
@@ -206,15 +281,26 @@ body.ic-Login-Body #footer.ic-Login-footer {
   .ic-Login-footer__links {
     padding: $ic-sp;
     text-align: center;
-    a, .menu-item__text {
-      color: $ic-brand-Login-footer-link-color;
+    a, .menu-item__text, .external {
+      @include ic-focus-base;
+      &:focus {
+        @include ic-focus-variant;
+      }
+      color: var(--ic-brand-Login-footer-link-color);
       @include fontSize(11px);
       padding: 0 $ic-sp/2;
       white-space: nowrap;
-      &:hover {
+      text-decoration: underline;
+
+      &:hover,
+      &:focus {
         background-color: none;
-        color: $ic-brand-Login-footer-link-color-hover;
-        text-decoration: underline;
+        color: var(--ic-brand-Login-footer-link-color-hover);
+        text-decoration: none;
+      }
+      // to counteract specificity being used in _external_link stylesheet
+      span {
+      text-decoration: none;
       }
     }
   }
@@ -252,28 +338,16 @@ body.ic-Login-Body #footer.ic-Login-footer {
     }
     h2, .h2 {
       height: 41px;
-      margin: 0 0 -5px 0;
-      padding: 0 0 0 60px;
+      margin: direction-sides(0 0 -5px 0);
+      padding: direction-sides(0 0 0 60px);
       color: #000;
     }
     p {
-      padding: 0 0 0 60px;
+      padding: direction-sides(0 0 0 60px);
       margin: 0;
       font-size: 1.25em;
       font-weight: normal;
     }
-  }
-}
-////
-// Logout
-////
-.Button--logout-confirm {
-  @include canvas-button($ic-brand-Login-Content-button-bgd,  $ic-brand-Login-Content-button-text);
-}
-.Button--logout-link {
-  color: $ic-brand-Login-footer-link-color;
-  &:hover {
-    color: $ic-brand-Login-footer-link-color-hover;
   }
 }
 
@@ -283,7 +357,7 @@ body.ic-Login-Body #footer.ic-Login-footer {
 
 .ic-Login-confirmation__actions {
   margin-top: $ic-sp*2;
-  text-align: right;
+  text-align: direction(right);
 }
 
 ////
@@ -305,8 +379,8 @@ body.body--login-confirmation {
 
 .ic-Login-confirmation__header {
   background: $ic-Login-confirmation-bgd;
-  border-top-left-radius: $baseBorderRadius;
-  border-top-right-radius: $baseBorderRadius;
+  border-top-#{direction(left)}-radius: $baseBorderRadius;
+  border-top-#{direction(right)}-radius: $baseBorderRadius;
   padding: $ic-sp*1.5;
 }
 
@@ -317,8 +391,8 @@ body.body--login-confirmation {
 .ic-Login-confirmation__content {
   padding: $ic-sp*2;
   background: $ic-color-light;
-  border-bottom-left-radius: $baseBorderRadius;
-  border-bottom-right-radius: $baseBorderRadius;
+  border-bottom-#{direction(left)}-radius: $baseBorderRadius;
+  border-bottom-#{direction(right)}-radius: $baseBorderRadius;
 }
 
 .ic-Login-confirmation__auth-icon {
@@ -326,5 +400,5 @@ body.body--login-confirmation {
   max-width: 72px;
   height: auto;
   vertical-align: middle;
-  margin-right: $ic-sp;
+  margin-#{direction(right)}: $ic-sp;
 }

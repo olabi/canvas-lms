@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -39,8 +39,8 @@ describe "Account Reports" , type: :request do
     report.save
     @account.save
 
-    get "/accounts/#{@account.id}/settings"
-    expect(response).to be_success
+    get "/accounts/#{@account.id}/reports_tab"
+    expect(response).to be_successful
     expect(response.body).to match /someuniquetextstuffgoeshere/
   end
 end

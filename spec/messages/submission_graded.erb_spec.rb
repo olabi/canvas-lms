@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,4 +28,15 @@ describe "submission_graded" do
   let(:notification_name) { :submission_graded }
 
   include_examples "a message"
+
+  it "should include the submission's submitter name if receiver is not the submitter and has the setting turned on" do
+    observer = user_model
+    message = generate_message(:submission_graded, :summary, asset, user: observer)
+    expect(message.body).not_to match("For #{@submission.user.name}")
+
+    observer.preferences[:send_observed_names_in_notifications] = true
+    observer.save!
+    message = generate_message(:submission_graded, :summary, asset, user: observer)
+    expect(message.body).to match("For #{@submission.user.name}")
+  end
 end

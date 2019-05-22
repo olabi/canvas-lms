@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /// Below are the shared styles for our content pieces. Because our layout
 /// changes based on whether our course menu is open or shut
 /// we needed to ensure we share the right styles with these sections, but
@@ -10,27 +28,11 @@
   min-width: 1px;
 }
 @mixin shared-secondary {
-  flex: 0 0 $ic-sp*24;
-  padding-left: $ic-sp*2;
+  width: $ic-right-side-width;
+  padding-#{direction(left)}: $ic-sp*2;
 }
 
-$ic-left-side-width: $ic-sp*15;
-
-::-webkit-scrollbar {
-  -webkit-appearance: none;
-  width: $ic-sp*0.75; height: $ic-sp*0.75;
-}
-
-::-webkit-scrollbar-track {
-  -webkit-appearance: none;
-  background: $ic-color-light;
-}
-::-webkit-scrollbar-thumb {
-  -webkit-appearance: none;
-  box-shadow: inset 0 0 0 2px $ic-color-light;
-  @if $use_high_contrast { background: $ic-color-dark; }
-  @else { background: $ic-border-dark; }
-}
+$ic-left-side-width: $ic-sp*16;
 
 body:not(.ic-no-flex-layout):not(.embedded) .ic-app-main-content {
   box-sizing: border-box;
@@ -47,8 +49,8 @@ body:not(.ic-no-flex-layout):not(.embedded) .ic-app-main-content {
   padding: $ic-sp*2;
 
   body.is-inside-submission-frame & {
-    padding-left: $ic-sp;
-    padding-right: $ic-sp;
+    padding-#{direction(left)}: $ic-sp;
+    padding-#{direction(right)}: $ic-sp;
   }
 
   body.no-headers & {
@@ -112,6 +114,16 @@ body:not(.course-menu-expanded) {
 }
 
 .ic-app-footer {
+  .terms-of-service__link {
+    a {
+      @include ic-focus-base;
+      &:focus {
+        @include ic-focus-variant;
+      }
+    }
+    margin-top: -2px !important;
+    color: var(--ic-brand-font-color-dark-lightened-15) !important;
+  }
   box-sizing: border-box;
   padding: $ic-sp 0;
   margin: 0 $ic-sp*2;
@@ -125,18 +137,17 @@ body:not(.course-menu-expanded) {
     padding: $ic-sp $ic-sp*2;
   }
 }
-
 .ic-app-footer__links {
   flex: 1;
   display: flex;
   a {
     color: $ic-font-color--subdued;
-    margin-right: $ic-sp;
+    margin-#{direction(right)}: $ic-sp;
     @include fontSize($ic-font-size--xsmall);
   }
   @include breakpoint(desktop) {
     justify-content: flex-end;
-    a { margin-right: 0; margin-left: $ic-sp; }
+    a { margin-#{direction(right)}: 0; margin-#{direction(left)}: $ic-sp; }
   }
 }
 
@@ -161,11 +172,11 @@ body:not(.course-menu-expanded) {
   }
 
   body:not(.no-headers) & {
-    margin-left: $ic-header-primary-width - 30;
+    margin-#{direction(left)}: $ic-header-primary-width - 30;
   }
 
   body:not(.no-headers).primary-nav-expanded & {
-    margin-left: $ic-header-primary-width;
+    margin-#{direction(left)}: $ic-header-primary-width;
   }
 
   body.embedded & {
@@ -185,10 +196,10 @@ body:not(.course-menu-expanded) {
   }
 
   body.course-menu-expanded:not(.ic-no-flex-layout):not(.embedded):not(.is-inside-submission-frame) & {
-    margin-left: $ic-left-side-width;
+    margin-#{direction(left)}: $ic-left-side-width;
 
-    &:before {
-      left: -$ic-left-side-width;
+    .ic-Layout-watermark {
+      #{direction(left)}: -$ic-left-side-width;
     }
   }
 
@@ -208,25 +219,23 @@ body:not(.course-menu-expanded) {
     height: 100%;
   }
 
-  // Theme Editor watermark gets attached to this element as a background image
-  body:not(.no-headers) & {
-
-    &:before {
-      content: "";
-      bottom: 0; left: 0;
-      width: 100%; height: 100%;
-      position: absolute;
-      z-index: -1;
-      opacity: $ic-brand-watermark-opacity;
-      background: transparent $ic-brand-watermark left bottom no-repeat;
-      transition: all 0.1s ease-out;
-    }
-  }
-
   // HACK workaround for IE10 and IE11 flexbox bug
   // https://connect.microsoft.com/IE/feedback/details/802625/min-height-and-flexbox-flex-direction-column-dont-work-together-in-ie-10-11-preview
   @media screen and (-ms-high-contrast: active), (-ms-high-contrast: none) { min-height: 93.5vh; }
 
+}
+
+.ic-Layout-watermark {
+  position: absolute;
+  #{direction(left)}: 0;
+  bottom: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  opacity: var(--ic-brand-watermark-opacity);
+  background-image: var(--ic-brand-watermark);
+  background-repeat: no-repeat;
+  background-position: direction(left) bottom;
 }
 
 .ic-app-course-menu {
@@ -235,9 +244,9 @@ body:not(.course-menu-expanded) {
   transform: translate3d(0,0,0);
   box-sizing: border-box;
   position: absolute;
-  top: 0; right: 100%;
+  top: 0; #{direction(right)}: 100%;
   width: $ic-left-side-width;
-  padding: $ic-sp*2 $ic-sp $ic-sp $ic-sp*2;
+  padding: direction-sides($ic-sp*2 $ic-sp $ic-sp $ic-sp*2);
   opacity: 0;
   body.course-menu-expanded & {
     opacity: 1;
@@ -245,7 +254,7 @@ body:not(.course-menu-expanded) {
   }
   // account for the course term showing in the left-hand sub-nav
   #section-tabs-header-subtitle {
-    padding: 0 0 $ic-sp $ic-sp;
+    padding: direction-sides(0 0 $ic-sp $ic-sp);
   }
 }
 
@@ -254,16 +263,16 @@ body:not(.course-menu-expanded) {
   align-items: center;
   border-bottom: 1px solid $ic-border-light;
   margin: 0 $ic-sp*2;
-  padding: 16px 0;
+  min-height: $ic-breadcrumbs-height;
+  box-sizing: border-box;
 }
 
 .ic-app-course-nav-toggle {
-  transform: translateY(1px);
-  margin-right: $ic-sp;
+  margin-#{direction(right)}: $ic-sp;
   padding: 0;
   width: $ic-sp*3; height: ($ic-sp*3) - ($ic-sp/2);
   @include overwrite-default-icon-size(1.5rem);
-  i[class*=icon-], i[class^=icon-] { margin-right: 0; }
+  i[class*=icon-], i[class^=icon-] { margin-#{direction(right)}: 0; }
 }
 
 .ic-app-crumbs {

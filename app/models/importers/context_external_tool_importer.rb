@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -23,7 +40,7 @@ module Importers
       end
     end
 
-    def self.import_from_migration(hash, context, migration, item=nil)
+    def self.import_from_migration(hash, context, migration, item=nil, persist = true)
       hash = hash.with_indifferent_access
       return nil if hash[:migration_id] && hash[:external_tools_to_import] && !hash[:external_tools_to_import][hash[:migration_id]]
 
@@ -55,7 +72,7 @@ module Importers
         item.settings[:custom_fields].merge! hash[:custom_fields]
       end
 
-      item.save!
+      item.save! if persist
       migration.add_imported_item(item) if migration
       item
     end
@@ -184,7 +201,7 @@ module Importers
     end
 
     def self.matching_settings?(hash, tool, settings, preexisting_tool=false)
-      return unless tool.privacy_level == (hash[:privacy_level] || 'name_only')
+      return if hash[:privacy_level] && tool.privacy_level != hash[:privacy_level]
 
       if preexisting_tool
         # we're matching to existing tools; go with their config if we don't have a real one
@@ -194,7 +211,7 @@ module Importers
 
       tool_settings = tool.settings.with_indifferent_access.except(:custom_fields, :vendor_extensions)
       if preexisting_tool
-        settings.all? {|k, v| tool_settings[k] == v }
+        settings.all? {|k, v| tool_settings[k].presence == v.presence }
       else
         settings == tool_settings
       end

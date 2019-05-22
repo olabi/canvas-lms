@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 
 describe IncomingMailProcessor::Instrumentation do
@@ -34,7 +51,9 @@ describe IncomingMailProcessor::Instrumentation do
     it 'should push to statsd for one mailbox' do
       IncomingMailProcessor::IncomingMessageProcessor.configure(single_config)
 
-      expect(CanvasStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.fake@fake_fake",4)
+      expect(InstStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.fake@fake_fake", 4,
+                                                         {short_stat: "incoming_mail_processor.mailbox_queue_size",
+                                                          tags: {identifier: "fake@fake_fake"}})
 
       IncomingMailProcessor::Instrumentation.process
     end
@@ -42,9 +61,15 @@ describe IncomingMailProcessor::Instrumentation do
     it 'should push to statsd for multiple mailboxes' do
       IncomingMailProcessor::IncomingMessageProcessor.configure(multi_config)
 
-      expect(CanvasStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.user1@fake_fake", 4)
-      expect(CanvasStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.user3@fake_fake", 0)
-      expect(CanvasStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.user4@fake_fake", 50)
+      expect(InstStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.user1@fake_fake", 4,
+                                                         {short_stat: "incoming_mail_processor.mailbox_queue_size",
+                                                          tags: {identifier: "user1@fake_fake"}})
+      expect(InstStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.user3@fake_fake", 0,
+                                                         {short_stat: "incoming_mail_processor.mailbox_queue_size",
+                                                          tags: {identifier: "user3@fake_fake"}})
+      expect(InstStatsd::Statsd).to receive(:gauge).with("incoming_mail_processor.mailbox_queue_size.user4@fake_fake", 50,
+                                                         {short_stat: "incoming_mail_processor.mailbox_queue_size",
+                                                          tags: {identifier: "user4@fake_fake"}})
 
       IncomingMailProcessor::Instrumentation.process
     end

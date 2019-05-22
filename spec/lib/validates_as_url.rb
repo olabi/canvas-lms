@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,6 +37,12 @@ shared_examples_for "url validation tests" do
     model.save!
     expect(model.errors.size).to eq 0
     expect(model.url).to eq "http://www.example.com"
+
+    # should encode unicode
+    model.url = "http://example.com/ø"
+    model.save!
+    expect(model.errors.size).to eq 0
+    expect(model.url).to eq "http://example.com/%C3%B8"
 
     # should not work on invalid urls
     ["/relativepath",

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class Enrollment
 
   class QueryBuilder
@@ -67,7 +84,7 @@ class Enrollment
           when nil
             # combine the other branches dynamically based on joined course's
             # workflow_state
-            "enrollments.workflow_state='active' AND (courses.workflow_state='available' OR courses.workflow_state='claimed' AND enrollments.type IN ('TeacherEnrollment','TaEnrollment','DesignerEnrollment','StudentViewEnrollment'))"
+            "enrollments.workflow_state='active' AND (courses.workflow_state='available' OR courses.workflow_state IN ('created', 'claimed') AND enrollments.type IN ('TeacherEnrollment','TaEnrollment','DesignerEnrollment','StudentViewEnrollment'))"
           else
             # never include enrollments from unclaimed/completed/deleted
             # courses

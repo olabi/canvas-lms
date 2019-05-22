@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,21 +12,19 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!question_banks',
-  'jquery' /* $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_date_and_time' /* datetimeString */,
-  'jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */,
-  'jquery.instructure_misc_plugins' /* confirmDelete */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */
-], function(I18n, $) {
+import I18n from 'i18n!question_banks'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' /* datetimeString */
+import './jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */
+import './jquery.instructure_misc_plugins' /* confirmDelete */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import './jquery.templateData'
 
 $(document).ready(function() {
   $(".add_bank_link").click(function(event) {
@@ -120,6 +118,13 @@ $(document).ready(function() {
         data: bank,
         hrefValues: ['id']
       })
+      // if you can convince fillTemplateData to do this, please be my guest
+      $bank.find('.links a').each(function(_, link) {
+        link.setAttribute('title', link.getAttribute('title').replace('{{ title }}', bank.title));
+      });
+      $bank.find('.links a span').each(function(_, span) {
+        span.textContent = span.textContent.replace('{{ title }}', bank.title);
+      });
       $bank.find('a.title')[0].focus()
     },
     error: function(data, $bank) {
@@ -129,5 +134,4 @@ $(document).ready(function() {
       $("#edit_bank_form").formErrors(data);
     }
   });
-});
 });

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,6 +25,7 @@ class GradeSummaryPresenter
     @current_user = current_user
     @id_param = id_param
     @groups_assignments = []
+    @periods_assignments = []
     @assignment_order = assignment_order
   end
 
@@ -57,11 +58,17 @@ class GradeSummaryPresenter
   end
 
   def turnitin_enabled?
-    @context.turnitin_enabled? && assignments.any?(&:turnitin_enabled)
+    unless defined?(@turnitin_enabled)
+      @turnitin_enabled = @context.turnitin_enabled? && assignments.any?(&:turnitin_enabled)
+    end
+    @turnitin_enabled
   end
 
   def vericite_enabled?
-    @context.vericite_enabled? && assignments.any?(&:vericite_enabled)
+    unless defined?(@vericite_enabled)
+      @vericite_enabled = @context.vericite_enabled? && assignments.any?(&:vericite_enabled)
+    end
+    @vericite_enabled
   end
 
   def observed_students
@@ -83,12 +90,6 @@ class GradeSummaryPresenter
     enrollment.first
   end
 
-  def selectable_courses
-    courses_with_grades.to_a.select do |course|
-      student_enrollment_for(course, student).grants_right?(@current_user, :read_grades)
-    end
-  end
-
   def student_enrollment
     @student_enrollment ||= begin
       if @id_param # always use id if given
@@ -100,6 +101,14 @@ class GradeSummaryPresenter
       else # or just fall back to @current_user
         @context.shard.activate { student_enrollment_for(@context, @current_user) }
       end
+    end
+  end
+
+  def students
+    if multiple_observed_students?
+      linkable_observed_students
+    else
+      Array.wrap(student)
     end
   end
 
@@ -154,9 +163,9 @@ class GradeSummaryPresenter
   def sorted_assignments(assignments)
     case @assignment_order
     when :due_at
-      assignments.sort_by { |a| [a.due_at || CanvasSort::Last, a.title.downcase] }
+      assignments.sort_by { |a| [a.due_at || CanvasSort::Last, Canvas::ICU.collation_key(a.title)] }
     when :title
-      assignments.sort_by { |a| a.title.downcase }
+      Canvas::ICU.collate_by(assignments, &:title)
     when :module
       sorted_by_modules(assignments)
     when :assignment_group
@@ -165,12 +174,12 @@ class GradeSummaryPresenter
   end
 
   def sort_options
-    options = [["Due Date", "due_at"], ["Title", "title"]]
+    options = [[I18n.t('Due Date'), 'due_at'], [I18n.t('Title'), 'title']]
     if @context.active_record_types[:assignments] && assignments.uniq(&:assignment_group_id).length > 1
-      options << ["Assignment Group", "assignment_group"]
+      options << [I18n.t('Assignment Group'), 'assignment_group']
     end
-    options << ["Module", "module"] if @context.active_record_types[:modules]
-    options.map { |option| [I18n.t('%{option_name}', option_name: option.first), option.last] }.sort_by(&:first)
+    options << [I18n.t('Module'), 'module'] if @context.active_record_types[:modules]
+    Canvas::ICU.collate_by(options, &:first)
   end
 
   def submissions
@@ -182,8 +191,9 @@ class GradeSummaryPresenter
       .where("assignments.workflow_state != 'deleted'")
       .where(user_id: student).to_a
 
-      visible_assignment_ids = AssignmentStudentVisibility.visible_assignment_ids_for_user(student_id, @context.id)
-      ss.select!{ |submission| visible_assignment_ids.include?(submission.assignment_id) }
+      if vericite_enabled? || turnitin_enabled?
+        ActiveRecord::Associations::Preloader.new.preload(ss, :originality_reports)
+      end
 
       assignments_index = assignments.index_by(&:id)
 
@@ -203,32 +213,22 @@ class GradeSummaryPresenter
     end
   end
 
-  def submission_counts
-    @submission_counts ||= @context.assignments.active
-      .except(:order)
-      .joins(:submissions)
-      .where("submissions.user_id in (?)", real_and_active_student_ids)
-      .group("assignments.id")
-      .count("submissions.id")
+  def rubric_assessments
+    assignment_presenters.flat_map(&:rubric_assessments)
+  end
+
+  def rubrics
+    rubric_assessments.map(&:rubric).uniq
+  end
+
+  # Called by external classes that want to make sure we clear out
+  # cached data. Most likely this is only the GradeCalculator
+  def self.invalidate_cache(context)
+    Rails.cache.delete(cache_key(context, 'assignment_stats'))
   end
 
   def assignment_stats
-    @stats ||= begin
-      chain = @context.assignments.active.except(:order)
-      # note: because a score is needed for max/min/ave we are not filtering
-      # by assignment_student_visibilities, if a stat is added that doesn't
-      # require score then add a filter when the DA feature is on
-      chain.joins(:submissions)
-        .where("submissions.user_id in (?)", real_and_active_student_ids)
-        .where("NOT submissions.excused OR submissions.excused IS NULL")
-        .group("assignments.id")
-        .select("assignments.id, max(score) max, min(score) min, avg(score) avg")
-        .index_by(&:id)
-    end
-  end
-
-  def real_and_active_student_ids
-    @context.all_real_student_enrollments.active_or_pending.pluck(:user_id).uniq
+    @stats ||= ScoreStatistic.where(assignment: @context.assignments.active.except(:order)).index_by(&:assignment_id)
   end
 
   def assignment_presenters
@@ -244,10 +244,27 @@ class GradeSummaryPresenter
 
   def courses_with_grades
     @courses_with_grades ||= begin
-      if student_is_user? || user_an_observer_of_student?
-        student.courses_with_grades
-      else
-        nil
+      student.shard.activate do
+        course_list = if student_is_user?
+          Course.preload(:enrollment_term, :grading_period_groups).
+            where(id: student.participating_student_current_and_concluded_course_ids).to_a
+        elsif user_an_observer_of_student?
+          observed_courses = []
+          Shard.partition_by_shard(student.participating_student_current_and_concluded_course_ids) do |course_ids|
+            observed_course_ids = ObserverEnrollment.
+              not_deleted.
+              where(course_id: course_ids, user_id: @current_user, associated_user_id: student).
+              pluck(:course_id)
+            next unless observed_course_ids.any?
+            observed_courses += Course.preload(:enrollment_term, :grading_period_groups).
+              where(id: observed_course_ids).to_a
+          end
+          observed_courses
+        else
+          []
+        end
+
+        course_list.select { |c| c.grants_right?(student, :read) }
       end
     end
   end
@@ -266,7 +283,7 @@ class GradeSummaryPresenter
   end
 
   def no_calculations?
-    @groups_assignments.empty?
+    @groups_assignments.empty? && @periods_assignments.empty?
   end
 
   def total_weight
@@ -282,6 +299,15 @@ class GradeSummaryPresenter
   def groups_assignments=(value)
     @groups_assignments = value
     assignments.concat(value)
+  end
+
+  def periods_assignments=(value)
+    @periods_assignments = value
+    assignments.concat(value)
+  end
+
+  def grading_periods
+    @all_grading_periods ||= GradingPeriod.for(@context).order(:start_date).to_a
   end
 
   private
@@ -318,5 +344,11 @@ class GradeSummaryPresenter
     else
       module_position_comparison
     end
+  end
+
+  private_class_method
+
+  def self.cache_key(context, method)
+    ['grade_summary_presenter', context, method].cache_key
   end
 end

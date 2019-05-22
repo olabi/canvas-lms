@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class ContextExternalTool < ActiveRecord::Base
   include Workflow
   include SearchTermHelper
@@ -6,6 +23,7 @@ class ContextExternalTool < ActiveRecord::Base
   has_many :context_external_tool_placements, :autosave => true
 
   belongs_to :context, polymorphic: [:course, :account]
+  belongs_to :developer_key
 
   include MasterCourses::Restrictor
   restrict_columns :content, [:name, :description]
@@ -18,11 +36,12 @@ class ContextExternalTool < ActiveRecord::Base
   validates_presence_of :config_xml, :if => lambda { |t| t.config_type == "by_xml" }
   validates_length_of :domain, :maximum => 253, :allow_blank => true
   validate :url_or_domain_is_set
+  validate :validate_urls
   serialize :settings
   attr_accessor :config_type, :config_url, :config_xml
 
   before_save :infer_defaults, :validate_vendor_help_link
-  after_save :touch_context, :check_global_navigation_cache
+  after_save :touch_context, :check_global_navigation_cache, :clear_tool_domain_cache
   validate :check_for_xml_error
 
   workflow do
@@ -34,17 +53,14 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   set_policy do
-    given { |user, session| self.context.grants_right?(user, session, :update) }
-    can :read and can :update and can :delete
-
-    given do |user, session|
-      self.grants_right?(user, session, :update) &&
-      self.context.grants_right?(user, session, :lti_add_edit)
-    end
-    can :update_manually
+    given { |user, session| self.context.grants_right?(user, session, :lti_add_edit) }
+    can :read and can :update and can :delete and can :update_manually
   end
 
-  CUSTOM_EXTENSION_KEYS = {:file_menu => [:accept_media_types].freeze}.freeze
+  CUSTOM_EXTENSION_KEYS = {
+    :file_menu => [:accept_media_types].freeze,
+    :editor_button => [:use_tray].freeze
+  }.freeze
 
   Lti::ResourcePlacement::PLACEMENTS.each do |type|
     class_eval <<-RUBY, __FILE__, __LINE__ + 1
@@ -65,6 +81,10 @@ class ContextExternalTool < ActiveRecord::Base
     self.find_external_tool(launch_url, assignment.context)
   end
 
+  def deployment_id
+    "#{self.id}:#{Lti::Asset.opaque_identifier_for(self.context)}"[0..254]
+  end
+
   def content_migration_configured?
     settings.key?('content_migration') &&
       settings['content_migration'].is_a?(Hash) &&
@@ -72,7 +92,19 @@ class ContextExternalTool < ActiveRecord::Base
       settings['content_migration'].key?('import_start_url')
   end
 
+  def lti_1_3_enabled?
+    use_1_3? && context.root_account.feature_enabled?(:lti_1_3)
+  end
+
   def extension_setting(type, property = nil)
+    val = calclulate_extension_setting(type, property)
+    if val && property == :icon_url
+      val = nil if (URI.parse(val) rescue nil).nil? # make sure it's a valid url
+    end
+    val
+  end
+
+  def calclulate_extension_setting(type, property = nil)
     return settings[property] unless type
     type = type.to_sym
     return settings[type] unless property && settings[type]
@@ -103,7 +135,8 @@ class ContextExternalTool < ActiveRecord::Base
       :selection_width,
       :text,
       :windowTarget,
-      :url
+      :url,
+      :target_link_uri
     ]
 
     if custom_keys = CUSTOM_EXTENSION_KEYS[type]
@@ -146,11 +179,33 @@ class ContextExternalTool < ActiveRecord::Base
   def url_or_domain_is_set
     placements = Lti::ResourcePlacement::PLACEMENTS
     # url or domain (or url on canvas lti extension) is required
-    if url.blank? && domain.blank? && placements.all?{|k| !settings[k] || settings[k]['url'].blank? }
+    if url.blank? && domain.blank? && placements.all?{|k| !settings[k] || (settings[k]['url'].blank? && settings[k]['target_link_uri'].blank?) }
       errors.add(:url, t('url_or_domain_required', "Either the url or domain should be set."))
       errors.add(:domain, t('url_or_domain_required', "Either the url or domain should be set."))
     end
   end
+
+  def validate_urls
+    (
+      [url] + Lti::ResourcePlacement::PLACEMENTS.map do |p|
+        settings[p]&.with_indifferent_access&.fetch('url', nil) ||
+        settings[p]&.with_indifferent_access&.fetch('target_link_uri', nil)
+
+      end
+    ).
+      compact.
+      map { |u| validate_url(u) }
+  end
+  private :validate_urls
+
+  def validate_url(u)
+    u = URI.parse(u)
+  rescue
+    errors.add(:url,
+      t('url_or_domain_no_valid', "Incorrect url for %{url}", url: u)
+    )
+  end
+  private :validate_url
 
   def settings
     read_or_initialize_attribute(:settings, {})
@@ -250,7 +305,6 @@ class ContextExternalTool < ActiveRecord::Base
 
     @config_errors = []
     error_field = config_type == 'by_xml' ? 'config_xml' : 'config_url'
-
     converter = CC::Importer::BLTIConverter.new
     tool_hash = if config_type == 'by_url'
                   uri = Addressable::URI.parse(config_url)
@@ -275,13 +329,24 @@ class ContextExternalTool < ActiveRecord::Base
     @config_errors += Array(e.record.errors)
   end
 
-  def custom_fields_string=(str)
-    hash = {}
-    str.split(/[\r\n]+/).each do |line|
+  def use_1_3?
+    settings.fetch(:use_1_3, settings['use_1_3'])
+  end
+
+  def use_1_3=(bool)
+    settings[:use_1_3] = bool
+  end
+
+  def self.find_custom_fields_from_string(str)
+    return {} if str.nil?
+    str.split(/[\r\n]+/).each_with_object({}) do |line, hash|
       key, val = line.split(/=/)
       hash[key] = val if key.present? && val.present?
     end
-    settings[:custom_fields] = hash
+  end
+
+  def custom_fields_string=(str)
+    settings[:custom_fields] = ContextExternalTool.find_custom_fields_from_string(str)
   end
 
   def custom_fields=(hash)
@@ -316,6 +381,14 @@ class ContextExternalTool < ActiveRecord::Base
     settings[:text]
   end
 
+  def oauth_compliant=(val)
+    settings[:oauth_compliant] = Canvas::Plugin.value_to_boolean(val)
+  end
+
+  def oauth_compliant
+    settings[:oauth_compliant]
+  end
+
   def not_selectable
     !!read_attribute(:not_selectable)
   end
@@ -336,9 +409,19 @@ class ContextExternalTool < ActiveRecord::Base
     extension_setting(extension_type, :display_type) || 'in_context'
   end
 
+  def login_or_launch_url(extension_type: nil, content_tag_uri: nil)
+    (use_1_3? && developer_key&.oidc_initiation_url) ||
+    content_tag_uri ||
+    (use_1_3? && extension_setting(extension_type, :target_link_uri)) ||
+    extension_setting(extension_type, :url) ||
+    url
+  end
+
   def extension_default_value(type, property)
     case property
       when :url
+        url
+      when :target_link_uri
         url
       when :selection_width
         800
@@ -415,6 +498,7 @@ class ContextExternalTool < ActiveRecord::Base
 
   def self.standardize_url(url)
     return "" if url.blank?
+    url = url.gsub(/[[:space:]]/, '')
     url = "http://" + url unless url.match(/:\/\//)
     res = Addressable::URI.parse(url).normalize
     res.query = res.query.split(/&/).sort.join('&') if !res.query.blank?
@@ -469,8 +553,10 @@ class ContextExternalTool < ActiveRecord::Base
       res.normalize!
       return true if res.to_s == standard_url
     end
-    host = Addressable::URI.parse(url).host rescue nil
-    !!(host && ('.' + host).match(/\.#{domain}\z/))
+    if domain.present?
+      host = Addressable::URI.parse(url).normalize.host rescue nil
+      !!(host && ('.' + host).match(/\.#{domain}\z/))
+    end
   end
 
   def matches_domain?(url)
@@ -485,6 +571,16 @@ class ContextExternalTool < ActiveRecord::Base
     end
   end
 
+  def duplicated_in_context?
+    duplicate_tool = self.class.find_external_tool(url, context, nil, self.id)
+
+    # If tool with same launch URL is found in the context
+    return true if url.present? && duplicate_tool.present?
+
+    # If tool with same domain is found in the context
+    self.class.all_tools_for(context).where.not(id: id).where(domain: domain).present? && domain.present?
+  end
+
   def self.contexts_to_search(context)
     case context
     when Course
@@ -493,6 +589,8 @@ class ContextExternalTool < ActiveRecord::Base
       [context] + (context.context ? contexts_to_search(context.context) : context.account_chain)
     when Account
       context.account_chain
+    when Assignment
+      contexts_to_search(context.context)
     else
       []
     end
@@ -506,8 +604,7 @@ class ContextExternalTool < ActiveRecord::Base
     placements =* options[:placements] || options[:type]
 
     #special LOR feature flag
-    unless (options[:root_account] && options[:root_account].feature_enabled?(:lor_for_account)) ||
-        (options[:current_user] && options[:current_user].feature_enabled?(:lor_for_user))
+    unless (options[:root_account] && options[:root_account].feature_enabled?(:lor_for_account))
       valid_placements = placements.select{|placement| !LOR_TYPES.include?(placement.to_sym)}
       return [] if valid_placements.size == 0 && placements.size > 0
       placements = valid_placements
@@ -524,8 +621,15 @@ class ContextExternalTool < ActiveRecord::Base
       scope = ContextExternalTool.shard(context.shard).polymorphic_where(context: contexts).active
       scope = scope.placements(*placements)
       scope = scope.selectable if Canvas::Plugin.value_to_boolean(options[:selectable])
-      scope.order("#{ContextExternalTool.best_unicode_collation_key('context_external_tools.name')}, context_external_tools.id")
+      if Canvas::Plugin.value_to_boolean(options[:only_visible])
+        scope = scope.visible(options[:current_user], context, options[:session], options[:visibility_placements], scope)
+      end
+      scope.order(ContextExternalTool.best_unicode_collation_key('context_external_tools.name')).order(Arel.sql('context_external_tools.id'))
     end
+  end
+
+  def self.find_active_external_tool_by_consumer_key(consumer_key, context)
+    self.active.where(:consumer_key => consumer_key).polymorphic_where(:context => contexts_to_search(context)).first
   end
 
   def self.find_external_tool_by_id(id, context)
@@ -544,7 +648,9 @@ class ContextExternalTool < ActiveRecord::Base
   # as configured by an admin.  If there is still no match
   # then check for a match on the current context (configured by
   # the teacher).
-  def self.find_external_tool(url, context, preferred_tool_id=nil)
+  #
+  # Tools with exclude_tool_id as their ID will never be returned.
+  def self.find_external_tool(url, context, preferred_tool_id=nil, exclude_tool_id=nil)
     contexts = contexts_to_search(context)
     preferred_tool = ContextExternalTool.active.where(id: preferred_tool_id).first if preferred_tool_id
     if preferred_tool && contexts.member?(preferred_tool.context) && (url == nil || preferred_tool.matches_domain?(url))
@@ -556,14 +662,14 @@ class ContextExternalTool < ActiveRecord::Base
     all_external_tools = ContextExternalTool.shard(context.shard).polymorphic_where(context: contexts).active.to_a
     sorted_external_tools = all_external_tools.sort_by { |t| [contexts.index { |c| c.id == t.context_id && c.class.name == t.context_type }, t.precedence, t.id == preferred_tool_id ? CanvasSort::First : CanvasSort::Last] }
 
-    res = sorted_external_tools.detect{|tool| tool.url && tool.matches_url?(url) }
+    res = sorted_external_tools.detect{ |tool| tool.url && tool.matches_url?(url) && tool.id != exclude_tool_id }
     return res if res
 
     # If exactly match doesn't work, try to match by ignoring extra query parameters
-    res = sorted_external_tools.detect{|tool| tool.url && tool.matches_url?(url, false) }
+    res = sorted_external_tools.detect{ |tool| tool.url && tool.matches_url?(url, false) && tool.id != exclude_tool_id }
     return res if res
 
-    res = sorted_external_tools.detect{|tool| tool.domain && tool.matches_url?(url) }
+    res = sorted_external_tools.detect{ |tool| tool.domain && tool.matches_url?(url) && tool.id != exclude_tool_id }
     return res if res
 
     nil
@@ -592,6 +698,32 @@ class ContextExternalTool < ActiveRecord::Base
 
   scope :selectable, lambda { where("context_external_tools.not_selectable IS NOT TRUE") }
 
+  scope :visible, lambda { |user, context, session, placements, current_scope=ContextExternalTool.all|
+    if context.grants_right?(user, session, :read_as_admin)
+      all
+    elsif !placements
+      none
+    else
+      allowed_visibility = ['public']
+      allowed_visibility.push('members') if context.grants_any_right?(user, session, :participate_as_student, :read_as_admin)
+      allowed_visibility.push('admins') if context.grants_right?(user, session, :read_as_admin)
+      # To get at the visibility setting for each tool we need to use active record.  We will limit this to just the candidate tools using the current scope.
+      valid_tools = current_scope.select{|cet|
+        include_tool = false
+        placements.each do |placement|
+          tool_settings = cet.settings.with_indifferent_access
+          # The tool must have no visibility settings, or else a visibility threshold met by the current user.
+          if tool_settings[placement] && (!tool_settings[placement][:visibility] || allowed_visibility.include?(tool_settings[placement][:visibility]))
+            include_tool = true
+          end
+          break if include_tool
+        end
+        include_tool
+      }.pluck(:id)
+      where(id: valid_tools)
+    end
+  }
+
   def self.find_for(id, context, type, raise_error=true)
     id = id[Api::ID_REGEX] if id.is_a?(String)
     unless id.present?
@@ -604,8 +736,8 @@ class ContextExternalTool < ActiveRecord::Base
 
     context = context.context if context.is_a?(Group)
 
-    tool = context.context_external_tools.having_setting(type).where(id: id).first
-    tool ||= ContextExternalTool.having_setting(type).where(context_type: 'Account', context_id: context.account_chain_ids, id: id).first
+    tool = context.context_external_tools.having_setting(type).active.where(id: id).first
+    tool ||= ContextExternalTool.having_setting(type).active.where(context_type: 'Account', context_id: context.account_chain_ids, id: id).first
     raise ActiveRecord::RecordNotFound if !tool && raise_error
 
     tool
@@ -644,14 +776,14 @@ class ContextExternalTool < ActiveRecord::Base
     settings[:resource_selection]
   end
 
-  def opaque_identifier_for(asset)
-    ContextExternalTool.opaque_identifier_for(asset, self.shard)
+  def opaque_identifier_for(asset, context: nil)
+    ContextExternalTool.opaque_identifier_for(asset, self.shard, context: context)
   end
 
-  def self.opaque_identifier_for(asset, shard)
+  def self.opaque_identifier_for(asset, shard, context: nil)
     shard.activate do
       lti_context_id = context_id_for(asset, shard)
-      Lti::Asset.set_asset_context_id(asset, lti_context_id)
+      Lti::Asset.set_asset_context_id(asset, lti_context_id, context: context)
     end
   end
 
@@ -668,6 +800,12 @@ class ContextExternalTool < ActiveRecord::Base
       %w{members admins}.each do |visibility|
         Rails.cache.delete("external_tools/global_navigation/#{self.context.asset_string}/#{visibility}")
       end
+    end
+  end
+
+  def clear_tool_domain_cache
+    if self.saved_change_to_domain? || self.saved_change_to_url?
+      self.context.clear_tool_domain_cache
     end
   end
 
@@ -721,7 +859,8 @@ class ContextExternalTool < ActiveRecord::Base
           :icon_url => tool.editor_button(:icon_url),
           :canvas_icon_class => tool.editor_button(:canvas_icon_class),
           :width => tool.editor_button(:selection_width),
-          :height => tool.editor_button(:selection_height)
+          :height => tool.editor_button(:selection_height),
+          :use_tray => tool.editor_button(:use_tray) == "true"
       }
     end
   end

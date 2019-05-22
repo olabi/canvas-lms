@@ -10,7 +10,7 @@
  * Depends:
  *	jquery.ui.core.js
  */
-define(['jquery'], function( $ ) {
+import $ from 'jquery'
 
 $.extend($.ui, { datepicker: { version: "@VERSION" } });
 
@@ -229,7 +229,10 @@ $.extend(Datepicker.prototype, {
 				$('<button type="button"></button>').addClass(this._triggerClass).
 					html(buttonImage == '' ? buttonText : $('<img/>').attr(
 					{ src:buttonImage, alt:buttonText, title:buttonText })));
-			input[isRTL ? 'before' : 'after'](inst.trigger);
+
+			// INSTRUCTURE changed this line from input[isRTL ? 'before' : 'after'](inst.trigger); 
+			// because even for rtl, it should come after since the content flow of the page flips for us
+			input['after'](inst.trigger);
 			inst.trigger.click(function() {
 				if ($.datepicker._datepickerShowing && $.datepicker._lastInput == input[0])
 					$.datepicker._hideDatepicker();
@@ -1842,4 +1845,4 @@ $.datepicker.version = "@VERSION";
 // Add another global to avoid noConflict issues with inline event handlers
 window['DP_jQuery_' + dpuuid] = $;
 
-});
+

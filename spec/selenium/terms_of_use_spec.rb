@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 def login
@@ -23,6 +40,38 @@ describe "terms of use test" do
     account.save!
     get "/"
     expect(f("#content")).not_to contain_css('.reaccept_terms')
+  end
+
+  context "editing terms_of_use" do
+    before :once do
+      account_admin_user(:account => Account.site_admin)
+      @account = Account.default
+    end
+
+    before :each do
+      user_session(@admin)
+    end
+
+    it "should be able to update custom terms" do
+      get "/accounts/#{@account.id}/settings"
+
+      click_option("#account_terms_of_service_terms_type", "custom", :value)
+      wait_for_tiny(f("#custom_tos_rce_container textarea"))
+      type_in_tiny("textarea", "stuff")
+      submit_form("#account_settings")
+
+      expect(@account.terms_of_service.terms_of_service_content.content).to include('stuff')
+    end
+
+    it "should populate the custom terms in the text area" do
+      @account.update_terms_of_service(:terms_type => "custom", :content => "other stuff")
+
+      get "/accounts/#{@account.id}/settings"
+
+      wait_for_tiny(f("#custom_tos_rce_container textarea"))
+      expect_new_page_load { submit_form("#account_settings") }
+      expect(@account.reload.terms_of_service.terms_of_service_content.content).to include('other stuff') # should be unchanged
+    end
   end
 
   it "should require a user to accept the terms if they have changed", priority: "1", test_id: 268933 do
@@ -75,7 +124,7 @@ end
 describe "terms of use SOC2 compliance test" do
   include_context "in-process server selenium tests"
 
-  it "should prevent a user from accessing canvas if they are newly registered/imported after the SOC2 start date and have not yet accepted the terms", priority: "1", test_id: 268935 do
+  it "should prevent a user from accessing canvas if they are newly registered/imported after the SOC2 start date and have not yet accepted the terms" do
 
     # Create a user after SOC2 implemented
     after_soc2_start_date = Setting.get('SOC2_start_date', Time.new(2015, 5, 16, 0, 0, 0).utc).to_datetime + 10.days

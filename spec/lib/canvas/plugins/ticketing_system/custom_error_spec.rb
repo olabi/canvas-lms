@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 require_dependency "canvas/plugins/ticketing_system/custom_error"
 
@@ -21,12 +38,12 @@ module Canvas::Plugins::TicketingSystem
     end
 
     describe "#sub_account_tag" do
-      let(:asset_manager) { stub() }
+      let(:asset_manager) { double() }
 
       it "prefixes the account_id with subaccount" do
         report.data['context_asset_string'] = "42"
-        context = stub(account_id: "123")
-        asset_manager.stubs(:find_by_asset_string).with("42").returns(context)
+        context = double(account_id: "123")
+        allow(asset_manager).to receive(:find_by_asset_string).with("42").and_return(context)
         expect(delegate.sub_account_tag(asset_manager, context.class)).
           to eq("subaccount_123")
       end
@@ -35,8 +52,8 @@ module Canvas::Plugins::TicketingSystem
       # a type override
       it "returns nil if the context isnt the expected type" do
         report.data['context_asset_string'] = "42"
-        context = stub(account_id: "123")
-        asset_manager.stubs(:find_by_asset_string).with("42").returns(context)
+        context = double(account_id: "123")
+        allow(asset_manager).to receive(:find_by_asset_string).with("42").and_return(context)
         expect(delegate.sub_account_tag(asset_manager)).to be_nil
       end
 
@@ -88,7 +105,7 @@ module Canvas::Plugins::TicketingSystem
 
     describe "#account_domain_value" do
       it "uses the domain off the account attribute" do
-        report.stubs(account: stub(domain: "www.example.com"))
+        allow(report).to receive_messages(account: double(domain: "www.example.com"))
         expect(delegate.account_domain_value).to eq("www.example.com")
       end
 
@@ -100,7 +117,7 @@ module Canvas::Plugins::TicketingSystem
 
     describe "#user_name" do
       it "uses the name off the user attribute" do
-        report.stubs(user: stub(name: "Stanley Stanleyson"))
+        allow(report).to receive_messages(user: double(name: "Stanley Stanleyson"))
         expect(delegate.user_name).to eq("Stanley Stanleyson")
       end
 

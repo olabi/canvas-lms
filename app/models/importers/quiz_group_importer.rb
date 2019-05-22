@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -9,6 +26,7 @@ module Importers
       hash = hash.with_indifferent_access
       item ||= Quizzes::QuizGroup.where(quiz_id: quiz, migration_id: hash[:migration_id].try(:to_s)).first
       item ||= quiz.quiz_groups.temp_record
+      item.mark_as_importing!(migration)
       item.migration_id = hash[:migration_id]
       item.question_points = hash[:question_points]
       item.pick_count = hash[:pick_count]
@@ -32,7 +50,8 @@ module Importers
           end
 
           if bank
-            if bank.grants_right?(migration.user, :read)
+            if bank.grants_right?(migration.user, :read) || (bank_context.is_a?(Account) && context.account_chain_ids.include?(bank_context.id))
+              # if it's account-level they'd still be able to see it in the list to link to a new question group even though they can't directly view it... weird
               item.assessment_question_bank_id = bank.id
             else
               migration.add_warning(t('#quizzes.quiz_group.errors.no_permissions', "User didn't have permission to reference question bank in quiz group %{group_name}", :group_name => item.name))

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,8 +16,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require 'hey'
-
 class Message < ActiveRecord::Base
   # Included modules
   include Rails.application.routes.url_helpers
@@ -28,16 +26,37 @@ class Message < ActiveRecord::Base
   include HtmlTextHelper
   include Workflow
   include Messages::PeerReviewsHelper
+  include Messages::SendStudentNamesHelper
+
+  include CanvasPartman::Concerns::Partitioned
+  self.partitioning_strategy = :by_date
+  self.partitioning_interval = :weeks
 
   extend TextHelper
 
   MAX_TWITTER_MESSAGE_LENGTH = 140
 
+  class Queued
+    # use this to queue messages for delivery so we find them using the created_at in the scope
+    # instead of using id alone when reconstituting the AR object
+    attr_accessor :id, :created_at
+    def initialize(id, created_at)
+      @id, @created_at = id, created_at
+    end
+
+    delegate :deliver, :dispatch_at, :to => :message
+    def message
+      @message ||= Message.where(:id => @id, :created_at => @created_at).first || Message.where(:id => @id).first
+    end
+  end
+
+  def for_queue
+    Queued.new(self.id, self.created_at)
+  end
 
   # Associations
-  belongs_to :asset_context, :polymorphic => true
   belongs_to :communication_channel
-  belongs_to :context, :polymorphic => true
+  belongs_to :context, polymorphic: [], exhaustive: false
   include NotificationPreloader
   belongs_to :user
   belongs_to :root_account, :class_name => 'Account'
@@ -51,9 +70,9 @@ class Message < ActiveRecord::Base
   before_save :infer_defaults
   before_save :move_dashboard_messages
   before_save :move_messages_for_deleted_users
-  before_save :set_asset_context_code
 
   # Validations
+  validate :prevent_updates
   validates :body, length: {maximum: maximum_text_length}, allow_nil: true, allow_blank: true
   validates :html_body, length: {maximum: maximum_text_length}, allow_nil: true, allow_blank: true
   validates :transmission_errors, length: {maximum: maximum_text_length}, allow_nil: true, allow_blank: true
@@ -63,6 +82,13 @@ class Message < ActiveRecord::Base
   validates :subject, length: {maximum: maximum_text_length}, allow_nil: true, allow_blank: true
   validates :from_name, length: {maximum: maximum_text_length}, allow_nil: true, allow_blank: true
   validates :reply_to_name, length: {maximum: maximum_string_length}, allow_nil: true, allow_blank: true
+
+  def prevent_updates
+    unless self.new_record?
+      # e.g. Message.where(:id => self.id, :created_at => self.created_at).update_all(...)
+      self.errors.add(:base, "Regular saving on messages is disabled - use save_using_update_all")
+    end
+  end
 
   # Stream policy
   on_create_send_to_streams do
@@ -143,9 +169,22 @@ class Message < ActiveRecord::Base
     end
   end
 
-  # Named scopes
-  scope :for_asset_context_codes, lambda { |context_codes| where(:asset_context_code => context_codes) }
+  # turns out we can override this method inside the workflow gem to get a custom save for workflow transitions
+  def persist_workflow_state(new_state)
+    self.workflow_state = new_state
+    self.save_using_update_all
+  end
 
+  def save_using_update_all
+    self.shard.activate do
+      self.updated_at = Time.now.utc
+      updates = Hash[self.changes_to_save.map{|k, v| [k, v.last]}]
+      self.class.where(:id => self.id, :created_at => self.created_at).update_all(updates)
+      self.clear_changes_information
+    end
+  end
+
+  # Named scopes
   scope :for, lambda { |context| where(:context_type => context.class.base_class.to_s, :context_id => context) }
 
   scope :after, lambda { |date| where("messages.created_at>?", date) }
@@ -175,6 +214,8 @@ class Message < ActiveRecord::Base
   scope :staged, -> { where("messages.workflow_state='staged' AND messages.dispatch_at>?", Time.now.utc) }
 
   scope :in_state, lambda { |state| where(:workflow_state => Array(state).map(&:to_s)) }
+
+  scope :at_timestamp, lambda { |timestamp| where("created_at >= ? AND created_at < ?", Time.at(timestamp.to_i), Time.at(timestamp.to_i + 1)) }
 
   #Public: Helper methods for grabbing a user via the "from" field and using it to
   #populate the avatar, name, and email in the conversation email notification
@@ -262,17 +303,20 @@ class Message < ActiveRecord::Base
   def link_root_account
     @root_account ||= begin
       context = self.context
-      context = self.asset_context if context.is_a?(CommunicationChannel) && self.asset_context
+      if context.is_a?(CommunicationChannel) && @data&.root_account_id
+        root_account = Account.where(id: @data.root_account_id).first
+        context = root_account if root_account
+      end
 
       context = context.assignment if context.respond_to?(:assignment) && context.assignment
       context = context.rubric_association.context if context.respond_to?(:rubric_association) && context.rubric_association
       context = context.appointment_group.contexts.first if context.respond_to?(:appointment_group) && context.appointment_group
+      context = context.master_template.course if context.respond_to?(:master_template) && context.master_template
       context = context.context if context.respond_to?(:context)
       context = context.account if context.respond_to?(:account)
       context = context.root_account if context.respond_to?(:root_account)
-      if context
-        p = SisPseudonym.for(user, context)
-        p ||= user.find_pseudonym_for_account(context, true)
+      if context && context.respond_to?(:root_account)
+        p = SisPseudonym.for(user, context, type: :implicit, require_sis: false)
         context = p.account if p
       else
         # nothing? okay, just something the user can log in to
@@ -421,23 +465,22 @@ class Message < ActiveRecord::Base
 
   # Public: Apply an HTML email template to this message.
   #
-  # _binding - The binding to attach to the template.
-  #
   # Returns an HTML template (or nil).
-  def apply_html_template(_binding)
+  def apply_html_template(binding)
     orig_i18n_scope = @i18n_scope
     @i18n_scope = "#{@i18n_scope}.html"
-    return nil unless template = load_html_template
+    template, template_path = load_html_template
+    return nil unless template
 
     # Add the attribute 'inner_html' with the value of inner_html into the _binding
     @output_buffer = nil
-    inner_html = ActionView::Template::Handlers::Erubis.new(template, :bufvar => '@output_buffer').result(_binding)
-    setter = eval "inner_html = nil; lambda { |v| inner_html = v }", _binding
+    inner_html = eval(ActionView::Template::Handlers::ERB::Erubi.new(template, :bufvar => '@output_buffer').src, binding, template_path)
+    setter = eval "inner_html = nil; lambda { |v| inner_html = v }", binding
     setter.call(inner_html)
 
     layout_path = Canvas::MessageHelper.find_message_path('_layout.email.html.erb')
     @output_buffer = nil
-    ActionView::Template::Handlers::Erubis.new(File.read(layout_path)).result(_binding)
+    eval(ActionView::Template::Handlers::ERB::Erubi.new(File.read(layout_path)).src, binding, layout_path)
   ensure
     @i18n_scope = orig_i18n_scope
   end
@@ -445,26 +488,26 @@ class Message < ActiveRecord::Base
   def load_html_template
     html_file = template_filename('email.html')
     html_path = Canvas::MessageHelper.find_message_path(html_file)
-    File.read(html_path) if File.exist?(html_path)
+    [File.read(html_path), html_path] if File.exist?(html_path)
   end
 
   # Public: Assign the body, subject and url to the message.
   #
   # message_body_template - Raw template body
   # path_type             - Path to send the message across, e.g, 'email'.
-  # _binding              - Message binding
   #
   # Returns message body
-  def populate_body(message_body_template, path_type, _binding, filename)
+  def populate_body(message_body_template, path_type, binding, filename)
     # Build the body content based on the path type
-    self.body = Erubis::Eruby.new(message_body_template,
-      bufvar: '@output_buffer', filename: filename).result(_binding)
-    self.html_body = apply_html_template(_binding) if path_type == 'email'
+    self.body = eval(Erubi::Engine.new(message_body_template,
+      bufvar: '@output_buffer').src, binding, filename)
+    self.html_body = apply_html_template(binding) if path_type == 'email'
 
     # Append a footer to the body if the path type is email
     if path_type == 'email'
-      raw_footer_message = File.read(Canvas::MessageHelper.find_message_path('_email_footer.email.erb'))
-      footer_message = Erubis::Eruby.new(raw_footer_message, :bufvar => "@output_buffer").result(_binding)
+      footer_path = Canvas::MessageHelper.find_message_path('_email_footer.email.erb')
+      raw_footer_message = File.read(footer_path)
+      footer_message = eval(Erubi::Engine.new(raw_footer_message, :bufvar => "@output_buffer").src, nil, footer_path)
       if footer_message.present?
         self.body = <<-END.strip_heredoc
           #{self.body}
@@ -499,22 +542,17 @@ class Message < ActiveRecord::Base
     # (temporarily) override course name with user's nickname for the course
     hacked_course = apply_course_nickname_to_asset(self.context, self.user)
 
-    # Ensure we have a path_type
-    path_type = 'dashboard' if to == 'summary'
-    unless path_type
-      path_type = communication_channel.try(:path_type) || 'email'
-    end
-
+    path_type ||= communication_channel.try(:path_type) || 'email'
 
     # Determine the message template file to be used in the message
     filename = template_filename(path_type)
     message_body_template = get_template(filename)
 
-    context, asset, user, delayed_messages, asset_context, data = [self.context,
-      self.context, self.user, @delayed_messages, self.asset_context, @data]
+    context, asset, user, delayed_messages, data = [self.context,
+      self.context, self.user, @delayed_messages, @data]
 
     link_root_account.shard.activate do
-      if message_body_template.present? && path_type.present?
+      if message_body_template.present?
         populate_body(message_body_template, path_type, binding, filename)
 
         # Set the subject and url
@@ -522,9 +560,9 @@ class Message < ActiveRecord::Base
         self.url     = @message_content_link || nil
       else
         # Message doesn't exist so we flag the message as an error
-        main_link    = Erubis::Eruby.new(self.notification.main_link || "").result(binding)
-        self.subject = Erubis::Eruby.new(subject).result(binding)
-        self.body    = Erubis::Eruby.new(body).result(binding)
+        main_link    = eval(Erubi::Engine.new(self.notification.main_link || "").src)
+        self.subject = eval(Erubi::Engine.new(subject).src)
+        self.body    = eval(Erubi::Engine.new(body).src)
         self.transmission_errors = "couldn't find #{Canvas::MessageHelper.find_message_path(filename)}"
       end
     end
@@ -558,7 +596,8 @@ class Message < ActiveRecord::Base
       return nil
     end
 
-    if user && user.account.feature_enabled?(:notification_service) && path_type != "yo"
+    check_acct = (user && user.account) || Account.site_admin
+    if check_acct.feature_enabled?(:notification_service)
       enqueue_to_sqs
     else
       send(delivery_method)
@@ -569,13 +608,19 @@ class Message < ActiveRecord::Base
   #
   # Returns nothing
   def enqueue_to_sqs
-    notification_targets.each do |target|
-      Services::NotificationService.process(
-        global_id,
-        notification_message,
-        path_type,
-        target
-      )
+    targets = notification_targets
+    if targets.empty?
+      self.transmission_errors = "No notification targets specified"
+      self.set_transmission_error
+    else
+      targets.each do |target|
+        Services::NotificationService.process(
+          notification_service_id,
+          notification_message,
+          path_type,
+          target
+        )
+      end
       complete_dispatch
     end
   rescue Aws::SQS::Errors::ServiceError => e
@@ -589,25 +634,6 @@ class Message < ActiveRecord::Base
     self.transmission_errors = error_string
     self.errored_dispatch
     raise
-  end
-
-  class RemoteConfigurationError < StandardError; end
-  # Public: Determine the remote configuration for notification_service
-  #
-  # Returns string remote configuration (eventually a hash).
-  def remote_configuration
-    case path_type
-    when "email"
-      return "email.amazonaws.com"
-    when "push"
-      return "push.com"
-    when "twitter"
-      return 'twitter'
-    when "sms"
-      return if to =~ /^\+[0-9]+$/ ? "Twilio.com" : "email.amazonaws.com"
-    else
-      raise RemoteConfigurationError, "No matching path types for notification service"
-    end
   end
 
   # Public: Determines the message body for a notification endpoint
@@ -690,6 +716,36 @@ class Message < ActiveRecord::Base
     current_context.root_account
   end
 
+  # This is a dumb name, but it's the context (course/group/account/user) of
+  # the message.context (which should really be message.asset)
+  def context_context
+    @context_context ||= begin
+      unbounded_loop_paranoia_counter = 10
+      current_context = context
+
+      until current_context&.is_a_context?
+        return nil if unbounded_loop_paranoia_counter <= 0 || current_context.nil?
+        return nil unless current_context.respond_to?(:context)
+        current_context = current_context.context
+        unbounded_loop_paranoia_counter -= 1
+      end
+
+      current_context
+    end
+  end
+
+  def notification_service_id
+    "#{self.global_id}+#{self.created_at.to_i}"
+  end
+
+  def self.parse_notification_service_id(service_id)
+    if service_id.to_s.include?("+")
+      service_id.split("+")
+    else
+      [service_id, nil]
+    end
+  end
+
   def custom_logo
     context_root_account && context_root_account.settings[:email_logo]
   end
@@ -712,7 +768,7 @@ class Message < ActiveRecord::Base
     self.root_account_id ||= root_account.try(:id)
 
     self.from_name = infer_from_name
-    self.reply_to_name = message_context.reply_to_name
+    self.reply_to_name = name_helper.reply_to_name
 
     true
   end
@@ -764,21 +820,12 @@ class Message < ActiveRecord::Base
     end
   end
 
-  # Public: Before save, set the proper asset_context_code for the model.
-  #
-  # Returns an asset_context_code string or nil.
-  def set_asset_context_code
-    self.asset_context_code = "#{context_type.underscore}_#{context_id}"
-  rescue
-    nil
-  end
-
   # Public: Return the message as JSON filtered to selected fields and
   # flattened appropriately.
   #
   # Returns json hash.
   def as_json(options = {})
-    super(:only => [:id, :created_at, :sent_at, :workflow_state, :from, :to, :reply_to, :subject, :body, :html_body])['message']
+    super(:only => [:id, :created_at, :sent_at, :workflow_state, :from, :from_name, :to, :reply_to, :subject, :body, :html_body])['message']
   end
 
   protected
@@ -791,7 +838,7 @@ class Message < ActiveRecord::Base
     res = nil
     logger.info "Delivering mail: #{self.inspect}"
     begin
-      res = Mailer.create_message(self).deliver
+      res = Mailer.create_message(self).deliver_now
     rescue Net::SMTPServerBusy => e
       @exception = e
       logger.error "Exception: #{e.class}: #{e.message}\n\t#{e.backtrace.join("\n\t")}"
@@ -832,25 +879,10 @@ class Message < ActiveRecord::Base
   # Returns nothing.
   def deliver_via_twitter
     twitter_service = user.user_services.where(service: 'twitter').first
-    host = HostUrl.short_host(self.asset_context)
+    host = HostUrl.context_host(link_root_account)
     msg_id = AssetSignature.generate(self)
     Twitter::Messenger.new(self, twitter_service, host, msg_id).deliver
     complete_dispatch
-  end
-
-  # Internal: Deliver the message through Yo.
-  #
-  # Returns nothing.
-  def deliver_via_yo
-    plugin = Canvas::Plugin.find(:yo)
-    if plugin && plugin.enabled? && plugin.setting(:api_token)
-      service = self.user.user_services.where(service: 'yo').first
-      Hey.api_token ||= plugin.setting(:api_token)
-      Hey::Yo.user(service.service_user_id, link: self.url)
-      complete_dispatch
-    else
-      cancel
-    end
   end
 
   # Internal: Send the message through SMS. This currently sends it via Twilio if the recipient is a E.164 phone
@@ -911,10 +943,18 @@ class Message < ActiveRecord::Base
 
   private
   def infer_from_name
-    if asset_context
-      return message_context.from_name if message_context.from_name.present?
-      return asset_context.name if can_use_asset_name_for_from?
+    return name_helper.from_name if name_helper.from_name.present?
+    if name_helper.asset.is_a? AppointmentGroup
+      if !name_helper.asset.contexts_for_user(user).nil?
+        names = name_helper.asset.contexts_for_user(user).map(&:name).join(", ")
+        if names == ""
+          return name_helper.asset.context.name
+        else
+          return names
+        end
+      end
     end
+    return context_context.nickname_for(user) if can_use_name_for_from?(context_context)
 
     if root_account && root_account.settings[:outgoing_email_default_name]
       return root_account.settings[:outgoing_email_default_name]
@@ -923,12 +963,17 @@ class Message < ActiveRecord::Base
     HostUrl.outgoing_email_default_name
   end
 
-  def can_use_asset_name_for_from?
-    !asset_context.is_a?(Account) && asset_context.name && notification.dashboard? rescue false
+  def can_use_name_for_from?(c)
+    c && !c.is_a?(Account) && notification&.dashboard? &&
+      c.respond_to?(:name) && c.name.present?
   end
 
-  def message_context
-    @_message_context ||= Messages::AssetContext.new(context, notification_name)
+  def name_helper
+    @name_helper ||= Messages::NameHelper.new(
+      asset: context,
+      message_recipient: self.user,
+      notification_name: notification_name
+    )
   end
 
   def apply_course_nickname_to_asset(asset, user)

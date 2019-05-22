@@ -16,21 +16,21 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../../api_spec_helper')
+require_relative '../../api_spec_helper'
 
 shared_examples_for 'Quiz Submissions API Restricted Endpoints' do
   it 'should require the LDB' do
     @quiz.require_lockdown_browser = true
     @quiz.save
 
-    Quizzes::Quiz.stubs(:lockdown_browser_plugin_enabled?).returns true
+    allow(Quizzes::Quiz).to receive(:lockdown_browser_plugin_enabled?).and_return true
 
     fake_plugin = Object.new
-    fake_plugin.stubs(:authorized?).returns false
-    fake_plugin.stubs(:base).returns fake_plugin
+    allow(fake_plugin).to receive(:authorized?).and_return false
+    allow(fake_plugin).to receive(:base).and_return fake_plugin
 
-    subject.stubs(:ldb_plugin).returns fake_plugin
-    Canvas::LockdownBrowser.stubs(:plugin).returns fake_plugin
+    allow(subject).to receive(:ldb_plugin).and_return fake_plugin
+    allow(Canvas::LockdownBrowser).to receive(:plugin).and_return fake_plugin
 
     @request_proxy.call true, {
       attempt: 1
@@ -258,6 +258,24 @@ describe Quizzes::QuizSubmissionsApiController, type: :request do
       json = qs_api_index(true)
       assert_status(401)
     end
+
+    it 'includes submissions' do
+      enroll_student_and_submit
+      json = qs_api_index(false, { include: ['submission'] })
+      expect(json).to have_key 'submissions'
+    end
+
+    it 'includes submission grading_status' do
+      enroll_student_and_submit
+      json = qs_api_index(false, { include: ['submission', 'grading_status'] })
+      expect(json.fetch('submissions')).to all have_key 'grading_status'
+    end
+
+    it 'includes submission submission_status' do
+      enroll_student_and_submit
+      json = qs_api_index(false, { include: ['submission', 'submission_status'] })
+      expect(json.fetch('submissions')).to all have_key 'submission_status'
+    end
   end
 
   describe 'GET /courses/:course_id/quizzes/:quiz_id/submission' do
@@ -337,7 +355,7 @@ describe Quizzes::QuizSubmissionsApiController, type: :request do
 
     it 'should be accessible implicitly to its own student as "self"' do
       @user = @student
-      @quiz_submission.stubs(:id).returns 'self'
+      allow(@quiz_submission).to receive(:id).and_return 'self'
 
       json = qs_api_show
       expect(json.key?('quiz_submissions')).to be_truthy
@@ -491,9 +509,12 @@ describe Quizzes::QuizSubmissionsApiController, type: :request do
         json = qs_api_create
         qs = Quizzes::QuizSubmission.find(json['quiz_submissions'][0]['id'])
         qs.mark_completed
-        qs.save
+        qs.reload
+        expect(qs).to be_complete
 
         qs_api_create
+        qs.reload
+        expect(qs).to be_untaken
       end
 
       context 'access validations' do
@@ -733,11 +754,10 @@ describe Quizzes::QuizSubmissionsApiController, type: :request do
   end
 
   describe "GET /courses/:course_id/quizzes/:quiz_id/submssions/:id/time" do
-    around(:all) do |group|
-      Timecop.freeze { group.run_examples }
+    now = Time.now.utc
+    around(:once_and_each) do |block|
+      Timecop.freeze(now) { block.call }
     end
-
-    let_once(:now) { Time.zone.now }
 
     before :once do
       enroll_student

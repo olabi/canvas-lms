@@ -15,7 +15,7 @@
     </tr>
     <tr>
       <td class='meta-data-label' tabindex="0">{{#t "from_name"}}From{{/t}}</td>
-      <td tabindex="0" class="message-from">{{from}}</td>
+      <td tabindex="0" class="message-from">{{from_name}} &lt;{{from}}&gt;</td>
     </tr>
       {{#if reply_to}}
       <td class='meta-data-label' tabindex="0">{{#t "reply_to"}}Reply to{{/t}}</td>
@@ -32,7 +32,7 @@
     </tbody>
   </table>
 
-  <pre class="message-body well" tabindex="0">
+  <pre class="message-body admin-tool-well" tabindex="0">
     {{body}}
   </pre>
 </div>

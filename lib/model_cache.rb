@@ -1,4 +1,5 @@
-# Copyright (C) 2012 Instructure, Inc.
+#
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -51,10 +52,10 @@ module ModelCache
       options[:key_lookup] ||= :id
       options[:type] ||= :instance
 
-      # add the :id lookup for the target class
+      # ensure the target class is ModelCache-aware, and set up the :id lookup
       target_klass = reflections[method.to_s].klass
+      raise "`#{target_klass}` needs to `include ModelCache` before you can make `#{self}##{method}` cacheable" unless target_klass.included_modules.include?(ModelCache)
       unless ModelCache.keys[target_klass.name].include?(options[:key_lookup])
-        target_klass.include(ModelCache) unless target_klass.included_modules.include?(ModelCache)
         ModelCache.keys[target_klass.name] << options[:key_lookup]
       end
 
@@ -73,9 +74,9 @@ module ModelCache
     def update_in_caches
       return unless cache = ModelCache[self.class.name.underscore.pluralize.to_sym]
       cache.keys.each do |key|
-        if send("#{key}_changed?")
+        if saved_change_to_attribute?(key)
           cache[key][send(key)] = self
-          cache[key].delete(send("#{key}_was"))
+          cache[key].delete(attribute_before_last_save(key))
         end
       end
     end
@@ -125,7 +126,7 @@ module ModelCache
       def #{method}(*args)
         if cache = ModelCache[#{options[:cache_name].inspect}] and cache = cache[#{options[:key_lookup].inspect}]
           #{maybe_reset}
-          cache[#{key_value}]
+          cache[#{key_value}] ||= #{orig_method}
         else
           #{orig_method}
         end

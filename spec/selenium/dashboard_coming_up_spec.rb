@@ -1,11 +1,28 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "dashboard" do
   include_context "in-process server selenium tests"
 
-  context "as a student" do
+  context "as a teacher" do
     before (:each) do
-      course_with_student_logged_in(:active_all => true)
+      course_with_teacher_logged_in(:active_all => true)
     end
 
     it "should display calendar events in the coming up list", priority: "1", test_id: 216392 do
@@ -30,8 +47,12 @@ describe "dashboard" do
 
       due_date = Time.now.utc + 2.days
       names = ['locked discussion assignment', 'locked quiz']
-      @course.assignments.create(:name => names[0], :submission_types => 'discussion', :due_at => due_date, :lock_at => Time.now, :unlock_at => due_date)
-      q = @course.quizzes.create!(:title => names[1], :due_at => due_date, :lock_at => Time.now, :unlock_at => due_date)
+      @course.assignments.create(name: names[0],
+                                 submission_types: 'discussion',
+                                 due_at: due_date,
+                                 lock_at: 1.week.from_now,
+                                 unlock_at: due_date)
+      q = @course.quizzes.create!(title: names[1], due_at: due_date, lock_at: 1.week.from_now, unlock_at: due_date)
       q.workflow_state = 'available'
       q.save
       q.reload

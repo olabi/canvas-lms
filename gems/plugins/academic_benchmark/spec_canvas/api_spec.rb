@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
 describe AcademicBenchmark::Api do
@@ -10,10 +27,10 @@ describe AcademicBenchmark::Api do
   end
 
   def mock_api_call(code, body, url)
-    response = Object.new
-    response.stubs(:body).returns(body)
-    response.stubs(:code).returns(code.to_s)
-    AcademicBenchmark::Api.expects(:get_url).with(url).returns(response)
+    response = double()
+    allow(response).to receive(:body).and_return(body)
+    allow(response).to receive(:code).and_return(code.to_s)
+    expect(AcademicBenchmark::Api).to receive(:get_url).with(url).and_return(response)
   end
 
   it "should fail with bad AB response" do

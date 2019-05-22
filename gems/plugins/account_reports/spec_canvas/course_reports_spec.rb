@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -178,13 +178,18 @@ describe "Course Account Reports" do
     end
 
     it "should not find courses with objects" do
-      @wiki_page = @course6.wiki.wiki_pages.create(
+      @wiki_page = @course6.wiki_pages.create(
         :title => "Some random wiki page",
         :body => "wiki page content")
       report = run_report(@type)
       expect(report.parameters["extra_text"]).to eq "Term: All Terms;"
       parsed = parse_report(report)
       expect(parsed.length).to eq 0
+    end
+
+    it "should set run_at" do
+      report = run_report(@type)
+      expect(report.start_at).not_to be_nil
     end
 
     it "should run unused courses report with a term" do

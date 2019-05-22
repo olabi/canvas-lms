@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 
 module Polling
   # @API Polls
-  # @beta
   # Manage polls
   #
   # @model Poll
@@ -62,12 +61,11 @@ module Polling
   class PollsController < ApplicationController
     include ::Filters::Polling
 
-    before_filter :require_user
+    before_action :require_user
 
     # @API List polls
-    # @beta
     #
-    # Returns the list of polls for the current user.
+    # Returns the paginated list of polls for the current user.
     #
     # @example_response
     #   {
@@ -82,7 +80,6 @@ module Polling
     end
 
     # @API Get a single poll
-    # @beta
     #
     # Returns the poll with the given id
     #
@@ -100,7 +97,6 @@ module Polling
     end
 
     # @API Create a single poll
-    # @beta
     #
     # Create a new poll for the current user
     #
@@ -127,7 +123,6 @@ module Polling
     end
 
     # @API Update a single poll
-    # @beta
     #
     # Update an existing poll belonging to the current user
     #
@@ -158,7 +153,6 @@ module Polling
     end
 
     # @API Delete a poll
-    # @beta
     #
     # <b>204 No Content</b> response code is returned if the deletion was successful.
     def destroy

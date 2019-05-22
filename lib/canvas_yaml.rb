@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,6 +23,7 @@
 # is switched to Psych. Otherwise we
 # won't have access to (safe|unsafe)_load.
 require 'yaml'
+require 'date' if RUBY_VERSION >= "2.5.0"
 require 'safe_yaml'
 
 module FixSafeYAMLNullMerge
@@ -59,7 +60,6 @@ SafeYAML::OPTIONS.merge!(
         !ruby/hash:ActionController::Parameters
         !ruby/object:Class
         !ruby/object:OpenStruct
-        !ruby/object:Scribd::Document
         !ruby/object:Mime::Type
         !ruby/object:Mime::NullType
         !ruby/object:URI::HTTP
@@ -67,23 +67,38 @@ SafeYAML::OPTIONS.merge!(
         !ruby/object:OpenObject
         !ruby/object:DateTime
         !ruby/object:BigDecimal
-      ]
+        !ruby/object:ActiveSupport::TimeWithZone
+        !ruby/object:ActiveSupport::TimeZone
+      ],
 )
 
 module Syckness
   TAG = "#GETDOWNWITHTHESYCKNESS\n"
 end
 
-[Object, Hash, Struct, Array, Exception, String, Symbol, Range, Regexp, Time,
-  Date, Integer, Float, Rational, Complex, TrueClass, FalseClass, NilClass].each do |klass|
-  klass.class_eval do
-    alias :to_yaml :psych_to_yaml
-  end
-end
-
 SafeYAML::PsychResolver.class_eval do
   attr_accessor :aliased_nodes
 end
+
+module AddClassWhitelist
+  SafeYAML::OPTIONS[:whitelisted_classes] ||= []
+
+  # This isn't really a bang method but it has been included here to maintain
+  # consistency with SafeYAML's whitelist! methods
+  def whitelist_classes!(*constants)
+    constants.each do |const|
+      whitelist_constant!(const)
+    end
+  end
+
+  def whitelist_class!(const)
+    const_name = const.name
+
+    raise "#{const} cannont be anonymous" unless const_name.present?
+    SafeYAML::OPTIONS[:whitelisted_classes] << const_name
+  end
+end
+SafeYAML.singleton_class.prepend(AddClassWhitelist)
 
 module MaintainAliases
   def accept(node)
@@ -94,6 +109,38 @@ module MaintainAliases
   end
 end
 SafeYAML::SafeToRubyVisitor.prepend(MaintainAliases)
+
+module AcceptClasses
+  def accept(node)
+    if node.tag && node.tag == '!ruby/class'
+      val = node.value
+      if @resolver.options[:whitelisted_classes].include?(val)
+        val.constantize
+      else
+        raise "YAML deserialization of constant not allowed: #{val}"
+      end
+    else
+      super
+    end
+  end
+end
+SafeYAML::SafeToRubyVisitor.prepend(AcceptClasses)
+
+module ResolveClasses
+  def resolve_scalar(node)
+    if node.tag && node.tag == '!ruby/class'
+      val = node.value
+      if options[:whitelisted_classes].include?(val)
+        val.constantize
+      else
+        raise "YAML deserialization of constant not allowed: #{val}"
+      end
+    else
+      super
+    end
+  end
+end
+SafeYAML::Resolver.prepend(ResolveClasses)
 
 module FloatScannerFix
   def tokenize string
@@ -192,3 +239,11 @@ module ScalarTransformFix
   end
 end
 SafeYAML::Transform.singleton_class.prepend(ScalarTransformFix)
+
+module YAMLSingletonFix
+  def revive(klass, node)
+    return klass.instance if klass < Singleton
+    super
+  end
+end
+Psych::Visitors::ToRuby.prepend(YAMLSingletonFix)

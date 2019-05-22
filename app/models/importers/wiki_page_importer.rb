@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -19,6 +36,10 @@ module Importers
     end
 
     def self.process_migration(data, migration)
+      if migration.for_master_course_import? # make a tag if it doesn't exist
+        migration.context.wiki.load_tag_for_master_course_import!(migration.child_subscription_id)
+      end
+
       wikis = data['wikis'] ? data['wikis']: []
       wikis.each do |wiki|
         unless wiki
@@ -45,7 +66,7 @@ module Importers
       hash = hash.with_indifferent_access
       item ||= WikiPage.where(wiki_id: context.wiki, id: hash[:id]).first
       item ||= WikiPage.where(wiki_id: context.wiki, migration_id: hash[:migration_id]).first
-      item ||= context.wiki.wiki_pages.temp_record
+      item ||= context.wiki_pages.temp_record(:wiki => context.wiki)
       item.mark_as_importing!(migration)
 
       new_record = item.new_record?
@@ -67,7 +88,9 @@ module Importers
       end
       hide_from_students = hash[:hide_from_students] if !hash[:hide_from_students].nil?
       state = hash[:workflow_state]
-      if state || !hide_from_students.nil?
+      if state && migration.for_master_course_import?
+        item.workflow_state = state
+      elsif state || !hide_from_students.nil?
         if state == 'active' && !item.unpublished? && Canvas::Plugin.value_to_boolean(hide_from_students) == false
           item.workflow_state = 'active'
         else
@@ -77,15 +100,23 @@ module Importers
         item.workflow_state = 'unpublished' if item.deleted?
       end
 
-      item.set_as_front_page! if !!hash[:front_page] && context.wiki.has_no_front_page
+      if migration.for_master_course_import?
+        if context.wiki.can_update_front_page_for_master_courses?
+          if hash[:front_page]
+            context.wiki.set_front_page_url!(item.url) unless item.unpublished?
+          elsif item.persisted? && context.wiki.front_page == item
+            context.wiki.unset_front_page!
+          end
+        end
+      else
+        if !!hash[:front_page] && context.wiki.has_no_front_page
+          item.set_as_front_page!
+        end
+      end
       item.migration_id = hash[:migration_id]
+      item.todo_date = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:todo_date])
 
       migration.add_imported_item(item)
-
-      if hash[:assignment].present?
-        item.assignment = Importers::AssignmentImporter.import_from_migration(
-          hash[:assignment], context, migration)
-      end
 
       (hash[:contents] || []).each do |sub_item|
         next if sub_item[:type] == 'embedded_content'
@@ -117,7 +148,7 @@ module Importers
         hash[:contents].each do |sub_item|
           sub_item = sub_item.with_indifferent_access
           if ['folder', 'FOLDER_TYPE'].member? sub_item[:type]
-            obj = context.wiki.wiki_pages.where(migration_id: sub_item[:migration_id]).first
+            obj = context.wiki_pages.where(migration_id: sub_item[:migration_id]).first
             contents += "  <li><a href='/courses/#{context.id}/pages/#{obj.url}'>#{obj.title}</a></li>\n" if obj
           elsif sub_item[:type] == 'embedded_content'
             if contents && contents.length > 0
@@ -139,7 +170,7 @@ module Importers
                 obj = context.quizzes.where(migration_id: sub_item[:linked_resource_id]).first
                 contents += "  <li><a href='/courses/#{context.id}/quizzes/#{obj.id}'>#{obj.title}</a></li>\n" if obj
               when /PAGE_TYPE|WIKI_TYPE/
-                obj = context.wiki.wiki_pages.where(migration_id: sub_item[:linked_resource_id]).first
+                obj = context.wiki_pages.where(migration_id: sub_item[:linked_resource_id]).first
                 contents += "  <li><a href='/courses/#{context.id}/pages/#{obj.url}'>#{obj.title}</a></li>\n" if obj
               when 'FILE_TYPE'
                 file = context.attachments.where(migration_id: sub_item[:linked_resource_id]).first
@@ -207,6 +238,13 @@ module Importers
         allow_save = false
       end
       if allow_save && hash[:migration_id]
+        if hash[:assignment].present?
+          hash[:assignment][:title] ||= item.title
+          item.assignment = Importers::AssignmentImporter.import_from_migration(
+            hash[:assignment], context, migration)
+        else
+          item.assignment = nil
+        end
         if item.changed?
           item.user = nil
         end

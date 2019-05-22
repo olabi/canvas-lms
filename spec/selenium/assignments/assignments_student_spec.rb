@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/assignments_common'
 require_relative '../helpers/google_drive_common'
@@ -60,7 +77,7 @@ describe "assignments" do
       expect(details).not_to include_text('comment after muting')
     end
 
-    it "should have group comment checkboxes for group assignments" do
+    it "should have group comment radio buttons for individually graded group assignments" do
       u1 = @user
       student_in_course(:course => @course)
       u2 = @user
@@ -73,7 +90,31 @@ describe "assignments" do
 
       acceptable_tabs = ffj('#submit_online_upload_form,#submit_online_text_entry_form,#submit_online_url_form')
       expect(acceptable_tabs.size).to be 3
-      acceptable_tabs.each { |tabby| expect(ffj('.formtable input[name="submission[group_comment]"]', tabby).size).to be 1 }
+      acceptable_tabs.each do |tabby|
+        expect(ffj('.formtable input[type="radio"][name="submission[group_comment]"]', tabby).size).to be 2
+      end
+    end
+
+    it "should have hidden group comment input for group graded group assignments" do
+      u1 = @user
+      student_in_course(:course => @course)
+      u2 = @user
+      assignment = @course.assignments.create!(
+        :title => "some assignment",
+        :submission_types => "online_url,online_upload,online_text_entry",
+        :group_category => GroupCategory.create!(:name => "groups", :context => @course),
+        :grade_group_students_individually => false)
+      group = assignment.group_category.groups.create!(:name => 'g1', :context => @course)
+      group.users << u1
+      group.users << @user
+
+      get "/courses/#{@course.id}/assignments/#{assignment.id}"
+
+      acceptable_tabs = ffj('#submit_online_upload_form,#submit_online_text_entry_form,#submit_online_url_form')
+      expect(acceptable_tabs.size).to be 3
+      acceptable_tabs.each do |tabby|
+        expect(ffj('.formtable input[type="hidden"][name="submission[group_comment]"]', tabby).size).to be 1
+      end
     end
 
     it "should not show assignments in an unpublished course" do
@@ -82,7 +123,7 @@ describe "assignments" do
       new_course.enroll_user(@user, 'StudentEnrollment')
       get "/courses/#{new_course.id}/assignments/#{assignment.id}"
 
-      expect(f('.ui-state-error')).to be_displayed
+      expect(f('#unauthorized_message')).to be_displayed
       expect(f("#content")).not_to contain_css('#assignment_show')
     end
 
@@ -153,12 +194,15 @@ describe "assignments" do
         assignment_form = f('#submit_online_text_entry_form')
         wait_for_tiny(assignment_form)
         wait_for_ajaximations
-        expect {
-          type_in_tiny('#submission_body', 'something to submit')
+        body_text = 'something to submit'
+        expect do
+          type_in_tiny('#submission_body', body_text)
           wait_for_ajaximations
           submit_form(assignment_form)
           wait_for_ajaximations
-        }.to change(Submission, :count).by(1)
+        end.to change {
+          @assignment.submissions.find_by!(user: @student).body
+        }.from(nil).to("<p>#{body_text}</p>")
       end
     end
 
@@ -217,17 +261,17 @@ describe "assignments" do
 
       context "select file or folder" do
         before(:each) do
-          # mock out function calls
-          google_drive_connection = mock()
-          google_drive_connection.stubs(:service_type).returns('google_drive')
-          google_drive_connection.stubs(:retrieve_access_token).returns('access_token')
-          google_drive_connection.stubs(:authorized?).returns(true)
+          # double out function calls
+          google_drive_connection = double()
+          allow(google_drive_connection).to receive(:service_type).and_return('google_drive')
+          allow(google_drive_connection).to receive(:retrieve_access_token).and_return('access_token')
+          allow(google_drive_connection).to receive(:authorized?).and_return(true)
 
-          # mock files to show up from "google drive"
+          # double files to show up from "google drive"
           file_list = create_file_list
-          google_drive_connection.stubs(:list_with_extension_filter).returns(file_list)
+          allow(google_drive_connection).to receive(:list_with_extension_filter).and_return(file_list)
 
-          ApplicationController.any_instance.stubs(:google_drive_connection).returns(google_drive_connection)
+          allow_any_instance_of(ApplicationController).to receive(:google_drive_connection).and_return(google_drive_connection)
 
           # create assignment
           @assignment.update_attributes(:submission_types => 'online_upload')
@@ -254,12 +298,12 @@ describe "assignments" do
       end
 
       it "forces users to authenticate", priority: "1", test_id: 161892 do
-        # stub out google drive
-        google_drive_connection = mock()
-        google_drive_connection.stubs(:service_type).returns('google_drive')
-        google_drive_connection.stubs(:retrieve_access_token).returns(nil)
-        google_drive_connection.stubs(:authorized?).returns(nil)
-        ApplicationController.any_instance.stubs(:google_drive_connection).returns(google_drive_connection)
+        # double out google drive
+        google_drive_connection = double()
+        allow(google_drive_connection).to receive(:service_type).and_return('google_drive')
+        allow(google_drive_connection).to receive(:retrieve_access_token).and_return(nil)
+        allow(google_drive_connection).to receive(:authorized?).and_return(nil)
+        allow_any_instance_of(ApplicationController).to receive(:google_drive_connection).and_return(google_drive_connection)
 
         @assignment.update_attributes(:submission_types => 'online_upload')
         get "/courses/#{@course.id}/assignments/#{@assignment.id}"

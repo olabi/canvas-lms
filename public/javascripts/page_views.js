@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,15 +12,13 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'INST' /* INST */,
-  'jquery' /* $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */
-], function(INST, $) {
+import INST from './INST'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
 
   $(document).ready(function(){
     var interactionSeconds = 0,
@@ -73,12 +71,12 @@ define([
         $(document).triggerHandler('page_view_update');
       }, 1000 * intervalInSeconds);
 
-      window.onbeforeunload = function() {
+      window.addEventListener('beforeunload', function(e) {
         if(interactionSeconds > 30) {
           var value = JSON.stringify({url: update_url, seconds: interactionSeconds});
           document.cookie = "last_page_view=" + escape(value) + "; Path=/;";
         }
-      };
+      });
 
       var eventInTime = false;
       $(document).bind('mousemove keypress mousedown focus', function() {
@@ -102,4 +100,3 @@ define([
       }, 1000);
     }
   });
-});

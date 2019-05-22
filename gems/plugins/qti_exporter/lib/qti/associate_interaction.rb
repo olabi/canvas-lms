@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 
 module Qti
@@ -113,7 +130,7 @@ class AssociateInteraction < AssessmentItemConverter
       @question[:answers] << answer
       answer_map[ci['responseIdentifier']] = answer
       extract_answer!(answer, ci.at_css('prompt'))
-      answer[:id] = unique_local_id
+      answer[:id] = get_or_generate_answer_id(ci['responseIdentifier'])
     end
 
     # connect to match
@@ -200,7 +217,7 @@ class AssociateInteraction < AssessmentItemConverter
     # the left side's choiceInteraction corresponds to the index of the matched right-side item.
     left = @doc.css('div.RESPONSE_BLOCK choiceInteraction').size
     right = @doc.css('div.RIGHT_MATCH_BLOCK div').size
-    return false unless left > 0 && right >= left
+    return unless left > 0 && right > 0
     return @doc.css('div.RESPONSE_BLOCK div').size == left &&
            @doc.css('responseProcessing responseCondition match').size == left &&
            @doc.css('div.RESPONSE_BLOCK choiceInteraction simpleChoice').size == left * right

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -98,7 +98,7 @@
 class Quizzes::QuizReportsController < ApplicationController
   include ::Filters::Quizzes
 
-  before_filter :require_context, :require_quiz
+  before_action :require_context, :require_quiz
 
   # @API Retrieve all quiz reports
   #
@@ -112,10 +112,10 @@ class Quizzes::QuizReportsController < ApplicationController
   def index
     if authorized_action(@quiz, @current_user, :read_statistics)
       all_versions = value_to_boolean(params[:includes_all_versions])
-
       stats = Quizzes::QuizStatistics::REPORTS.map do |report_type|
         @quiz.current_statistics_for(report_type, {
-          includes_all_versions: all_versions
+          includes_all_versions: all_versions,
+          includes_sis_ids: include_sis_ids?
         })
       end
 
@@ -161,7 +161,8 @@ class Quizzes::QuizReportsController < ApplicationController
     end
 
     statistics = @quiz.current_statistics_for(p[:report_type], {
-      includes_all_versions: value_to_boolean(p[:includes_all_versions])
+      includes_all_versions: value_to_boolean(p[:includes_all_versions]),
+      includes_sis_ids: include_sis_ids?
     })
 
     if statistics.generating_csv?
@@ -190,7 +191,6 @@ class Quizzes::QuizReportsController < ApplicationController
   end
 
   # @API Abort the generation of a report, or remove a previously generated one
-  # @beta
   #
   # This API allows you to cancel a previous request you issued for a report to
   # be generated. Or in the case of an already generated report, you'd like to
@@ -213,11 +213,11 @@ class Quizzes::QuizReportsController < ApplicationController
 
       # case 1: remove a generated report:
       if statistics.csv_attachment.present?
-        statistics.csv_attachment.destroy_permanently!
+        statistics.csv_attachment.destroy_permanently_plus
         # progress will be present only if the CSV was generated asynchronously
         statistics.progress.destroy if statistics.progress.present?
       # case 2: abort the generation process if we can:
-      elsif !statistics.progress.present?
+      elsif statistics.progress.blank?
         reject! 'report is not being generated', 422
       elsif !statistics.csv_generation_abortable?
         reject! 'report generation can not be aborted', 422
@@ -230,6 +230,10 @@ class Quizzes::QuizReportsController < ApplicationController
   end
 
   private
+
+  def include_sis_ids?
+    @context.grants_any_right?(@current_user, session, :read_sis, :manage_sis)
+  end
 
   def expose(stats, includes=[])
     stats = [ stats ] unless stats.is_a?(Array)

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,14 +17,14 @@
 #
 
 class GradebookCsvsController < ApplicationController
-  before_filter :require_context
-  before_filter :require_user
+  before_action :require_context
+  before_action :require_user
 
   def show
     if authorized_action(@context, @current_user, [:manage_grades, :view_all_grades])
-      current_time = Time.zone.now.to_formatted_s(:short)
+      current_time = Time.zone.now.strftime('%FT%H%M')
       name = t('grades_filename', "Grades") + "-" + @context.short_name.to_s
-      filename = "#{current_time}_#{name}.csv".gsub(/ /, '_')
+      filename = "#{current_time}_#{name}.csv".gsub(%r{/| }, '_')
 
       csv_options = {
         include_sis_id: @context.grants_any_right?(@current_user, session, :read_sis, :manage_sis),

@@ -1,135 +1,131 @@
-require 'diplomat'
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+require_dependency 'canvas/dynamic_settings/cache'
+require_dependency 'canvas/dynamic_settings/fallback_proxy'
+require_dependency 'canvas/dynamic_settings/prefix_proxy'
+require 'imperium'
 
 module Canvas
   class DynamicSettings
 
-    class ConsulError < StandardError
-    end
+    class Error < StandardError; end
+    class ConsulError < Error; end
 
+    CONSUL_READ_OPTIONS = %i{recurse stale}.freeze
     KV_NAMESPACE = "config/canvas".freeze
-    TIMEOUT_INTERVAL = 3.freeze
 
     class << self
-      attr_accessor :config, :cache, :fallback_data
+      attr_accessor :config, :environment
+      attr_reader :fallback_data
 
       def config=(conf_hash)
         @config = conf_hash
         if conf_hash.present?
-          Diplomat.configure do |diplomat_conf|
-            protocol = conf_hash.fetch("ssl", true) ? "https" : "http"
-            host_and_port = "#{conf_hash.fetch('host')}:#{conf_hash.fetch('port')}"
-            diplomat_conf.url = "#{protocol}://#{host_and_port}"
-            diplomat_conf.acl_token = conf_hash.fetch("acl_token", nil)
+          Imperium.configure do |config|
+            config.ssl = conf_hash.fetch('ssl', true)
+            config.host = conf_hash.fetch('host')
+            config.port = conf_hash.fetch('port')
+            config.token = conf_hash.fetch('acl_token', nil)
+
+            config.connect_timeout = conf_hash['connect_timeout'] if conf_hash['connect_timeout']
+            config.send_timeout = conf_hash['send_timeout'] if conf_hash['send_timeout']
+            config.receive_timeout = conf_hash['receive_timeout'] if conf_hash['receive_timeout']
           end
 
-          init_data = conf_hash.fetch("init_values", {})
-          init_values(init_data)
-        end
-      end
-
-      def find(key)
-        if config.nil?
-          return fallback_data.fetch(key) if fallback_data.present?
-          raise(ConsulError, "Unable to contact consul without config")
+          @environment = conf_hash['environment']
+          @kv_client = Imperium::KV.default_client
+          @data_center = conf_hash.fetch('global_dc', nil)
+          @default_service = conf_hash.fetch('service', :canvas)
         else
-          config_records = store_get(key)
-          config_records.each_with_object({}) do |node, hash|
-            hash[node[:key].split("/").last] = node[:value]
-          end
+          @environment = nil
+          @kv_client = nil
+          @default_service = :canvas
         end
       end
 
-      # settings found this way with nil expiry will be cached in the process
-      # the first time they're asked for, and then can only be cleared with a SIGHUP
-      # or restart of the process.  Make sure that's the behavior you want before
-      # you use this method, or specify a timeout
-      def from_cache(key, expires_in: nil)
-        reset_cache! if cache.nil?
-        cached_value = get_from_cache(key, expires_in)
-        return cached_value if cached_value.present?
-        # cache miss or timeout
-        value = self.find(key)
-        set_in_cache(key, value)
-        value
-      end
-
-      def reset_cache!(hard: false)
-        @cache = {}
-        @strategic_reserve = {} if hard
-      end
-
-      private
-
-      def get_from_cache(key, timeout)
-        return nil unless cache.key?(key)
-        cache_entry = cache[key]
-        return cache_entry[:value] if timeout.nil?
-        threshold = (Time.zone.now - timeout).to_i
-        return cache_entry[:value] if cache_entry[:timestamp] > threshold
-      end
-
-      def set_in_cache(key, value)
-        cache[key] = {value: value, timestamp: Time.zone.now.to_i}
-      end
-
-      def init_values(hash)
-        hash.each do |parent_key, settings|
-          settings.each do |child_key, value|
-            store_put("#{parent_key}/#{child_key}", value)
-          end
-        end
-      rescue Timeout::Error
-        return false
-      end
-
-      def store_get(key)
-        begin
-          # store all values that we get here to
-          # kind-of recover in case of big failure
-          @strategic_reserve ||= {}
-          consul_value = Timeout.timeout(TIMEOUT_INTERVAL) do
-            diplomat_get(key)
-          end
-
-          @strategic_reserve[key] = consul_value
-          consul_value
-        rescue Faraday::ConnectionFailed,
-               Faraday::ClientError,
-               Timeout::Error,
-               TimeoutCutoff => exception
-          if @strategic_reserve.key?(key)
-            # we have an old value for this key, log the error but recover
-            Canvas::Errors.capture_exception(:consul, exception)
-            return @strategic_reserve[key]
-          else
-            # didn't have an old value cached, raise the error
-            raise
-          end
+      # Set the fallback data to use in leiu of Consul
+      #
+      # This isn't really meant for use in production, but as a convenience for
+      # development where most won't want to run a consul agent/server.
+      def fallback_data=(value)
+        @fallback_data = value
+        if @fallback_data
+          @root_fallback_proxy = DynamicSettings::FallbackProxy.new(@fallback_data.with_indifferent_access)
+        else
+          @root_fallback_proxy = nil
         end
       end
 
-      def store_put(key, value)
-        Timeout.timeout(TIMEOUT_INTERVAL) do
-          Diplomat::Kv.put("#{KV_NAMESPACE}/#{key}", value)
-        end
+      def root_fallback_proxy
+        @root_fallback_proxy ||= DynamicSettings::FallbackProxy.new(ConfigFile.load("dynamic_settings"))
       end
 
-      def diplomat_get(key)
-        parent_key = "#{KV_NAMESPACE}/#{key}"
-        read_options = {recurse: true, consistency: 'stale'}
-        diplomat_val = Diplomat::Kv.get(parent_key, read_options)
-        if diplomat_val && !diplomat_val.is_a?(Array)
-          diplomat_val = []
-          Diplomat::Kv.get(parent_key, read_options.merge({keys: true})).each do |full_key|
-            diplomat_val << {
-              key: full_key,
-              value: Diplomat::Kv.get(full_key, read_options)
-            }
-          end
+      # Build an object used to interacting with consul for the given
+      # keyspace prefix.
+      #
+      # If using fallback data for values it is queried by the returned object
+      # instead of a Consul agent/server. The decision between using fallback
+      # data or consul is driven by whether or not consul is configured.
+      #
+      # @param prefix [String] The portion to extend the base prefix with
+      #   (base prefix: 'config/canvas/<environment>')
+      # @param tree [String] Which tree to use (config, private, store)
+      # @param service [String] The service name to use (i.e. who owns the configuration). Defaults to canvas
+      # @param cluster [String] An optional cluster to override region or global settings
+      # @param default_ttl [ActiveSupport::Duration] How long to retain cached
+      #   values
+      # @param data_center [String] location of the data_center the proxy is pointing to
+      def find( prefix = nil,
+                tree: :config,
+                service: nil,
+                cluster: nil,
+                default_ttl: DynamicSettings::PrefixProxy::DEFAULT_TTL,
+                data_center: nil
+              )
+        service ||= @default_service || :canvas
+        if kv_client
+          PrefixProxy.new(
+            prefix,
+            tree: tree,
+            service: service,
+            environment: @environment,
+            cluster: cluster,
+            default_ttl: default_ttl,
+            kv_client: kv_client,
+            data_center: @data_center
+          )
+        else
+          proxy = root_fallback_proxy
+          proxy = proxy.for_prefix(tree)
+          proxy = proxy.for_prefix(service)
+          proxy = proxy.for_prefix(prefix) if prefix
+          proxy
         end
-        diplomat_val
+      end
+      alias kv_proxy find
+
+      def kv_client
+        @kv_client
+      end
+
+      def reset_cache!
+        Canvas::DynamicSettings::Cache.reset!
       end
     end
-
   end
 end

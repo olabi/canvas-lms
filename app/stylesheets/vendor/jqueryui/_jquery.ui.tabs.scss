@@ -16,20 +16,20 @@
     padding: 0;
     border-radius: 0;
     background: transparent;
-    border-width: 0 0 1px 0;
+    border-width: direction-sides(0 0 1px 0);
     box-shadow: none; //override .ui-widget-header
-    li { 
-      list-style: none; 
-      float: left; 
-      position: relative; 
-      top: 1px; 
-      margin: 0 .2em 1px 0; 
-      border-bottom: 0 !important; 
-      padding: 0; 
+    li {
+      list-style: none;
+      float: direction(left);
+      position: relative;
+      top: 1px;
+      margin: direction-sides(0 .2em 1px 0);
+      border-bottom: 0 !important;
+      padding: 0;
       white-space: nowrap;
-      a { 
-        float: left; 
-        padding: .5em .9em; 
+      a {
+        float: direction(left);
+        padding: .5em .9em;
         text-decoration: none;
         font-weight: bold;
         text-shadow: 0 1px 0 rgba(255,255,255,0.5);
@@ -48,7 +48,7 @@
   .ui-tabs-nav li a, &.ui-tabs-collapsible .ui-tabs-nav li.ui-tabs-active a { cursor: pointer; } /* first selector in group seems obsolete, but required to overcome bug in Opera applying cursor: text overall if defined elsewhere... */
   .ui-tabs-panel { display: block; padding: 1em 1.4em;
     background-color: $bgColorContent;
-    border-width: 0 1px 1px 1px;
+    border-width: direction-sides(0 1px 1px 1px);
     border-radius: 0;
 
   }

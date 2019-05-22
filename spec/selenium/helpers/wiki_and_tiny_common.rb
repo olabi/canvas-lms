@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module WikiAndTinyCommon
@@ -8,6 +25,7 @@ module WikiAndTinyCommon
 
   def clear_wiki_rce
     element = wiki_page_body
+    wait_for_tiny(element)
     clear_tiny(element)
     element
   end
@@ -24,11 +42,11 @@ module WikiAndTinyCommon
 
     f("#{form} .file_name").send_keys(path)
     wait_for_ajaximations
-    f("#{form} button").click
+    f("#{form}").submit
     expect(f("body")).not_to contain_jqcss("#{form}:visible")
   end
 
-  def wiki_page_tools_file_tree_setup
+  def wiki_page_tools_file_tree_setup(skip_tree=false, skip_image_list=false)
     @root_folder = Folder.root_folders(@course).first
     @sub_folder = @root_folder.sub_folders.create!(:name => 'subfolder', :context => @course)
     @sub_sub_folder = @sub_folder.sub_folders.create!(:name => 'subsubfolder', :context => @course)
@@ -43,8 +61,12 @@ module WikiAndTinyCommon
     @image2.save!
     get "/courses/#{@course.id}/pages/front-page/edit"
 
-    @tree1 = driver.find_element(:id, :tree1)
-    @image_list = f('#editor_tabs_4 .image_list')
+    if !skip_tree
+      @tree1 = driver.find_element(:id, :tree1)
+    end
+    if !skip_image_list
+      @image_list = f('#editor_tabs_4 .image_list')
+    end
   end
 
   def add_text_to_tiny(text)
@@ -67,8 +89,7 @@ module WikiAndTinyCommon
   end
 
   def save_wiki
-    f('form.edit-form button.submit').click
-    wait_for_ajax_requests
+    wait_for_new_page_load { f('form.edit-form button.submit').click }
     get "/courses/#{@course.id}/pages/front-page/edit"
   end
 
@@ -80,7 +101,7 @@ module WikiAndTinyCommon
   end
 
   def create_wiki_page(title, unpublished, edit_roles)
-    wiki_page = @course.wiki.wiki_pages.create(:title => title, :editing_roles => edit_roles, :notify_of_update => true)
+    wiki_page = @course.wiki_pages.create(:title => title, :editing_roles => edit_roles, :notify_of_update => true)
     wiki_page.unpublish! if unpublished
     wiki_page
   end
@@ -88,8 +109,9 @@ module WikiAndTinyCommon
   def manually_create_wiki_page(title,body)
     f('.new_page').click
     wait_for_ajaximations
-    replace_content(f('#title'),title)
-    add_text_to_tiny(body)
+    wait_for_tiny(wiki_page_body)
+    replace_content(f('#title'), title)
+    type_in_tiny('textarea.body', body)
     expect_new_page_load { f('form.edit-form button.submit').click }
     expect(f('.page-title')).to include_text(title)
     expect(f('.show-content')).to include_text(body)
@@ -114,19 +136,16 @@ module WikiAndTinyCommon
 
   def activate_editor_embed_image(el)
     el.find_element(:css, "div[aria-label='Embed Image'] button").click
-    ff('.ui-dialog').reverse.detect(&:displayed?)
+    fj('.ui-dialog:visible')
   end
 
   def add_canvas_image(el, folder, filename)
     dialog = activate_editor_embed_image(el)
-    scroll_into_view('a[href="#tabUploaded"]')
-    f('a[href="#tabUploaded"]', dialog).click
-    expect(f('.treeLabel', dialog)).to be_displayed
-    folder_el = ff('.treeLabel', dialog).detect { |e| e.text == folder }
-    expect(folder_el).not_to be_nil
-    folder_el.click unless folder_el['class'].split.include?('expanded')
-    expect(f('.treeFile', dialog)).to be_displayed
-    file_el = f(".treeFile[title=\"#{filename}\"]", dialog)
+    fj('a[href="#tabUploaded"]:visible').click
+    folder_el = fj(".file-browser__tree button:contains('#{folder}')")
+    folder_el.click unless folder_el['aria-expanded'] == 'true'
+    expect(fj(".file-browser__tree li:contains('#{filename}') button", dialog)).to be_displayed
+    file_el = fj(".file-browser__tree li:contains('#{filename}') button", dialog)
     expect(file_el).not_to be_nil
     file_el.click
     wait_for_ajaximations
@@ -196,5 +215,82 @@ module WikiAndTinyCommon
   def shift_click_button(selector)
     el = f(selector)
     driver.action.key_down(:shift).click(el).key_up(:shift).perform
+  end
+
+  def visit_front_page_edit(course)
+    get "/courses/#{course.id}/pages/front-page/edit"
+  end
+
+  def visit_new_announcement_page(course)
+    get "/courses/#{course.id}/discussion_topics/new?is_announcement=true"
+  end
+
+  def visit_new_assignment_page(course)
+    get "/courses/#{course.id}/assignments/new"
+  end
+
+  def visit_new_discussion_page(course)
+    get "/courses/#{course.id}/discussion_topics/new"
+  end
+
+  def visit_new_quiz_page(course, quiz)
+    get "/courses/#{course.id}/quizzes/#{quiz.id}/edit"
+  end
+
+  def visit_syllabus(course)
+    get "/courses/#{course.id}/assignments/syllabus"
+  end
+
+  def click_edit_syllabus
+    f('.edit_syllabus_link').click
+  end
+
+  def edit_wiki_css
+    f("form.edit-form .edit-content")
+  end
+
+  def assignment_id_path(course, assignment)
+    "/courses/#{course.id}/assignments/#{assignment.id}"
+  end
+
+  def quiz_id_path(course, quiz)
+    "/courses/#{course.id}/quizzes/#{quiz.id}"
+  end
+
+  def announcement_id_path(course, announcement)
+    "/courses/#{course.id}/discussion_topics/#{announcement.id}"
+  end
+
+  def discussion_id_path(course, discussion)
+    "/courses/#{course.id}/discussion_topics/#{discussion.id}"
+  end
+
+  def module_id_path(course, module_obj)
+    "/courses/#{course.id}/modules/#{module_obj.id}"
+  end
+
+  def course_file_path(course)
+    "/courses/#{course.id}/files"
+  end
+
+  def course_file_id_path(file)
+    "/files/#{file.id}"
+  end
+
+  def wysiwyg_state_setup(course, text = "1\n2\n3", val: false, html: false)
+    visit_front_page_edit(course)
+    wait_for_tiny(edit_wiki_css)
+
+    if val == true
+      add_text_to_tiny(text)
+      validate_link(text)
+    else
+      if html
+        add_html_to_tiny(text)
+      else
+        add_text_to_tiny_no_val(text)
+      end
+      select_all_wiki
+    end
   end
 end

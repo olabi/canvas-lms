@@ -1,4 +1,23 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # Utilities to send text messages via Twilio.
+require 'twilio-ruby'
+
 module Canvas::Twilio
   DEFAULT_COUNTRY = 'US'
 
@@ -18,10 +37,6 @@ module Canvas::Twilio
     @client ||= Twilio::REST::Client.new(account_sid, auth_token) if account_sid && auth_token
   end
 
-  def self.lookups_client
-    @lookups_client ||= Twilio::REST::LookupsClient.new(account_sid, auth_token) if account_sid && auth_token
-  end
-
   # Whether or not Twilio is currently enabled. Twilio is enabled when config/twilio.yml exists and specifies an
   # account_sid and auth_token. Calls to deliver will fail when this returns false.
   def self.enabled?
@@ -31,7 +46,7 @@ module Canvas::Twilio
   # Look up the ISO country code for the specified phone number. Twilio must be enabled in order for this to work.
   def self.lookup_country(phone_number)
     Rails.cache.fetch(['twilio_phone_number_country_2', phone_number].cache_key) do
-      lookups_client.phone_numbers.get(phone_number).try!(:country_code)
+      client.lookups.phone_numbers(phone_number).fetch.country_code
     end
   end
 
@@ -41,12 +56,7 @@ module Canvas::Twilio
     return {} unless enabled?
 
     Rails.cache.fetch('twilio_source_phone_numbers_3', expires_in: 1.day) do
-      numbers = []
-      page = client.incoming_phone_numbers.list
-      while page.length > 0
-        numbers.concat page
-        page = page.next_page
-      end
+      numbers = Canvas::Twilio.client.api.account.incoming_phone_numbers.stream.to_a
 
       numbers_by_country = Hash.new { |h, k| h[k] = [] }
       numbers.sort_by(&:phone_number).each do |number|
@@ -61,6 +71,7 @@ module Canvas::Twilio
   # string to send. This method will take care of deciding what number to send the message from and all of the other
   # assorted magic that goes into delivering text messages via Twilio.
   def self.deliver(recipient_number, body, from_recipient_country: true)
+    raise "Twilio is not configured" unless enabled?
     # Figure out what country the recipient number is in
     country = from_recipient_country ? lookup_country(recipient_number) : DEFAULT_COUNTRY
 
@@ -75,10 +86,16 @@ module Canvas::Twilio
     end
 
     # Ping StatsD about sending from this number
-    CanvasStatsd::Statsd.increment("notifications.twilio.message_sent_from_number.#{outbound_country}.#{outbound_number}")
-    CanvasStatsd::Statsd.increment("notifications.twilio.no_outbound_numbers_for.#{country}") unless country == outbound_country
+    InstStatsd::Statsd.increment("notifications.twilio.message_sent_from_number.#{outbound_country}.#{outbound_number}",
+                                 short_stat: 'notifications.twilio.message_sent',
+                                 tags: {country: outbound_country, number: outbound_number})
+    unless country == outbound_country
+      InstStatsd::Statsd.increment("notifications.twilio.no_outbound_numbers_for.#{country}",
+                                   short_stat: 'notifications.twilio.no_outbound_numbers',
+                                   tags: {country: country})
+    end
 
     # Then send the message.
-    client.account.messages.create(from: outbound_number, to: recipient_number, body: body)
+    client.api.account.messages.create(from: outbound_number, to: recipient_number, body: body)
   end
 end

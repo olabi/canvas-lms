@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -165,7 +165,7 @@ class MessageableUser
 
     def count_messageable_users_in_scope(scope)
       if scope
-        scope.except(:select, :group, :order).uniq.count
+        scope.except(:select, :group, :order).distinct.count
       else
         0
       end
@@ -226,12 +226,15 @@ class MessageableUser
       messageable_groups_by_shard.values.flatten
     end
 
+    def self.slave_module
+      @slave_module ||= Module.new.tap { |m| prepend(m) }
+    end
+
     def self.slave(method)
-      module_eval <<-RUBY, __FILE__, __LINE__ + 1
-        def #{method}_with_slave(*args)
-          Shackles.activate(:slave) { #{method}_without_slave(*args) }
+      slave_module.module_eval <<-RUBY, __FILE__, __LINE__ + 1
+        def #{method}(*)
+          Shackles.activate(:slave) { super }
         end
-        alias_method_chain #{method.inspect}, :slave
       RUBY
     end
 
@@ -465,9 +468,11 @@ class MessageableUser
       group = group_or_id.is_a?(Group) ? group_or_id : Group.where(id: group_or_id).first
       return unless group
 
+      active_users_in_group_context = group.participating_users_in_context
+
       group.shard.activate do
         if options[:admin_context] || fully_visible_group_ids.include?(group.id)
-          group_user_scope(options).where('group_memberships.group_id' => group.id)
+          group_user_scope.where('group_memberships.group_id' => group.id).merge(active_users_in_group_context.except(:joins))
         elsif section_visible_group_ids.include?(group.id)
           # group.context is guaranteed to be a course from
           # section_visible_courses at this point
@@ -475,7 +480,8 @@ class MessageableUser
           scope = enrollment_scope({ common_group_column: group.id }.merge(options)).where(
             "course_section_id IN (?) AND EXISTS (?)",
             visible_section_ids_in_courses([course]),
-            GroupMembership.where(group_id: group, workflow_state: 'accepted').where("user_id=users.id"))
+            GroupMembership.where(group_id: group, workflow_state: 'accepted').where("user_id=users.id").merge(active_users_in_group_context)
+          )
           scope = scope.where(observer_restriction_clause) if student_courses.present?
           scope
         end
@@ -771,7 +777,7 @@ class MessageableUser
     def uncached_messageable_groups
       fully_visible_scope = GroupMembership.
         select("group_memberships.group_id AS group_id").
-        uniq.
+        distinct.
         joins(:user, :group).
         where(:workflow_state => 'accepted').
         where("groups.workflow_state<>'deleted'").
@@ -780,7 +786,7 @@ class MessageableUser
 
       section_visible_scope = GroupMembership.
         select("group_memberships.group_id AS group_id").
-        uniq.
+        distinct.
         joins(:user, :group).
         joins(<<-SQL).
           INNER JOIN #{Enrollment.quoted_table_name} ON
@@ -820,7 +826,7 @@ class MessageableUser
       @shard_caches[key] ||=
         begin
           by_shard = {}
-          Shard.with_each_shard(@user.associated_shards) do
+          Shard.with_each_shard(@user.in_region_associated_shards) do
             shard_key = [@user, 'messageable_user', key]
             methods.each do |method|
               canonical = send(method).cache_key

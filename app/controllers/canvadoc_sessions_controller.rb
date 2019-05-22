@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,8 +12,8 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 # @API Document Previews
@@ -31,23 +31,39 @@ class CanvadocSessionsController < ApplicationController
 
     if attachment.canvadocable?
       opts = {
-        preferred_plugins: [Canvadocs::RENDER_BOX, Canvadocs::RENDER_CROCODOC]
+        preferred_plugins: [Canvadocs::RENDER_PDFJS, Canvadocs::RENDER_BOX, Canvadocs::RENDER_CROCODOC],
+        enable_annotations: blob['enable_annotations']
       }
+
+
+      submission_id = blob["submission_id"]
+      if submission_id
+        submission = Submission.preload(:assignment).find(submission_id)
+        user_session_params = Canvadocs.user_session_params(@current_user, submission: submission)
+      else
+        user_session_params = Canvadocs.user_session_params(@current_user, attachment: attachment)
+      end
+
+      if opts[:enable_annotations]
+        # Docviewer only cares about the enrollment type when we're doing annotations
+        opts[:enrollment_type] = blob["enrollment_type"]
+        # If we STILL don't have a role, something went way wrong so let's be unauthorized.
+        return render(plain: 'unauthorized', status: :unauthorized) if opts[:enrollment_type].blank?
+
+        assignment = submission.assignment
+        opts[:audit_url] = submission_docviewer_audit_events_url(submission_id) if assignment.auditable?
+        opts[:anonymous_instructor_annotations] = !!blob["anonymous_instructor_annotations"] if blob["anonymous_instructor_annotations"]
+      end
+
       if @domain_root_account.settings[:canvadocs_prefer_office_online]
         opts[:preferred_plugins].unshift Canvadocs::RENDER_O365
       end
 
-      # We can't set the pdfjs preference here during upload because with
-      # only an attachment object we lack the requisite context
+      # TODO: Remove the next line after the DocViewer Data Migration project RD-4702
+      opts[:region] = attachment.shard.database_server.config[:region] || "none"
       attachment.submit_to_canvadocs(1, opts) unless attachment.canvadoc_available?
 
-      if pdfjs_feature_flag_enabled?(attachment.try(:canvadoc))
-        # Office 365 should take priority over pdfjs
-        index = opts[:preferred_plugins].first == Canvadocs::RENDER_O365 ? 1 : 0
-        opts[:preferred_plugins].insert(index, Canvadocs::RENDER_PDFJS)
-      end
-      url = attachment.canvadoc.session_url(opts.merge(user: @current_user))
-
+      url = attachment.canvadoc.session_url(opts.merge(user_session_params))
       # For the purposes of reporting student viewership, we only
       # care if the original attachment owner is looking
       # Depending on how the attachment came to exist that might be
@@ -58,22 +74,13 @@ class CanvadocSessionsController < ApplicationController
 
       redirect_to url
     else
-      render :text => "Not found", :status => :not_found
+      render :plain => "Not found", :status => :not_found
     end
 
   rescue HmacHelper::Error
-    render :text => 'unauthorized', :status => :unauthorized
+    render :plain => 'unauthorized', :status => :unauthorized
   rescue Timeout::Error
-    render :text => "Service is currently unavailable. Try again later.",
+    render :plain => "Service is currently unavailable. Try again later.",
            :status => :service_unavailable
-  end
-
-  private
-
-  def pdfjs_feature_flag_enabled?(canvadoc)
-    course = Course.find(canvadoc.preferred_plugin_course_id)
-    return course.feature_enabled?(:new_annotations)
-  rescue NoMethodError, ActiveRecord::RecordNotFound => e
-    false
   end
 end

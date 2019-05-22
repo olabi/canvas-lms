@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "self enrollment" do
@@ -30,6 +47,7 @@ describe "self enrollment" do
       move_to_click('#initial_action label[for=selfEnrollmentAuthRegCreate]')
       wait_for_ajaximations
       f("#student_name").send_keys('new guy')
+      expect(f("a.terms_link")).to be_displayed # terms of use link should be populated by js
       driver.execute_script("$('#enroll_form label[for=selfEnrollmentAuthRegLoginAgreeTerms]').click()") # because clicking the label clicks on the links in the label
       expect_new_page_load {
         submit_form("#enroll_form")
@@ -42,7 +60,7 @@ describe "self enrollment" do
     it "should authenticate and register an existing user" do
       user_with_pseudonym(:active_all => true, :username => "existing@example.com", :password => "asdfasdf")
       custom_label = "silly id"
-      Account.any_instance.stubs(:login_handle_name).returns(custom_label)
+      allow_any_instance_of(Account).to receive(:login_handle_name).and_return(custom_label)
 
       get "/enroll/#{@course.self_enrollment_code}"
       expect(f("label[for='student_email']").text).to include(custom_label)
@@ -107,7 +125,7 @@ describe "self enrollment" do
     it "should authenticate and register an existing user" do
       user_with_pseudonym(:active_all => true, :username => "existing@example.com", :password => "asdfasdf")
       custom_label = "silly id"
-      Account.any_instance.stubs(:login_handle_name).returns(custom_label)
+      allow_any_instance_of(Account).to receive(:login_handle_name).and_return(custom_label)
 
       get "/enroll/#{@course.self_enrollment_code}"
       expect(f("label[for='student_email']").text).to include(custom_label)

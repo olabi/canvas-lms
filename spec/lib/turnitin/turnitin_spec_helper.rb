@@ -1,6 +1,28 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 RSpec.shared_context "shared_tii_lti", :shared_context => :metadata do
+  before do
+    allow(BasicLTI::Sourcedid).to receive(:encryption_secret) {'encryption-secret-5T14NjaTbcYjc4'}
+    allow(BasicLTI::Sourcedid).to receive(:signing_secret) {'signing-secret-vp04BNqApwdwUYPUI'}
+  end
+
   let(:lti_student) { user_model }
   let(:lti_course) { course_with_student({user: lti_student}).course }
   let(:tool) do
@@ -36,19 +58,19 @@ RSpec.shared_context "shared_tii_lti", :shared_context => :metadata do
   end
 
   let(:tii_client) do
-    tii_mock = mock('tii_client')
-    tii_mock.stubs(:original_submission).yields(response_mock)
+    tii_mock = double('tii_client')
+    allow(tii_mock).to receive(:original_submission).and_yield(response_mock)
     tii_mock
   end
-  let(:filename) { 'my_new_filename.txt' }
+  let(:filename) { 'my/new/filename.txt' }
   let(:response_mock) do
-    r_mock = mock('response')
-    r_mock.stubs(:headers).
-      returns({
+    r_mock = double('response')
+    allow(r_mock).to receive(:headers).
+      and_return({
                 'content-disposition' => "attachment; filename=#{filename}",
                 'content-type' => 'plain/text'
               })
-    r_mock.stubs(:body).returns('abcdef')
+    allow(r_mock).to receive(:body).and_return('abcdef')
     r_mock
   end
 
@@ -112,4 +134,3 @@ RSpec.shared_context "shared_tii_lti", :shared_context => :metadata do
   end
 
 end
-

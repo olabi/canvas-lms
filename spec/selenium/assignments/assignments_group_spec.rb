@@ -1,14 +1,32 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/assignments_common'
 
-describe "assignment group that can't manage a course" do
+describe "assignment group that can't manage assignments" do
   include_context "in-process server selenium tests"
   include AssignmentsCommon
 
   it "does not display the manage cog menu" do
     @domain_root_account = Account.default
     course_factory
-    account_admin_user_with_role_changes(:role_changes => {:manage_courses => false})
+    account_admin_user_with_role_changes(:role_changes => {:manage_course => true,
+                                                           :manage_assignments => false})
     user_session(@user)
     @course.require_assignment_group
     @assignment_group = @course.assignment_groups.first
@@ -37,7 +55,7 @@ describe "assignment groups" do
     @course.assignments.create(name: "test", assignment_group: @assignment_group)
   end
 
-  it "should create a new assignment group", priority: "1", test_id: 120673  do
+  it "should create a new assignment group", priority: "1", test_id: 120673 do
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
 
@@ -67,7 +85,7 @@ describe "assignment groups" do
     expect(get_value("#assignment_group_id")).to eq ag.id.to_s
   end
 
-  #Per selenium guidelines, we should not test buttons navigating to a page
+  # Per selenium guidelines, we should not test buttons navigating to a page
   # We could test that the page loads with the correct info from the params elsewhere
   it "should remember entered settings when 'more options' is pressed", priority: "2", test_id: 209999 do
     ag2 = @course.assignment_groups.create!(name: "blah")
@@ -92,32 +110,32 @@ describe "assignment groups" do
     4.times do
       @course.assignments.create(title: 'other assignment', assignment_group: assignment_group)
     end
-    assignment = @course.assignments.create(title: 'assignment with rubric', assignment_group:  assignment_group)
+    assignment = @course.assignments.create(title: 'assignment with rubric', assignment_group: assignment_group)
 
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
 
-    #edit group grading rules
+    # edit group grading rules
     f("#ag_#{assignment_group.id}_manage_link").click
     fj(".edit_group:visible:first").click
-    #change the name
+    # change the name
     f("#ag_#{assignment_group.id}_name").clear
     f("#ag_#{assignment_group.id}_name").send_keys('name change')
-    #set number of lowest scores to drop
+    # set number of lowest scores to drop
     f("#ag_#{assignment_group.id}_drop_lowest").clear
     f("#ag_#{assignment_group.id}_drop_lowest").send_keys('1')
-    #set number of highest scores to drop
+    # set number of highest scores to drop
     f("#ag_#{assignment_group.id}_drop_highest").clear
     f("#ag_#{assignment_group.id}_drop_highest").send_keys('2')
-    #set assignment to never drop
+    # set assignment to never drop
     fj('.add_never_drop:visible').click
     expect(f('.never_drop_rule select')).to be
     click_option('.never_drop_rule select', assignment.title)
-    #save it
+    # save it
     fj('.create_group:visible').click
     wait_for_ajaximations
     assignment_group.reload
-    #verify grading rules
+    # verify grading rules
     expect(assignment_group.name).to match 'name change'
     expect(assignment_group.rules_hash["drop_lowest"]).to eq 1
     expect(assignment_group.rules_hash["drop_highest"]).to eq 2
@@ -132,10 +150,10 @@ describe "assignment groups" do
 
     f("#ag_#{ag1.id}_manage_link").click
     fj(".edit_group:visible:first").click
-    #wanted to change number but can only use clear because of the auto insert of 0 after clearing
+    # wanted to change number but can only use clear because of the auto insert of 0 after clearing
     # the input
     fj('input[name="group_weight"]:visible').send_keys('50')
-    #need to wait for the total to update
+    # need to wait for the total to update
     fj('.create_group:visible').click
 
     expect(f("#assignment_group_#{ag1.id} .ag-header-controls")).to include_text('50% of Total')
@@ -157,7 +175,7 @@ describe "assignment groups" do
     expect(f("#assignment_group_#{ag1.id} .ag-header-controls")).to include_text('10.11% of Total')
   end
 
-  #This feels like it would be better suited here than in QUnit
+  # This feels like it would be better suited here than in QUnit
   it "should not remove new assignments when editing a group", priority: "1", test_id: 210000 do
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
@@ -169,7 +187,7 @@ describe "assignment groups" do
     replace_content(f("#ag_#{ag.id}_assignment_name"), "Disappear")
     fj('.create_assignment:visible').click
     wait_for_ajaximations
-
+    refresh_page
     expect(fj("#assignment_group_#{ag.id} .assignment:eq(1) .ig-title").text).to match "Disappear"
 
     f("#assignment_group_#{ag.id} .al-trigger").click
@@ -183,7 +201,7 @@ describe "assignment groups" do
     expect(fj("#assignment_group_#{ag.id} .assignment:eq(1) .ig-title").text).to match "Disappear"
   end
 
-  #Because of the way this feature was made, i recommend we keep this one
+  # Because of the way this feature was made, i recommend we keep this one
   it "should move assignments to another assignment group", priority: "2", test_id: 210001 do
     before_count = @assignment_group.assignments.count
     @ag2 = @course.assignment_groups.create!(name: "2nd Group")
@@ -202,7 +220,7 @@ describe "assignment groups" do
     wait_for_ajaximations
 
     # two id selectors to make sure it moved
-    expect(fj("#assignment_group_#{@assignment_group.id} #assignment_#{@assignment.id}")).to_not be_nil
+    expect(fj("#assignment_group_#{@assignment_group.id} #assignment_#{@assignment.id}")).not_to be_nil
 
     @assignment.reload
     expect(@assignment.assignment_group).to eq @assignment_group
@@ -220,52 +238,60 @@ describe "assignment groups" do
     drag_with_js("#assignment_group_#{ags[1].id} .sortable-handle", 0, 100)
     wait_for_ajaximations
 
-    ags.each {|ag| ag.reload}
+    ags.each(&:reload)
     expect(ags.collect(&:position)).to eq [1,3,2,4,5]
   end
 
-  it "should allow quick-adding an assignment to a group", priority: "1", test_id: 210083 do
-    @course.require_assignment_group
-    ag = @course.assignment_groups.first
-    time = DateTime.new(Time.now.year,2,7,4,15)
-    Timecop.freeze(time) do
-      current_time = format_time_for_view(time)
-      assignment_name, assignment_points = ["Do this", "13"]
+  context 'quick-adding an assignment to a group' do
+    let(:assignment_group) { @course.assignment_groups.first }
+    let(:assignment_name) { "Do this" }
+    let(:assignment_points) { "13" }
+    let(:time) {Time.zone.local(2018,2,7,4,15)}
+    let(:current_time) {format_time_for_view(time, :medium)}
 
-      # Navigates to assignments index page.
-      get "/courses/#{@course.id}/assignments"
-      wait_for_ajaximations
+    before :each do
+      @course.require_assignment_group
 
-      # Finds and clicks the Add Assignment button on an assignment group.
-      f("#assignment_group_#{ag.id} .add_assignment").click
-      wait_for_ajaximations
+      Timecop.freeze(time) do
+        # Navigate to assignments index page.
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
 
-      # Enters in values for Name, Due, and Points, then clicks save.
-      replace_content(f("#ag_#{ag.id}_assignment_name"), assignment_name)
-      replace_content(f("#ag_#{ag.id}_assignment_due_at"), current_time)
-      replace_content(f("#ag_#{ag.id}_assignment_points"), assignment_points)
-      fj('.create_assignment:visible').click
-      wait_for_ajaximations
+        # Finds and click the Add Assignment button on an assignment group.
+        f("#assignment_group_#{assignment_group.id} .add_assignment").click
+        wait_for_ajaximations
 
-      # Checks for correct values in back end.
-      a = ag.reload.assignments.last
-      expect(a.name).to eq "Do this"
-      expect(a.due_at).to eq time
-      expect(a.points_possible).to eq 13
+        # Enter in values for Name, Due, and Points, then clicks save.
+        replace_content(f("#ag_#{assignment_group.id}_assignment_name"), assignment_name)
+        replace_content(f("#ag_#{assignment_group.id}_assignment_due_at"), current_time)
+        replace_content(f("#ag_#{assignment_group.id}_assignment_points"), assignment_points)
+        fj('.create_assignment:visible').click
+        wait_for_ajaximations
+      end
+    end
 
-      # Checks Assignments Index page UI for correct values.
-      expect(ff("#assignment_group_#{ag.id} .ig-title").last.text).to match "#{assignment_name}"
-      expect(ff("#assignment_group_#{ag.id} .assignment-date-due").last.text).to match current_time
-      expect(f("#assignment_#{a.id} .non-screenreader").text).to match "#{assignment_points} pts"
+    it 'persists the correct values of the assignment', priority: '1', test_id: 210083 do
+      assignment = assignment_group.reload.assignments.last
+      expect(assignment.name).to eq "Do this"
+      expect(assignment.due_at).to eq time.change({ sec: 0 })
+    end
 
+    it 'reflects the new assignment in the Assignments Index page', priority: '1', test_id: 210083 do
+      assignment = assignment_group.reload.assignments.last
+      expect(ff("#assignment_group_#{assignment_group.id} .ig-title").last.text).to match assignment_name.to_s
+      expect(ff("#assignment_group_#{assignment_group.id} .assignment-date-due").last.text).to match current_time
+      expect(f("#assignment_#{assignment.id} .non-screenreader").text).to match "#{assignment_points} pts"
+    end
+
+    it 'reflects the new assignment in the Assignment Show page', priority: '1', test_id: 210083 do
+      assignment = assignment_group.reload.assignments.last
       # Navigates to Assignment Show page.
-      get "/courses/#{@course.id}/assignments/#{a.id}"
+      get "/courses/#{@course.id}/assignments/#{assignment.id}"
       wait_for_ajaximations
 
-      # Checks Assignment Show page for correct values.
-      expect(f(".title").text).to match "#{assignment_name}"
-      expect(f(".points_possible").text).to match "#{assignment_points}"
-      expect(f(".assignment_dates").text).to match "#{current_time}"
+      expect(f(".title").text).to match assignment_name.to_s
+      expect(f(".points_possible").text).to match assignment_points.to_s
+      expect(f(".assignment_dates").text).to match current_time.to_s
     end
   end
 
@@ -344,7 +370,7 @@ describe "assignment groups" do
 
       run_assignment_edit(@frozen_assign) do
         # title isn't locked, should allow editing
-        f('#assignment_name').send_keys(' edit')
+        f('#assignment_name').send_keys('edit')
 
         expect(f('#assignment_group_id')).not_to be_disabled
         expect(f('#assignment_peer_reviews')).not_to be_disabled
@@ -352,7 +378,7 @@ describe "assignment groups" do
         click_option('#assignment_group_id', "other")
       end
 
-      expect(f('h1.title')).to include_text(orig_title + ' edit')
+      expect(f('h1.title')).to include_text('edit' + orig_title)
       expect(@frozen_assign.reload.assignment_group.name).to eq "other"
     end
   end

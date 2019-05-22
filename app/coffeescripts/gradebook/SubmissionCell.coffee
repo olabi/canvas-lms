@@ -1,14 +1,35 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
-  'compiled/gradebook/GradebookTranslations'
+  'i18nObj'
+  'jsx/shared/helpers/numberHelper'
+  'jsx/gradebook/shared/helpers/GradeFormatHelper'
+  '../gradebook/GradebookTranslations'
   'jsx/grading/helpers/OutlierScoreHelper'
   'str/htmlEscape'
-  'compiled/gradebook/Turnitin'
-  'compiled/util/round'
+  '../gradebook/Turnitin'
+  '../util/round'
   'jquery.ajaxJSON'
   'jquery.instructure_misc_helpers' # raw
-], ($, _, GRADEBOOK_TRANSLATIONS, OutlierScoreHelper, htmlEscape, {extractDataTurnitin}, round) ->
+], ($, _, I18n, numberHelper, GradeFormatHelper, GRADEBOOK_TRANSLATIONS,
+  { default: OutlierScoreHelper }, htmlEscape, {extractDataTurnitin}, round) ->
 
   class SubmissionCell
 
@@ -30,7 +51,10 @@ define [
       @val = if @opts.item[@opts.column.field].excused
         "EX"
       else
-        @val = htmlEscape @opts.item[@opts.column.field].grade || ""
+        submission = @opts.item[@opts.column.field]
+        grade = submission.grade || ''
+        formattedGrade = GradeFormatHelper.formatGrade(grade, { gradingType: submission.gradingType })
+        @val = htmlEscape(formattedGrade)
       @$input.val(@val)
       @$input[0].defaultValue = @val
       @$input.select()
@@ -44,8 +68,9 @@ define [
         submission.excused = true
       else
         submission.grade = htmlEscape state
-        pointsPossible = @opts.column.object.points_possible
-        outlierScoreHelper = new OutlierScoreHelper(state, pointsPossible)
+        pointsPossible = numberHelper.parse(@opts.column.object.points_possible)
+        score = numberHelper.parse(state)
+        outlierScoreHelper = new OutlierScoreHelper(score, pointsPossible)
         $.flashWarning(outlierScoreHelper.warningMessage()) if outlierScoreHelper.hasWarning()
       @wrapper?.remove()
       @postValue(item, state)
@@ -57,7 +82,7 @@ define [
       data = if state.toUpperCase() == "EX"
         {"submission[excuse]": true}
       else
-        {"submission[posted_grade]": state}
+        {"submission[posted_grade]": GradeFormatHelper.delocalizeGrade(state)}
       $.ajaxJSON url, "PUT", data, @onUpdateSuccess, @onUpdateError
 
     onUpdateSuccess: (submission) ->
@@ -76,14 +101,13 @@ define [
       if submission.excused
         grade = "EX"
       else
-        grade = parseFloat submission.grade
-        grade = if isNaN(grade)
-          submission.grade
-        else
-          round(grade, round.DEFAULT)
-
-        if grade && assignment?.grading_type == "percent"
-          grade = grade.toString() + "%"
+        grade = GradeFormatHelper.formatGrade(
+          submission.grade,
+          {
+            gradingType: assignment?.grading_type,
+            precision: round.DEFAULT
+          }
+        )
 
       this.prototype.cellWrapper(grade, {
         submission: submission,
@@ -115,7 +139,7 @@ define [
 
       opts.classes += ' no_grade_yet ' unless opts.submission.grade && opts.submission.workflow_state != 'pending_review'
       innerContents = null if opts.submission.workflow_state == 'pending_review' && !isNaN(innerContents)
-      innerContents ?= if submission_type then SubmissionCell.submissionIcon(submission_type) else '-'
+      innerContents ?= if submission_type then SubmissionCell.submissionIcon(submission_type, opts.submission.attachments) else '-'
 
       if turnitin = extractDataTurnitin(opts.submission)
         specialClasses.push('turnitin')
@@ -125,7 +149,7 @@ define [
 
       cellCommentHTML = if !opts.student.isConcluded && !opts.isLocked
         """
-        <a href="#" data-user-id=#{opts.submission.user_id} data-assignment-id=#{opts.assignment.id} class="gradebook-cell-comment"><span class="gradebook-cell-comment-label">submission comments</span></a>
+        <a href="#" data-user-id=#{opts.submission.user_id} data-assignment-id=#{opts.assignment.id} class="gradebook-cell-comment"><span class="gradebook-cell-comment-label hide-text">submission comments</span></a>
         """
       else
         ''
@@ -150,12 +174,23 @@ define [
       classes.push('resubmitted') if submission.grade_matches_current_submission == false
       classes.push('late') if submission.late
       classes.push('ungraded') if ''+assignment.submission_types is "not_graded"
-      classes.push('muted') if assignment.muted
+      if assignment.anonymize_students
+        classes.push('anonymous')
+      else if assignment.moderation_in_progress
+        classes.push('moderated')
+      else if assignment.muted
+        classes.push('muted')
       classes.push(submission.submission_type) if submission.submission_type
       classes
 
-    @submissionIcon: (submission_type) ->
+    @submissionIcon: (submission_type, attachments) ->
       klass = SubmissionCell.iconFromSubmissionType(submission_type)
+      if attachments?
+        upload_status = attachments[0].upload_status
+        if upload_status == "pending"
+          klass = "upload"
+        else if upload_status == "failed"
+          klass = "warning"
       "<i class='icon-#{htmlEscape klass}' ></i>"
 
     @iconFromSubmissionType: (submission_type) ->
@@ -181,7 +216,11 @@ define [
       @$wrapper = $(@cellWrapper("""
         <div class="overflow-wrapper">
           <div class="grade-and-outof-wrapper">
-            <input type="text" #{@ariaLabelTemplate(submission.submission_type)} class="grade"/><span class="outof"><span class="divider">/</span>#{htmlEscape @opts.column.object.points_possible}</span>
+            <input type="text" #{@ariaLabelTemplate(submission.submission_type)} class="grade"/>
+            <span class="outof">
+              <span class="divider">/</span>
+              #{htmlEscape(I18n.n(@opts.column.object.points_possible))}
+            </span>
           </div>
         </div>
       """, { classes: 'gradebook-cell-out-of-formatter' })).appendTo(@opts.container)
@@ -192,7 +231,7 @@ define [
       innerContents = if submission.excused
         "EX"
       else if submission.score?
-        "#{htmlEscape submission.grade}<span class='letter-grade-points'>#{htmlEscape submission.score}</span>"
+        "#{htmlEscape submission.grade}<span class='letter-grade-points'>#{htmlEscape(I18n.n(submission.score))}</span>"
       else
         submission.grade
 
@@ -214,16 +253,22 @@ define [
       else GRADEBOOK_TRANSLATIONS["submission_#{text}"]
 
   iconClassFromSubmission = (submission) ->
-    { pass: 'icon-check', complete: 'icon-check', fail: 'icon-x', incomplete: 'icon-x' }[submission.grade] || 'icon-undefined'
+    { pass: 'icon-check', complete: 'icon-check', fail: 'icon-x', incomplete: 'icon-x' }[submission.rawGrade] || 'icon-undefined'
 
   class SubmissionCell.pass_fail extends SubmissionCell
 
     states = ['pass', 'fail', '']
+    STATE_MAPPING =
+      pass: 'pass'
+      complete: 'pass'
+      fail: 'fail'
+      incomplete: 'fail'
+
     classFromSubmission = (submission) ->
       if submission.excused
         "EX"
       else
-        { pass: 'pass', complete: 'pass', fail: 'fail', incomplete: 'fail' }[submission.grade] || ''
+        { pass: 'pass', complete: 'pass', fail: 'fail', incomplete: 'fail' }[submission.rawGrade] || ''
 
     checkboxButtonTemplate = (iconClass) ->
       if _.isEmpty(iconClass)
@@ -242,7 +287,7 @@ define [
         ''
       SubmissionCell::cellWrapper("""
         <button
-          data-value="#{htmlEscape cssClass}"
+          data-value="#{htmlEscape(options.submission.entered_grade || options.submission.grade || '')}"
           class="Button Button--icon-action gradebook-checkbox gradebook-checkbox-#{htmlEscape cssClass} #{htmlEscape(editable)}"
           type="button"
           aria-label="#{htmlEscape cssClass}"><span class="screenreader-only">#{htmlEscape(passFailMessage(cssClass))}</span>#{checkboxButtonTemplate(iconClass)}</button>
@@ -263,12 +308,12 @@ define [
         .bind('click', (event) =>
           event.preventDefault()
           currentValue = @$input.data('value')
-          if currentValue is 'pass'
-            newValue = 'fail'
-          else if currentValue is 'fail'
+          if currentValue is 'complete'
+            newValue = 'incomplete'
+          else if currentValue is 'incomplete'
             newValue = ''
           else
-            newValue = 'pass'
+            newValue = 'complete'
           @transitionValue(newValue)
         ).focus()
 
@@ -278,16 +323,17 @@ define [
     transitionValue: (newValue) ->
       @$input
         .removeClass('gradebook-checkbox-pass gradebook-checkbox-fail')
-        .addClass('gradebook-checkbox-' + classFromSubmission(grade: newValue))
+        .addClass('gradebook-checkbox-' + classFromSubmission(rawGrade: newValue))
         .addClass('dontblur')
-        .attr('aria-label', passFailMessage(newValue))
+        .attr('aria-label', passFailMessage(STATE_MAPPING[newValue]))
         .data('value', newValue)
       @$input.find('i')
         .removeClass()
-        .addClass(iconClassFromSubmission(grade: newValue))
+        .addClass(iconClassFromSubmission(rawGrade: newValue))
 
     loadValue: () ->
-      @val = @opts.item[@opts.column.field].grade || ""
+      submission = @opts.item[@opts.column.field]
+      @val = submission.entered_grade || submission.grade || ""
 
     serializeValue: () ->
       @$input.data('value')

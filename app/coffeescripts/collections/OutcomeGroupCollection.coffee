@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,8 +18,8 @@
 
 define [
   'underscore'
-  'compiled/collections/PaginatedCollection'
-  'compiled/models/OutcomeGroup'
+  '../collections/PaginatedCollection'
+  '../models/OutcomeGroup'
 ], (_, PaginatedCollection, OutcomeGroup) ->
 
   class OutcomeGroupCollection extends PaginatedCollection

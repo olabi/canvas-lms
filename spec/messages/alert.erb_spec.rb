@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,7 +34,11 @@ describe 'alert' do
   let(:notification_name) { :alert }
   let(:message_data) do
     {
-      asset_context: @enrollment
+      data: {
+        student_name: @enrollment.user.name,
+        user_id: @enrollment.user_id,
+        course_id: @enrollment.course_id
+      }
     }
   end
 

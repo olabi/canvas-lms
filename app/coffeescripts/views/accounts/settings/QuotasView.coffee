@@ -1,10 +1,27 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'i18n!accounts'
-  'compiled/views/ValidatedFormView'
+  '../../ValidatedFormView'
   'str/htmlEscape'
   'jst/accounts/settings/Quotas'
-  'compiled/jquery.rails_flash_notifications'
+  '../../../jquery.rails_flash_notifications'
 ], ($, I18n, ValidatedFormView, htmlEscape, template) ->
 
   class QuotasView extends ValidatedFormView
@@ -50,7 +67,7 @@ define [
     validateFormData: (data) ->
       errors = {}
 
-      for integerField in @integerFields
+      for integerField in @integerFields when typeof data[integerField] isnt 'undefined'
         unless data[integerField].match(@constructor.INTEGER_REGEX)
           errors[integerField] = [
             type: 'integer_required'

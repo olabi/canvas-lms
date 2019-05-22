@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -66,6 +66,10 @@ class SessionPersistenceToken < ActiveRecord::Base
     return unless token
     return unless token.valid_token?(persistence_token, uuid)
     return token
+  end
+
+  def self.delete_expired(since)
+    where('updated_at < ?', since.seconds.ago).delete_all
   end
 
   def valid_token?(persistence_token, uncrypted_token)

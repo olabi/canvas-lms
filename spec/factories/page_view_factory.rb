@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -36,7 +36,7 @@ module Factories
     @request_id = opts[:request_id] || RequestContextGenerator.request_id
     unless @request_id
       @request_id = SecureRandom.uuid
-      RequestContextGenerator.stubs(:request_id => @request_id)
+      allow(RequestContextGenerator).to receive_messages(:request_id => @request_id)
     end
 
     Setting.set('enable_page_views', 'db')

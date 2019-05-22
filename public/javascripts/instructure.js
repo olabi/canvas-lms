@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,55 +12,97 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'compiled/views/KeyboardNavDialog',
-  'INST' /* INST */,
-  'i18n!instructure',
-  'jquery' /* $ */,
-  'underscore',
-  'timezone',
-  'compiled/userSettings',
-  'str/htmlEscape',
-  'jsx/shared/rce/RichContentEditor',
-  'instructure_helper',
-  'jqueryui/draggable',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.doc_previews' /* filePreviewsEnabled, loadDocPreview */,
-  'jquery.dropdownList' /* dropdownList */,
-  'jquery.google-analytics' /* trackEvent */,
-  'jquery.instructure_date_and_time' /* datetimeString, dateString, fudgeDateForProfileTimezone */,
-  'jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers' /* replaceTags, youTubeID */,
-  'jquery.instructure_misc_plugins' /* ifExists, .dim, confirmDelete, showIf, fillWindowWithMe */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'compiled/jquery.rails_flash_notifications',
-  'jquery.templateData' /* fillTemplateData, getTemplateData */,
-  'compiled/jquery/fixDialogButtons',
-  'compiled/jquery/mediaCommentThumbnail',
-  'vendor/date' /* Date.parse */,
-  'vendor/jquery.ba-tinypubsub' /* /\.publish\(/ */,
-  'jqueryui/accordion' /* /\.accordion\(/ */,
-  'jqueryui/resizable' /* /\.resizable/ */,
-  'jqueryui/sortable' /* /\.sortable/ */,
-  'jqueryui/tabs' /* /\.tabs/ */,
-  'compiled/behaviors/trackEvent',
-  'compiled/badge_counts',
-  'vendor/jquery.placeholder'
-], function(KeyboardNavDialog, INST, I18n, $, _, tz, userSettings, htmlEscape, RichContentEditor) {
+import KeyboardNavDialog from 'compiled/views/KeyboardNavDialog'
+import INST from './INST'
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import _ from 'underscore'
+import tz from 'timezone'
+import htmlEscape from './str/htmlEscape'
+import preventDefault from 'compiled/fn/preventDefault'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import './instructure_helper'
+import 'jqueryui/draggable'
+import './jquery.ajaxJSON'
+import './jquery.doc_previews' /* filePreviewsEnabled, loadDocPreview */
+import './jquery.google-analytics' /* trackEvent */
+import './jquery.instructure_date_and_time' /* datetimeString, dateString, fudgeDateForProfileTimezone */
+import './jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_helpers' /* replaceTags, youTubeID */
+import './jquery.instructure_misc_plugins' /* ifExists, .dim, confirmDelete, showIf, fillWindowWithMe */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import 'compiled/jquery.rails_flash_notifications'
+import './jquery.templateData'
+import 'compiled/jquery/fixDialogButtons'
+import 'compiled/jquery/mediaCommentThumbnail'
+import './vendor/date'
+import 'vendor/jquery.ba-tinypubsub' /* /\.publish\(/ */
+import 'jqueryui/resizable'
+import 'jqueryui/sortable'
+import 'jqueryui/tabs'
+import 'compiled/behaviors/trackEvent'
 
-  RichContentEditor.preloadRemoteModule()
+function handleYoutubeLink () {
+  const $link = $(this)
+  const href = $link.attr('href')
+  const id = $.youTubeID(href || "")
+
+  if (id && !$link.hasClass('inline_disabled')) {
+    const $after = $(`
+      <a
+        href="${ htmlEscape(href) }"
+        class="youtubed"
+      >
+        <img src="/images/play_overlay.png"
+          class="media_comment_thumbnail"
+          style="background-image: url(//img.youtube.com/vi/${ htmlEscape(id) }/2.jpg)"
+          alt="${ htmlEscape($link.data('preview-alt') || '') }"
+        />
+      </a>
+    `)
+    $after.click(preventDefault(function() {
+      const $video = $(`
+        <span class='youtube_holder' style='display: block;'>
+          <iframe
+            src='//www.youtube.com/embed/${  htmlEscape(id)  }?autoplay=1&rel=0&hl=en_US&fs=1'
+            frameborder='0'
+            width='425'
+            height='344'
+            allowfullscreen
+          ></iframe>
+          <br/>
+          <a
+            href='#'
+            style='font-size: 0.8em;'
+            class='hide_youtube_embed_link'
+          >
+            ${  htmlEscape(I18n.t('links.minimize_youtube_video', "Minimize Video"))  }
+          </a>
+        </span>
+      `)
+      $video.find(".hide_youtube_embed_link").click(preventDefault(() => {
+        $video.remove()
+        $after.show()
+        $.trackEvent('hide_embedded_content', 'hide_you_tube')
+      }))
+      $(this).after($video).hide()
+    }))
+    $.trackEvent('show_embedded_content', 'show_you_tube')
+    $link.addClass('youtubed').after($after)
+  }
+}
 
   $.trackEvent('Route', location.pathname.replace(/\/$/, '').replace(/\d+/g, '--') || '/');
 
 
-  var JQUERY_UI_WIDGETS_WE_TRY_TO_ENHANCE = '.dialog, .draggable, .resizable, .sortable, .accordion, .tabs';
-  function enhanceUserContent() {
+  var JQUERY_UI_WIDGETS_WE_TRY_TO_ENHANCE = '.dialog, .draggable, .resizable, .sortable, .tabs';
+  export function enhanceUserContent() {
     var $content = $("#content");
     $(".user_content:not(.enhanced):visible").addClass('unenhanced');
     $(".user_content.unenhanced:visible")
@@ -94,7 +136,6 @@ define([
         .filter(".draggable").draggable().end()
         .filter(".resizable").resizable().end()
         .filter(".sortable").sortable().end()
-        .filter(".accordion").accordion().end()
         .filter(".tabs").each(function() {
           $(this).tabs();
         }).end()
@@ -106,25 +147,16 @@ define([
           .addClass('external')
           .html('<span>' + $(this).html() + '</span>')
           .attr('target', '_blank')
-          .attr('rel', 'noreferrer')
+          .attr('rel', 'noreferrer noopener')
           .append('<span aria-hidden="true" class="ui-icon ui-icon-extlink ui-icon-inline" title="' + $.raw(externalLink) + '"/>')
           .append('<span class="screenreader-only">&nbsp;(' + $.raw(externalLink) + ')</span>');
       }).end()
-        .find("a.instructure_file_link").each(function() {
-            var $link = $(this),
-                $span = $("<span class='instructure_file_link_holder link_holder'/>");
-            $link.removeClass('instructure_file_link').before($span).appendTo($span);
-            if($link.attr('target') != '_blank') {
-          $span.append("<a href='" + htmlEscape($link.attr('href')) + "' target='_blank' title='" + htmlEscape(I18n.t('titles.view_in_new_window', "View in a new window")) +
-              "' style='padding-left: 5px;'><img src='/images/popout.png' alt='" + htmlEscape(I18n.t('titles.view_in_new_window', "View in a new window")) + "'/></a>");
-        }
-      });
     if ($.filePreviewsEnabled()) {
       $("a.instructure_scribd_file").not(".inline_disabled").each(function() {
         var $link = $(this);
         if ( $.trim($link.text()) ) {
-          var $span = $("<span class='instructure_scribd_file_holder link_holder'/>"),
-                      $scribd_link = $("<a class='scribd_file_preview_link' aria-hidden='true' tabindex='-1' href='" + htmlEscape($link.attr('href')) + "' title='" + htmlEscape(I18n.t('titles.preview_document', "Preview the document")) +
+          var $span = $("<span class='instructure_file_holder link_holder'/>"),
+                      $scribd_link = $("<a class='file_preview_link' aria-hidden='true' href='" + htmlEscape($link.attr('href')) + "' title='" + htmlEscape(I18n.t('titles.preview_document', "Preview the document")) +
                           "' style='padding-left: 5px;'><img src='/images/preview.png' alt='" + htmlEscape(I18n.t('titles.preview_document', "Preview the document")) + "'/></a>");
                   $link.removeClass('instructure_scribd_file').before($span).appendTo($span);
                   $span.append($scribd_link);
@@ -135,40 +167,13 @@ define([
           });
       }
 
-    $(".user_content.unenhanced a")
+    $('.user_content.unenhanced a,.user_content.unenhanced+div.answers a')
       .find("img.media_comment_thumbnail").each(function() {
         $(this).closest("a").addClass('instructure_inline_media_comment');
       }).end()
       .filter(".instructure_inline_media_comment").removeClass('no-underline').mediaCommentThumbnail('normal').end()
       .filter(".instructure_video_link, .instructure_audio_link").mediaCommentThumbnail('normal', true).end()
-      .not(".youtubed").each(function() {
-        var $link = $(this),
-            href = $link.attr('href'),
-            id = $.youTubeID(href || "");
-        if($link.hasClass('inline_disabled')) {
-        } else if(id) {
-          var altHtml = "";
-          if ($link.data('preview-alt')) {
-            altHtml = ' alt="' + htmlEscape($link.data('preview-alt')) + '"';
-          }
-          var $after = $('<a href="'+ htmlEscape(href) +'" class="youtubed"><img src="/images/play_overlay.png" class="media_comment_thumbnail" style="background-image: url(//img.youtube.com/vi/' + htmlEscape(id) + '/2.jpg)"' + altHtml + '/></a>')
-            .click(function(event) {
-              event.preventDefault();
-              var $video = $("<span class='youtube_holder' style='display: block;'><iframe src='//www.youtube.com/embed/" + htmlEscape(id) + "?autoplay=1&rel=0&hl=en_US&fs=1' frameborder='0' width='425' height='344'></iframe><br/><a href='#' style='font-size: 0.8em;' class='hide_youtube_embed_link'>" + htmlEscape(I18n.t('links.minimize_youtube_video', "Minimize Video")) + "</a></span>");
-              $video.find(".hide_youtube_embed_link").click(function(event) {
-                event.preventDefault();
-                $video.remove();
-                $after.show();
-                $.trackEvent('hide_embedded_content', 'hide_you_tube');
-              });
-              $(this).after($video).hide();
-            });
-          $.trackEvent('show_embedded_content', 'show_you_tube');
-          $link
-            .addClass('youtubed')
-            .after($after);
-        }
-      });
+      .not(".youtubed").each(handleYoutubeLink);
     $(".user_content.unenhanced").removeClass('unenhanced').addClass('enhanced');
 
     setTimeout(function() {
@@ -182,12 +187,12 @@ define([
     if (window._earlyClick) {
 
       // unset the onclick handler we were using to capture the events
-      document.removeEventListener('click', _earlyClick);
+      document.removeEventListener('click', window._earlyClick);
 
-      if (_earlyClick.clicks) {
+      if (window._earlyClick.clicks) {
         // wait to fire the "click" events till after all of the event hanlders loaded at dom ready are initialized
         setTimeout(function(){
-          $.each(_.uniq(_earlyClick.clicks), function() {
+          $.each(_.uniq(window._earlyClick.clicks), function() {
             // cant use .triggerHandler because it will not bubble,
             // but we do want to preventDefault, so this is what we have to do
             var event = $.Event('click');
@@ -199,68 +204,6 @@ define([
     }
 
     ///////////// START layout related stuff
-    // make sure that #main is at least as big as the tallest of #right_side, #content, and #left_side and ALWAYS at least 500px tall
-    $('#main:not(.already_sized)').css({"minHeight" : Math.max($("#left_side").height(), parseInt(($('#main').css('minHeight') || "").replace('px', ''), 10))});
-
-    var $menu_items = $(".menu-item"),
-        $menu = $("#menu"),
-        menuItemHoverTimeoutId;
-
-    // Makes sure that the courses/groups menu is openable by clicking
-    var $coursesItem = $menu.find('#courses_menu_item .menu-item-title');
-    $coursesItem.click(function (e) {
-      if (e.metaKey || e.ctrlKey) return;
-      e.preventDefault();
-      $coursesItem.focus();
-    })
-
-    function clearMenuHovers(){
-      window.clearTimeout(menuItemHoverTimeoutId);
-      // this is explicitly finding every time in case
-      // someone has added menu items to the list after init
-      $menu.find(".menu-item").removeClass("hover hover-pending");
-    }
-
-    function unhoverMenuItem(){
-      $menu_items.filter(".hover-pending").removeClass('hover-pending');
-      menuItemHoverTimeoutId = window.setTimeout(clearMenuHovers, 400);
-    }
-
-    function hoverMenuItem(event){
-      var hadClass = $menu_items.filter(".hover").length > 0;
-      clearMenuHovers();
-      var $elem = $(this);
-      $elem.addClass('hover-pending');
-      if(hadClass) { $elem.addClass('hover'); }
-      setTimeout(function() {
-        if($elem.hasClass('hover-pending')) {
-          $elem.addClass("hover");
-        }
-      }, 300);
-      $.publish('menu/hovered', $elem);
-    }
-
-    $menu
-      .delegate('.menu-item', 'mouseenter focusin', hoverMenuItem )
-      .delegate('.menu-item', 'mouseleave focusout', unhoverMenuItem );
-
-
-    // this stuff is for the ipad, it needs a little help getting the drop menus to show up
-    $menu_items.live('touchstart', function(){
-      // if we are not in an alredy hovering drop-down, drop it down, otherwise do nothing
-      // (so that if a link is clicked in one of the li's it gets followed).
-      if(!$(this).hasClass('hover')){
-        return hoverMenuItem.call(this, event);
-      }
-    });
-    // If I touch anywhere on the screen besides inside a dropdown, make the dropdowns go away.
-    $(document).bind('touchstart', function(event){
-      if (!$(event.target).closest(".menu-item").length) {
-        unhoverMenuItem();
-      }
-    });
-
-
 
     // this next block of code adds the ellipsis on the breadcrumb if it overflows one line
     var $breadcrumbs = $("#breadcrumbs"),
@@ -395,8 +338,9 @@ define([
         $dialog.dialog('open');
       });
     });
+
     if ($.filePreviewsEnabled()) {
-      $("a.scribd_file_preview_link").live('click', function(event) {
+      $("a.file_preview_link").live('click', function(event) {
         event.preventDefault();
         var $link = $(this).loadingImage({image_size: 'small'}).hide();
         $.ajaxJSON($link.attr('href').replace(/\/download/, ""), 'GET', {}, function(data) {
@@ -410,18 +354,23 @@ define([
               .loadDocPreview({
                 canvadoc_session_url: attachment.canvadoc_session_url,
                 mimeType: attachment.content_type,
-                public_url: attachment.authenticated_s3_url,
+                public_url: attachment.public_url,
                 attachment_preview_processing: attachment.workflow_state == 'pending_upload' || attachment.workflow_state == 'processing'
               })
-              .prepend(
-                $('<a href="#" style="font-size: 0.8em;" class="hide_file_preview_link">' + htmlEscape(I18n.t('links.minimize_file_preview', 'Minimize File Preview')) + '</a>')
-                .click(function(event) {
-                  event.preventDefault();
-                  $link.show();
-                  $div.remove();
-                  $.trackEvent('hide_embedded_content', 'hide_file_preview');
-                })
-              );
+            var $minimizeLink = $('<a href="#" style="font-size: 0.8em;" class="hide_file_preview_link">' + htmlEscape(I18n.t('links.minimize_file_preview', 'Minimize File Preview')) + '</a>')
+              .click(function(event) {
+                event.preventDefault();
+                $link.show();
+                $link.focus();
+                $div.remove();
+                $.trackEvent('hide_embedded_content', 'hide_file_preview');
+              });
+            $div.prepend($minimizeLink);
+            if (Object.prototype.hasOwnProperty.call(event, "originalEvent")) {
+              // Only focus this link if the open preview link was initiated by a real browser event
+              // If it was triggered by our auto_open stuff it shouldn't focus here.
+              $minimizeLink.focus();
+            }
             $.trackEvent('show_embedded_content', 'show_file_preview');
           }
         }, function() {
@@ -429,7 +378,7 @@ define([
         });
       });
     } else {
-      $("a.scribd_file_preview_link").live('click', function(event) {
+      $("a.file_preview_link").live('click', function(event) {
         event.preventDefault();
         alert(I18n.t('alerts.file_previews_disabled', 'File previews have been disabled for this Canvas site'));
       });
@@ -444,8 +393,10 @@ define([
 
 
     $(document).bind('user_content_change', enhanceUserContent);
-    setInterval(enhanceUserContent, 15000);
-    setTimeout(enhanceUserContent, 1000);
+    $(function () {
+      setInterval(enhanceUserContent, 15000);
+      setTimeout(enhanceUserContent, 15);
+    })
 
     $(".zone_cached_datetime").each(function() {
       if($(this).attr('title')) {
@@ -511,15 +462,6 @@ define([
       RichContentEditor.destroyRCE($editor);
     });
 
-    $(".cant_record_link").click(function(event) {
-      event.preventDefault();
-      $("#cant_record_dialog").dialog({
-        modal: true,
-        title: I18n.t('titles.cant_create_recordings', "Can't Create Recordings?"),
-        width: 400
-      });
-    });
-
     $(".communication_message .content .links .show_users_link,.communication_message .header .show_users_link").click(function(event) {
       event.preventDefault();
       $(this).parents(".communication_message").find(".content .users_list").slideToggle();
@@ -550,7 +492,7 @@ define([
         var $conversation = $message.parents(".communication_message");
 
         // fill out this message, display the new info, and remove the form
-        message_data = data.messages[0];
+        var message_data = data.messages[0];
         $message.fillTemplateData({
           data: {
             post_date: $.datetimeString(message_data.created_at),
@@ -838,13 +780,14 @@ define([
       var sf = $('#sequence_footer')
       if (sf.length) {
         var el = $(sf[0]);
-        require(['compiled/jquery/ModuleSequenceFooter'], function (){
+        require.ensure([], function (require) {
+          require('compiled/jquery/ModuleSequenceFooter')
           el.moduleSequenceFooter({
             courseID: el.attr("data-course-id"),
             assetType: el.attr("data-asset-type"),
             assetID: el.attr("data-asset-id")
           });
-        });
+        }, 'ModuleSequenceFooterAsyncChunk');
       }
     }
 
@@ -898,6 +841,9 @@ define([
     // the external link look and behavior (force them to open in a new tab)
     setTimeout(function() {
       $("#content a:external,#content a.explicit_external_link").each(function(){
+        var indicatorText = I18n.t('titles.external_link', 'Links to an external site.');
+        var $linkIndicator = $('<span class="ui-icon ui-icon-extlink ui-icon-inline"/>').attr('title', indicatorText);
+        $linkIndicator.append($('<span class="screenreader-only"/>').text(indicatorText));
         $(this)
           .not(".open_in_a_new_tab")
           .not(":has(img)")
@@ -907,18 +853,8 @@ define([
           .children("span.ui-icon-extlink").remove().end()
           .html('<span>' + $(this).html() + '</span>')
           .attr('target', '_blank')
-          .attr('rel', 'noreferrer')
-          .append('<span class="ui-icon ui-icon-extlink ui-icon-inline" title="' + htmlEscape(I18n.t('titles.external_link', 'Links to an external site.')) + '"/>');
+          .attr('rel', 'noreferrer noopener')
+          .append($linkIndicator);
       });
     }, 2000);
   });
-
-  $('input[placeholder], textarea[placeholder]').placeholder();
-
-  /**
-   * Expose functions for testing
-   */
-  return {
-    enhanceUserContent: enhanceUserContent
-  }
-});

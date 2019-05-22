@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2017 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,6 +20,8 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 require File.expand_path(File.dirname(__FILE__) + '/messages_helper')
 
 describe 'appointment_reserved_for_user' do
+  include MessagesCommon
+
   before :once do
     @user = user_model
     @course = course_model
@@ -31,7 +33,7 @@ describe 'appointment_reserved_for_user' do
 
   let(:notification_name) { :appointment_reserved_for_user }
   let(:asset) { @event }
-  let(:message_options) { { data: { updating_user: @teacher } } }
+  let(:message_options) { { data: { updating_user_name: @teacher.name } } }
 
   context ".email" do
     let(:path_type) { :email }

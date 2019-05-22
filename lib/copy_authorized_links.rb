@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -68,22 +68,20 @@ module CopyAuthorizedLinks
           if html && !html.empty?
             context, inferred_user = self.instance_eval(&block) if block
             user = @copy_authorized_links_override_user || inferred_user
-            html = Course.copy_authorized_content(html, context, user) if context && user
             self.write_attribute(column, html) if html && !html.empty?
           end
         end
       end
       true
     end
-    
+
     def content_being_saved_by(user)
       @copy_authorized_links_override_user = user
     end
   end
- 
+
   def self.included(klass)
     klass.send :include, CopyAuthorizedLinksInstanceMethods
     klass.extend CopyAuthorizedLinksClassMethods
   end
 end
- 

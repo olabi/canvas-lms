@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe 'Global Navigation' do
@@ -12,7 +29,7 @@ describe 'Global Navigation' do
       it 'should show the profile tray upon clicking' do
         get "/"
         f('#global_nav_profile_link').click
-        expect(f('#global_nav_profile_header')).to be_displayed
+        expect(f('[aria-label="Profile tray"] [aria-label="User profile picture"]')).to be_displayed
       end
 
       # Profile links are hardcoded, so check that something is appearing for
@@ -28,7 +45,7 @@ describe 'Global Navigation' do
         get "/"
         f('#global_nav_courses_link').click
         wait_for_ajaximations
-        expect(f('.ic-NavMenu__primary-content')).to be_displayed
+        expect(f("[aria-label='Courses tray']")).to be_displayed
       end
 
       it 'should populate the courses tray when using the keyboard to open it' do
@@ -36,15 +53,37 @@ describe 'Global Navigation' do
         driver.execute_script('$("#global_nav_courses_link").focus()')
         f('#global_nav_courses_link').send_keys(:enter)
         wait_for_ajaximations
-        links = ff('.ic-NavMenu__link-list li')
+        links = ff('[aria-label="Courses tray"] li a')
         expect(links.count).to eql 2
+      end
+    end
+
+    describe 'Groups Link' do
+      it 'filters concluded groups and loads additional pages if necessary' do
+        Setting.set('api_per_page', 2)
+
+        student = user_factory
+        2.times do |x|
+          course = course_with_student(:user => student, :active_all => true).course
+          group_with_user(:user => student, :group_context => course, :name => "A Old Group #{x}")
+          course.complete!
+        end
+
+        course = course_with_student(:user => student, :active_all => true).course
+        group_with_user(:user => student, :group_context => course, :name => "Z Current Group")
+
+        user_session(student)
+        get "/"
+        f('#global_nav_groups_link').click
+        wait_for_ajaximations
+        links = ff('[aria-label="Groups tray"] li a')
+        expect(links.map(&:text)).to eq(['Z Current Group', 'All Groups'])
       end
     end
 
     describe 'LTI Tools' do
       it 'should show a custom logo/link for LTI tools' do
         Account.default.enable_feature! :lor_for_account
-        @teacher.enable_feature! :lor_for_user
         @tool = Account.default.context_external_tools.new({
           :name => "Commons",
           :domain => "canvaslms.com",

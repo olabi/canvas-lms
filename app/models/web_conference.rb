@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -170,7 +170,7 @@ class WebConference < ActiveRecord::Base
     p.dispatch :web_conference_recording_ready
     p.to { user }
     p.whenever do
-      recording_ready? && recording_ready_changed?
+      recording_ready? && saved_change_to_recording_ready?
     end
   end
 
@@ -413,7 +413,7 @@ class WebConference < ActiveRecord::Base
     can :initiate and can :close
 
     given { |user, session| self.context.grants_all_rights?(user, session, :manage_content, :create_conferences) }
-    can :read and can :join and can :initiate and can :delete and can :close
+    can :read and can :join and can :initiate and can :delete and can :close and can :manage_recordings
 
     given { |user, session| context.grants_all_rights?(user, session, :manage_content, :create_conferences) && !finished? }
     can :update

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 
 # @API Accounts
+# @subtopic Subaccounts
 class SubAccountsController < ApplicationController
   include Api::V1::Account
 
@@ -42,13 +43,15 @@ class SubAccountsController < ApplicationController
     end
   end
 
-  before_filter :require_context, :require_account_management
+  before_action :require_context, :require_account_management
   def index
     @query = params[:account] && params[:account][:name] || params[:term]
     if @query
       @accounts = []
       if @context && @context.is_a?(Account)
-        @accounts = @context.all_accounts.active.name_like(@query).limit(100)
+        @accounts = @context.all_accounts.active.name_like(@query).limit(100).to_a
+        @accounts << @context if value_to_boolean(params[:include_self]) && @context.name.downcase.include?(@query.downcase)
+        @accounts.sort_by!{|a| Canvas::ICU.collation_key(a.name)}
       end
       respond_to do |format|
         format.html {
@@ -89,8 +92,11 @@ class SubAccountsController < ApplicationController
   def show
     @sub_account = subaccount_or_self(params[:id])
     ActiveRecord::Associations::Preloader.new.preload(@sub_account, [{:sub_accounts => [:parent_account, :root_account]}])
-    render :json => @sub_account.as_json(:only => [:id, :name], :methods => [:course_count, :sub_account_count],
-                                         :include => [:sub_accounts => {:only => [:id, :name], :methods => [:course_count, :sub_account_count]}])
+    sub_account_json = @sub_account.as_json(:only => [:id, :name], :methods => [:course_count, :sub_account_count])
+    sort_key = Account.best_unicode_collation_key('accounts.name')
+    sub_accounts = @sub_account.sub_accounts.order(sort_key).as_json(only: [:id, :name], methods: [:course_count, :sub_account_count])
+    sub_account_json[:account][:sub_accounts] = sub_accounts
+    render json: sub_account_json
   end
 
   # @API Create a new sub-account
@@ -134,7 +140,7 @@ class SubAccountsController < ApplicationController
     if @sub_account.save
       render :json => account_json(@sub_account, @current_user, session, [])
     else
-      render :json => @sub_account.errors
+      render :json => @sub_account.errors, status: 400
     end
   end
 
@@ -144,17 +150,28 @@ class SubAccountsController < ApplicationController
     if @sub_account.update_attributes(account_params)
       render :json => account_json(@sub_account, @current_user, session, [])
     else
-      render :json => @sub_account.errors
+      render :json => @sub_account.errors, status: 400
     end
   end
 
+  # @API Delete a sub-account
+  # Cannot delete an account with active courses or active sub_accounts.
+  # Cannot delete a root_account
+  #
+  # @returns Account
   def destroy
     @sub_account = subaccount_or_self(params[:id])
     if @sub_account.associated_courses.not_deleted.exists?
-      return render json: { message: I18n.t("You can't delete a sub-account that has courses in it.") }, status: 409
+      return render json: {message: I18n.t("You can't delete a sub-account that has courses in it.")}, status: 409
+    end
+    if @sub_account.sub_accounts.exists?
+      return render json: {message: I18n.t("You can't delete a sub-account that has sub-accounts in it.")}, status: 409
+    end
+    if @sub_account.root_account?
+      return render json: {message: I18n.t("You can't delete a root_account.")}, status: 401
     end
     @sub_account.destroy
-    render :json => @sub_account
+    render json: account_json(@sub_account, @current_user, session, [])
   end
 
   protected

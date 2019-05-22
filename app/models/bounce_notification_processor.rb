@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require 'aws-sdk'
+require 'aws-sdk-sqs'
 
 class BounceNotificationProcessor
   attr_reader :config
@@ -28,28 +28,29 @@ class BounceNotificationProcessor
   }.freeze
 
   def self.config
-    @@config ||= ConfigFile.load('bounce_notifications').try(:symbolize_keys)
+    ConfigFile.load('bounce_notifications').try(:symbolize_keys).try(:freeze)
   end
 
   def self.enabled?
-    !!config
+    !!self.config
   end
 
-  def self.process(config = self.config)
-    self.new(config).process
+  def self.process
+    self.new.process
   end
 
-  def initialize(config = self.class.config)
-    @config = DEFAULT_CONFIG.merge(config)
+  def initialize
+    @config = DEFAULT_CONFIG.merge(self.class.config || {})
   end
 
   def process
+    return nil unless self.class.enabled?
     bounce_queue.poll(config.slice(*POLL_PARAMS)) do |message|
       bounce_notification = parse_message(message)
       if bounce_notification
         process_bounce_notification(bounce_notification)
       else
-        CanvasStatsd::Statsd.increment('bounce_notification_processor.processed.no_bounce')
+        InstStatsd::Statsd.increment('bounce_notification_processor.processed.no_bounce')
       end
     end
   end
@@ -70,13 +71,13 @@ class BounceNotificationProcessor
 
   def process_bounce_notification(bounce_notification)
     type = if is_suppression_bounce?(bounce_notification)
-             'suppression'
-           elsif is_permanent_bounce?(bounce_notification)
-             'permanent'
-           else
-             'transient'
-           end
-    CanvasStatsd::Statsd.increment("bounce_notification_processor.processed.#{type}")
+      'suppression'
+    elsif is_permanent_bounce?(bounce_notification)
+      'permanent'
+    else
+      'transient'
+    end
+    InstStatsd::Statsd.increment("bounce_notification_processor.processed.#{type}")
 
     bouncy_addresses(bounce_notification).each do |address|
       CommunicationChannel.bounce_for_path(

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -59,11 +59,11 @@
 class TabsController < ApplicationController
   include Api::V1::Tab
 
-  before_filter :require_context
+  before_action :require_context
 
   # @API List available tabs for a course or group
   #
-  # Returns a list of navigation tabs available in the current context.
+  # Returns a paginated list of navigation tabs available in the current context.
   #
   # @argument include[] [String, "external"]
   #   "external":: Optionally include external tool tabs in the returned list of tabs (Only has effect for courses, not groups)
@@ -101,7 +101,7 @@ class TabsController < ApplicationController
   #         "label": "Grades",
   #         "position": 3,
   #         "hidden": true
-  #         "visibility": admin
+  #         "visibility": "admins"
   #         "type": "internal"
   #       }
   #     ]
@@ -166,8 +166,10 @@ class TabsController < ApplicationController
         tab[:position] = new_pos
       end
 
-      @context.tab_configuration = tab_config
-      @context.save!
+      if @context.tab_configuration != tab_config
+        @context.tab_configuration = tab_config
+        @context.save!
+      end
       render json: tab_json(tab, @context, @current_user, session)
     end
   end

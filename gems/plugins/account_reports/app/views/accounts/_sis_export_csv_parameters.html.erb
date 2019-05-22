@@ -51,6 +51,15 @@
   <tr>
     <td>
       <label class="checkbox">
+        <%= check_box_tag "parameters[group_categories]"   %>
+        <%= t('Group Categories CSV') %>
+      </label>
+    </td>
+  </tr>
+  <tr>
+  <tr>
+    <td>
+      <label class="checkbox">
         <%= check_box_tag "parameters[groups]"   %>
         <%= t('account_reports.default.groups.check_box','Groups CSV') %>
       </label>
@@ -69,6 +78,22 @@
       <label class="checkbox">
         <%= check_box_tag "parameters[xlist]"   %>
         <%= t('account_reports.default.xlist.check_box','X list CSV') %>
+      </label>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <label class="checkbox">
+        <%= check_box_tag "parameters[user_observers]"   %>
+        <%= t('User Observer CSV') %>
+      </label>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <label class="checkbox">
+        <%= check_box_tag "parameters[admins]"   %>
+        <%= t('Admin CSV') %>
       </label>
     </td>
   </tr>

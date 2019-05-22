@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -43,7 +60,7 @@ describe "quiz taking" do
     expect(links[2]).to be_displayed
   end
 
-  it "should allow to take the quiz as long as there are attempts left", priority: "1", test_id: 140606 do
+  it "should allow to take the quiz as long as there are attempts left", :xbrowser, priority: "1", test_id: 140606 do
     @quiz.allowed_attempts = 2
     @quiz.save!
     get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
@@ -62,19 +79,18 @@ describe "quiz taking" do
   end
 
   it "should show a prompt when attempting to submit with unanswered questions", priority: "1", test_id: 140608 do
+    skip_if_safari(:alert)
     get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
     expect_new_page_load{f('#take_quiz_link').click}
     # answer just one question
     question = @quiz.stored_questions[0][:id]
     fj("input[type=radio][name= 'question_#{question}']").click
-    wait_for_js
     f('#submit_quiz_button').click
     # expect alert prompt to show, dismiss and answer the remaining questions
     expect(driver.switch_to.alert.text).to be_present
     dismiss_alert
     question = @quiz.stored_questions[1][:id]
     fj("input[type=radio][name= 'question_#{question}']").click
-    wait_for_js
     expect_new_page_load { f('#submit_quiz_button').click }
     expect(f('.quiz-submission .quiz_score .score_value')).to be_displayed
   end

@@ -1,11 +1,27 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
-  'i18n!calendar',
   'jquery'
   'underscore'
   'Backbone',
   'jst/calendar/calendarNavigator',
   'jquery.instructure_date_and_time' # $.date_field
-], (I18n, $, _, Backbone, template) ->
+], ($, _, Backbone, template) ->
 
   class CalendarNavigator extends Backbone.View
     template: template
@@ -51,6 +67,7 @@ define [
     hide: => @show(false)
 
     setTitle: (new_text) =>
+      @$titleText.attr('aria-label', new_text + " click to change")
       @$titleText.text(new_text)
 
     showPicker: (visible = true) ->

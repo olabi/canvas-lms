@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2017 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require "simplecov"
 require "simplecov-rcov"
 
@@ -15,7 +32,7 @@ SimpleCov.add_filter '/db_imports/'
 SimpleCov.add_filter '/distributed_ci/'
 SimpleCov.add_filter '/spec_canvas/'
 SimpleCov.add_filter '/db/'
-SimpleCov.add_filter '._cache/'
+SimpleCov.add_filter %r{^_cache/} # https://github.com/colszowka/simplecov/pull/617
 
 SimpleCov.add_group 'Controllers', 'app/controllers'
 SimpleCov.add_group 'Models', 'app/models'

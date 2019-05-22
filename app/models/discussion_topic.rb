@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-#
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,13 +31,18 @@ class DiscussionTopic < ActiveRecord::Base
   include ContextModuleItem
   include SearchTermHelper
   include Submittable
+  include Plannable
   include MasterCourses::Restrictor
-  restrict_columns :content, [:title, :message]
-  restrict_columns :settings, [:delayed_post_at, :require_initial_post, :discussion_type,
-                               :lock_at, :pinned, :locked, :allow_rating, :only_graders_can_rate, :sort_by_rating]
-  restrict_columns :settings, Assignment::RESTRICTED_SETTINGS
+  include DuplicatingObjects
+  include LockedFor
 
-  attr_accessor :user_has_posted, :saved_by
+  restrict_columns :content, [:title, :message]
+  restrict_columns :settings, [:delayed_post_at, :require_initial_post, :discussion_type, :assignment_id,
+                               :lock_at, :pinned, :locked, :allow_rating, :only_graders_can_rate, :sort_by_rating]
+  restrict_columns :state, [:workflow_state]
+  restrict_assignment_columns
+
+  attr_accessor :user_has_posted, :saved_by, :total_root_discussion_entries
 
   module DiscussionTypes
     SIDE_COMMENT = 'side_comment'
@@ -50,9 +53,9 @@ class DiscussionTopic < ActiveRecord::Base
 
   attr_readonly :context_id, :context_type, :user_id
 
-  has_many :discussion_entries, -> { order(:created_at) }, dependent: :destroy
+  has_many :discussion_entries, -> { order(:created_at) }, dependent: :destroy, inverse_of: :discussion_topic
   has_many :rated_discussion_entries, -> { order(
-    ['COALESCE(parent_id, 0)', 'COALESCE(rating_sum, 0) DESC', :created_at]) }, class_name: 'DiscussionEntry'
+    Arel.sql('COALESCE(parent_id, 0)'), Arel.sql('COALESCE(rating_sum, 0) DESC'), :created_at) }, class_name: 'DiscussionEntry'
   has_many :root_discussion_entries, -> { preload(:user).where("discussion_entries.parent_id IS NULL AND discussion_entries.workflow_state<>'deleted'") }, class_name: 'DiscussionEntry'
   has_one :external_feed_entry, :as => :asset
   belongs_to :external_feed
@@ -64,14 +67,22 @@ class DiscussionTopic < ActiveRecord::Base
   has_many :child_topics, :class_name => 'DiscussionTopic', :foreign_key => :root_topic_id, :dependent => :destroy
   has_many :discussion_topic_participants, :dependent => :destroy
   has_many :discussion_entry_participants, :through => :discussion_entries
-
+  has_many :discussion_topic_section_visibilities, -> {
+    where("discussion_topic_section_visibilities.workflow_state<>'deleted'")
+  }, inverse_of: :discussion_topic, dependent: :destroy
+  has_many :course_sections, :through => :discussion_topic_section_visibilities, :dependent => :destroy
   belongs_to :user
 
+  validates_associated :discussion_topic_section_visibilities
   validates_presence_of :context_id, :context_type
   validates_inclusion_of :discussion_type, :in => DiscussionTypes::TYPES
   validates_length_of :message, :maximum => maximum_long_text_length, :allow_nil => true, :allow_blank => true
   validates_length_of :title, :maximum => maximum_string_length, :allow_nil => true
   validate :validate_draft_state_change, :if => :workflow_state_changed?
+  validate :section_specific_topics_must_have_sections
+  validate :only_course_topics_can_be_section_specific
+  validate :assignments_cannot_be_section_specific
+  validate :course_group_discussion_cannot_be_section_specific
 
   sanitize_field :message, CanvasSanitize::SANITIZE
   copy_authorized_links(:message) { [self.context, nil] }
@@ -85,9 +96,43 @@ class DiscussionTopic < ActiveRecord::Base
   after_save :touch_context
   after_save :schedule_delayed_transitions
   after_save :update_materialized_view_if_changed
+  after_save :recalculate_progressions_if_sections_changed
+  after_save :sync_attachment_with_publish_state
   after_update :clear_streams_if_not_published
   after_create :create_participant
   after_create :create_materialized_view
+
+  def section_specific_topics_must_have_sections
+    if !self.deleted? && self.is_section_specific && self.discussion_topic_section_visibilities.none?(&:active?)
+      self.errors.add(:is_section_specific, t("Section specific topics must have sections"))
+    else
+      true
+    end
+  end
+
+  def only_course_topics_can_be_section_specific
+    if self.is_section_specific && !(self.context.is_a? Course)
+      self.errors.add(:is_section_specific, t("Only course announcements and discussions can be section-specific"))
+    else
+      true
+    end
+  end
+
+  def assignments_cannot_be_section_specific
+    if self.is_section_specific && self.assignment
+      self.errors.add(:is_section_specific, t("Discussion assignments cannot be section-specific"))
+    else
+      true
+    end
+  end
+
+  def course_group_discussion_cannot_be_section_specific
+    if self.is_section_specific && self.has_group_category?
+      self.errors.add(:is_section_specific, t("Discussions with groups cannot be section-specific"))
+    else
+      true
+    end
+  end
 
   def threaded=(v)
     self.discussion_type = Canvas::Plugin.value_to_boolean(v) ? DiscussionTypes::THREADED : DiscussionTypes::SIDE_COMMENT
@@ -118,8 +163,15 @@ class DiscussionTopic < ActiveRecord::Base
     @content_changed = self.message_changed? || self.title_changed?
     default_submission_values
     if self.has_group_category?
-      self.subtopics_refreshed_at ||= Time.parse("Jan 1 2000")
+      self.subtopics_refreshed_at ||= Time.zone.parse("Jan 1 2000")
     end
+    self.lock_at = CanvasTime.fancy_midnight(self.lock_at)
+
+    [
+      :could_be_locked, :podcast_enabled, :podcast_has_student_posts,
+      :require_initial_post, :pinned, :locked, :allow_rating,
+      :only_graders_can_rate, :sort_by_rating
+    ].each { |attr| self[attr] = false if self[attr].nil? }
   end
   protected :default_values
 
@@ -141,8 +193,19 @@ class DiscussionTopic < ActiveRecord::Base
   end
 
   def update_materialized_view_if_changed
-    if self.sort_by_rating_changed?
+    if self.saved_change_to_sort_by_rating?
       update_materialized_view
+    end
+  end
+
+  attr_writer :sections_changed
+  def recalculate_progressions_if_sections_changed
+    # either changed sections or undid section specificness
+    return unless self.is_section_specific? ? @sections_changed : self.is_section_specific_before_last_save
+    self.class.connection.after_transaction_commit do
+      if self.context_module_tags.preload(:context_module).exists?
+        self.context_module_tags.map(&:context_module).uniq.each(&:invalidate_progressions)
+      end
     end
   end
 
@@ -158,8 +221,17 @@ class DiscussionTopic < ActiveRecord::Base
     @should_schedule_lock_at = nil
   end
 
+  def sync_attachment_with_publish_state
+    if (self.saved_change_to_workflow_state? || self.saved_change_to_locked? || self.saved_change_to_attachment_id?) && self.attachment
+      unless self.attachment.hidden? # if it's already hidden leave alone
+        locked = !!(unpublished? || not_available_yet? || not_available_anymore?)
+        self.attachment.update_attribute(:locked, locked)
+      end
+    end
+  end
+
   def update_subtopics
-    if !self.deleted? && (self.has_group_category? || !!self.group_category_id_was)
+    if !self.deleted? && (self.has_group_category? || !!self.group_category_id_before_last_save)
       send_later_if_production :refresh_subtopics
     end
   end
@@ -210,13 +282,21 @@ class DiscussionTopic < ActiveRecord::Base
     end
     if @old_assignment_id
       Assignment.where(:id => @old_assignment_id, :context_id => self.context_id, :context_type => self.context_type, :submission_types => 'discussion_topic').update_all(:workflow_state => 'deleted', :updated_at => Time.now.utc)
-      ContentTag.delete_for(Assignment.find(@old_assignment_id)) if @old_assignment_id
+      old_assignment = Assignment.find(@old_assignment_id)
+      ContentTag.delete_for(old_assignment)
+      # prevent future syncs from recreating the deleted assignment
+      if is_child_content?
+        old_assignment.submission_types = 'none'
+        context.master_course_subscriptions.each do |sub|
+          sub.create_content_tag_for!(old_assignment, :downstream_changes => ['workflow_state'])
+        end
+      end
     elsif self.assignment && @saved_by != :assignment && !self.root_topic_id
       deleted_assignment = self.assignment.deleted?
       self.sync_assignment
       self.assignment.workflow_state = "published" if is_announcement && deleted_assignment
       self.assignment.description = self.message
-      if group_category_id_changed?
+      if saved_change_to_group_category_id?
         self.assignment.validate_assignment_overrides(force_override_destroy: true)
       end
       self.assignment.save
@@ -226,11 +306,15 @@ class DiscussionTopic < ActiveRecord::Base
     # ungraded to graded, or from one assignment to another; we ignore the
     # transition from graded to ungraded) we acknowledge that the users that
     # have posted have contributed to the topic
-    if self.assignment_id && self.assignment_id_changed?
-      posters.each{ |user| self.context_module_action(user, :contributed) }
+    if self.assignment_id && self.saved_change_to_assignment_id?
+      recalculate_context_module_actions!
     end
   end
   protected :update_assignment
+
+  def recalculate_context_module_actions!
+    posters.each{ |user| self.context_module_action(user, :contributed) }
+  end
 
   def is_announcement; false end
 
@@ -266,11 +350,95 @@ class DiscussionTopic < ActiveRecord::Base
 
   def update_materialized_view
     # kick off building of the view
-    DiscussionTopic::MaterializedView.for(self).update_materialized_view
+    self.class.connection.after_transaction_commit do
+      DiscussionTopic::MaterializedView.for(self).update_materialized_view(xlog_location: self.class.current_xlog_location)
+    end
   end
 
   def group_category_deleted_with_entries?
     self.group_category.try(:deleted_at?) && !can_group?
+  end
+
+  def get_potentially_conflicting_titles(title_base)
+    DiscussionTopic.active.where(context_type: self.context_type, context_id: self.context_id).
+      starting_with_title(title_base).pluck("title").to_set
+  end
+
+  # This is a guess of what to copy over.
+  def duplicate_base_model(title, opts)
+    DiscussionTopic.new({
+      :title => title,
+      :message => self.message,
+      :context_id => self.context_id,
+      :context_type => self.context_type,
+      :user_id => opts[:user] ? opts[:user].id : self.user_id,
+      :type => self.type,
+      :workflow_state => "unpublished",
+      :could_be_locked => self.could_be_locked,
+      :context_code => self.context_code,
+      :podcast_enabled => self.podcast_enabled,
+      :require_initial_post => self.require_initial_post,
+      :podcast_has_student_posts => self.podcast_has_student_posts,
+      :discussion_type => self.discussion_type,
+      :delayed_post_at => self.delayed_post_at,
+      :lock_at => self.lock_at,
+      :pinned => self.pinned,
+      :locked => self.locked,
+      :group_category_id => self.group_category_id,
+      :allow_rating => self.allow_rating,
+      :only_graders_can_rate => self.only_graders_can_rate,
+      :sort_by_rating => self.sort_by_rating,
+      :todo_date => self.todo_date,
+      :is_section_specific => self.is_section_specific
+    })
+  end
+
+  # Presumes that self has no parents
+  # Does not duplicate the child topics; the hooks take care of that for us.
+  def duplicate(opts = {})
+    # Don't clone a new record
+    return self if self.new_record?
+    default_opts = {
+      :duplicate_assignment => true,
+      :copy_title => nil,
+      :user => nil
+    }
+    opts_with_default = default_opts.merge(opts)
+    copy_title =
+      opts_with_default[:copy_title] ? opts_with_default[:copy_title] : get_copy_title(self, t("Copy"), self.title)
+    result = self.duplicate_base_model(copy_title, opts_with_default)
+
+    # Start with a position guaranteed to not conflict with existing ones.
+    # Clients are encouraged to set the correct position later on and do
+    # an insert_at upon save.
+
+    if self.pinned
+      result.position = self.context.discussion_topics.active.where(:pinned => true).maximum(:position) + 1
+    end
+
+    if self.assignment && opts_with_default[:duplicate_assignment]
+      result.assignment = self.assignment.duplicate({
+        :duplicate_discussion_topic => false,
+        :copy_title => result.title
+      })
+    end
+
+    result.discussion_topic_section_visibilities = []
+    if self.is_section_specific
+      original_visibilities = self.discussion_topic_section_visibilities.active
+      original_visibilities.each do |visibility|
+        new_visibility = DiscussionTopicSectionVisibility.new(
+          :discussion_topic => result,
+          :course_section => visibility.course_section
+        )
+        result.discussion_topic_section_visibilities << new_visibility
+      end
+    end
+
+    # For some reason, the relation doesn't take care of this for us. Don't understand why.
+    # Without this line, *two* discussion topic duplicates appear when a save is performed.
+    result.assignment&.discussion_topic = result
+    result
   end
 
   # If no join record exists, assume all discussion enrties are unread, and
@@ -363,14 +531,18 @@ class DiscussionTopic < ActiveRecord::Base
   # Do not use the lock options unless you truly need
   # the lock, for instance to update the count.
   # Careless use has caused database transaction deadlocks
-  def unread_count(current_user = nil, lock: false)
+  def unread_count(current_user = nil, lock: false, opts: {})
     current_user ||= self.current_user
     return 0 unless current_user # default for logged out users
 
     environment = lock ? :master : :slave
     Shackles.activate(environment) do
-      topic_participant = discussion_topic_participants.where(user_id: current_user).select(:unread_entry_count).lock(lock).first
-      topic_participant.try(:unread_entry_count) || self.default_unread_count
+      topic_participant = if opts[:use_preload] && self.association(:discussion_topic_participants).loaded?
+        self.discussion_topic_participants.find{|dtp| dtp.user_id == current_user.id}
+      else
+        discussion_topic_participants.where(user_id: current_user).select(:unread_entry_count).lock(lock).take
+      end
+      topic_participant&.unread_entry_count || self.default_unread_count
     end
   end
 
@@ -382,7 +554,7 @@ class DiscussionTopic < ActiveRecord::Base
   def subscription_hold(user, context_enrollment, session)
     return nil unless user
     case
-    when initial_post_required?(user, context_enrollment, session)
+    when initial_post_required?(user, session)
       :initial_post_required
     when root_topic? && !child_topic_for(user)
       :not_in_group_set
@@ -391,16 +563,19 @@ class DiscussionTopic < ActiveRecord::Base
     end
   end
 
-  def subscribed?(current_user = nil)
+  def subscribed?(current_user = nil, opts: {})
     current_user ||= self.current_user
     return false unless current_user # default for logged out user
 
     if root_topic?
       participant = DiscussionTopicParticipant.where(user_id: current_user.id,
-        discussion_topic_id: child_topics.pluck(:id)).first
+        discussion_topic_id: child_topics.pluck(:id)).take
     end
-    participant ||= discussion_topic_participants.where(:user_id => current_user.id).first
-
+    participant ||= if opts[:use_preload] && self.association(:discussion_topic_participants).loaded?
+        self.discussion_topic_participants.find{|dtp| dtp.user_id == current_user.id}
+      else
+        discussion_topic_participants.where(user_id: current_user).take
+      end
     if participant
       if participant.subscribed.nil?
         # if there is no explicit subscription, assume the author and posters
@@ -470,6 +645,66 @@ class DiscussionTopic < ActiveRecord::Base
     topic_participant
   end
 
+  scope :not_ignored_by, -> (user, purpose) do
+    where("NOT EXISTS (?)", Ignore.where(asset_type: 'DiscussionTopic', user_id: user, purpose: purpose).
+      where("asset_id=discussion_topics.id"))
+  end
+
+  scope :todo_date_between, -> (starting, ending) do
+    where("(discussion_topics.type = 'Announcement' AND posted_at BETWEEN :start_at and :end_at)
+           OR todo_date BETWEEN :start_at and :end_at", {start_at: starting, end_at: ending})
+  end
+  scope :for_courses_and_groups, -> (course_ids, group_ids) do
+    where("(discussion_topics.context_type = 'Course'
+          AND discussion_topics.context_id IN (?))
+          OR (discussion_topics.context_type = 'Group'
+          AND discussion_topics.context_id IN (?))", course_ids, group_ids)
+  end
+
+
+  class QueryError < StandardError
+    attr_accessor :status_code
+
+    def initialize(message = nil, status_code = nil)
+      super(message)
+      self.status_code = status_code
+    end
+  end
+
+  # Retrieves all the *course* (as oppposed to group) discussion topics that apply
+  # to the given sections.  Group topics will not be returned.  TODO: figure out
+  # a good way to deal with group topics here.
+  #
+  # Takes in an array of section objects, and it is required that they all belong
+  # to the same course.  At least one section must be provided.
+  scope :in_sections, -> (course_sections) do
+    course_ids = course_sections.pluck(:course_id).uniq
+    if course_ids.length != 1
+      raise QueryError.new(
+        I18n.t("Searching for announcements in sections must span exactly one course")
+      )
+    end
+    course_id = course_ids.first
+    joins("LEFT OUTER JOIN #{DiscussionTopicSectionVisibility.quoted_table_name}
+           AS discussion_section_visibilities ON discussion_topics.is_section_specific = true AND
+           discussion_section_visibilities.discussion_topic_id = discussion_topics.id").
+      where("discussion_topics.context_type = 'Course' AND
+             discussion_topics.context_id = :course_id", {:course_id => course_id }).
+      where("discussion_section_visibilities.id IS null OR
+             (discussion_section_visibilities.workflow_state = 'active' AND
+              discussion_section_visibilities.course_section_id IN (:course_sections))",
+            { :course_sections => course_sections.pluck(:id) }).distinct
+  end
+
+  scope :visible_to_student_sections, -> (student) {
+    visibility_scope = DiscussionTopicSectionVisibility.active.
+      where("discussion_topic_section_visibilities.discussion_topic_id = discussion_topics.id").
+      where("EXISTS (?)", Enrollment.active_or_pending.where(:user_id => student).
+        where("enrollments.course_section_id = discussion_topic_section_visibilities.course_section_id")
+      )
+    where("discussion_topics.context_type <> 'Course' OR discussion_topics.is_section_specific = false OR EXISTS (?)", visibility_scope)
+  }
+
   scope :recent, -> { where("discussion_topics.last_reply_at>?", 2.weeks.ago).order("discussion_topics.last_reply_at DESC") }
   scope :only_discussion_topics, -> { where(:type => nil) }
   scope :for_subtopic_refreshing, -> { where("discussion_topics.subtopics_refreshed_at IS NOT NULL AND discussion_topics.subtopics_refreshed_at<discussion_topics.updated_at").order("discussion_topics.subtopics_refreshed_at") }
@@ -482,11 +717,34 @@ class DiscussionTopic < ActiveRecord::Base
   scope :by_position_legacy, -> { order("discussion_topics.position DESC, discussion_topics.created_at DESC, discussion_topics.id DESC") }
   scope :by_last_reply_at, -> { order("discussion_topics.last_reply_at DESC, discussion_topics.created_at DESC, discussion_topics.id DESC") }
 
-  scope :by_posted_at, -> { order(<<-SQL)
-      COALESCE(discussion_topics.delayed_post_at, discussion_topics.posted_at) DESC,
+  scope :by_posted_at, -> { order(Arel.sql(<<-SQL))
+      COALESCE(discussion_topics.delayed_post_at, discussion_topics.posted_at, discussion_topics.created_at) DESC,
       discussion_topics.created_at DESC,
       discussion_topics.id DESC
     SQL
+  }
+
+  scope :read_for, lambda { |user|
+    eager_load(:discussion_topic_participants).
+    where("discussion_topic_participants.id IS NOT NULL
+          AND (discussion_topic_participants.user_id = :user
+            AND discussion_topic_participants.workflow_state = 'read')",
+          user: user)
+  }
+  scope :unread_for, lambda { |user|
+    joins(sanitize_sql(["LEFT OUTER JOIN #{DiscussionTopicParticipant.quoted_table_name} ON
+            discussion_topic_participants.discussion_topic_id=discussion_topics.id AND
+            discussion_topic_participants.user_id=?", user.id])).
+    where("discussion_topic_participants IS NULL
+          OR discussion_topic_participants.workflow_state <> 'read'
+          OR discussion_topic_participants.unread_entry_count > 0")
+  }
+  scope :published, -> { where("discussion_topics.workflow_state = 'active'") }
+
+  # TODO: this scope is appearing in a few models now with identical code.
+  # Can this be extracted somewhere?
+  scope :starting_with_title, lambda { |title|
+    where('title ILIKE ?', "#{title}%")
   }
 
   alias_attribute :available_from, :delayed_post_at
@@ -564,7 +822,7 @@ class DiscussionTopic < ActiveRecord::Base
   def comments_disabled?
     !!(self.is_a?(Announcement) &&
       self.context.is_a?(Course) &&
-      self.context.settings[:lock_all_announcements])
+      self.context.lock_all_announcements)
   end
 
   def lock(opts = {})
@@ -580,12 +838,6 @@ class DiscussionTopic < ActiveRecord::Base
     save! unless opts[:without_save]
   end
   alias_method :unlock!, :unlock
-
-  # deprecated with draft state: use publish+available_[from|until] machinery instead
-  # you probably want available?
-  def locked?
-    locked.nil? ? workflow_state == 'locked' : locked
-  end
 
   def published?
     return false if workflow_state == 'unpublished'
@@ -617,9 +869,9 @@ class DiscussionTopic < ActiveRecord::Base
 
     student_ids = context.all_real_student_enrollments.select(:user_id)
     topic_ids_with_entries = DiscussionEntry.active.where(discussion_topic_id: topics).
-      where(:user_id => student_ids).uniq.pluck(:discussion_topic_id)
+      where(:user_id => student_ids).distinct.pluck(:discussion_topic_id)
     topic_ids_with_entries += DiscussionTopic.where("root_topic_id IS NOT NULL").
-      where(:id => topic_ids_with_entries).uniq.pluck(:root_topic_id)
+      where(:id => topic_ids_with_entries).distinct.pluck(:root_topic_id)
 
     topics.each do |topic|
       if topic.assignment_id
@@ -656,7 +908,7 @@ class DiscussionTopic < ActiveRecord::Base
 
   on_update_send_to_streams do
     check_state = !is_announcement ? 'unpublished' : 'post_delayed'
-    became_active = workflow_state_was == check_state && workflow_state == 'active'
+    became_active = workflow_state_before_last_save == check_state && workflow_state == 'active'
     if should_send_to_stream && (@content_changed || became_active)
       self.active_participants_with_visibility
     end
@@ -673,15 +925,16 @@ class DiscussionTopic < ActiveRecord::Base
   end
 
   def user_ids_who_have_posted_and_admins
-    scope = DiscussionEntry.active.select(:user_id).uniq.where(:discussion_topic_id => self)
+    scope = DiscussionEntry.active.select(:user_id).distinct.where(:discussion_topic_id => self)
     ids = scope.pluck(:user_id)
-    ids += self.context.admin_enrollments.active.pluck(:user_id) if self.context.respond_to?(:admin_enrollments)
+    ids += self.course.admin_enrollments.active.pluck(:user_id) if self.course.is_a?(Course)
     ids
   end
 
-  def user_can_see_posts?(user, session=nil)
+  def user_can_see_posts?(user, session=nil, associated_user_ids=[])
     return false unless user
-    !self.require_initial_post? || self.grants_right?(user, session, :update) || user_ids_who_have_posted_and_admins.member?(user.id)
+    !self.require_initial_post? || self.grants_right?(user, session, :read_as_admin) ||
+      (([user.id] + associated_user_ids) & user_ids_who_have_posted_and_admins).any?
   end
 
   def reply_from(opts)
@@ -702,16 +955,14 @@ class DiscussionTopic < ActiveRecord::Base
     elsif !self.grants_right?(user, :read)
       nil
     else
-      entry = DiscussionEntry.new({
-        :message => message,
-        :discussion_topic => self,
-        :user => user,
-      })
-      if !entry.grants_right?(user, :create)
-        raise IncomingMail::Errors::ReplyToLockedTopic
-      else
-        entry.save!
-        entry
+      self.shard.activate do
+        entry = discussion_entries.new(message: message, user: user)
+        if !entry.grants_right?(user, :create)
+          raise IncomingMail::Errors::ReplyToLockedTopic
+        else
+          entry.save!
+          entry
+        end
       end
     end
   end
@@ -721,6 +972,7 @@ class DiscussionTopic < ActiveRecord::Base
     ContentTag.delete_for(self)
     self.workflow_state = 'deleted'
     self.deleted_at = Time.now.utc
+    self.discussion_topic_section_visibilities&.update_all(:workflow_state => "deleted")
     self.save
 
     if self.for_assignment? && self.root_topic_id.blank?
@@ -733,6 +985,12 @@ class DiscussionTopic < ActiveRecord::Base
   end
 
   def restore(from=nil)
+    if self.is_section_specific?
+      DiscussionTopicSectionVisibility.where(discussion_topic_id: self.id).to_a.uniq(&:course_section_id).each do |dtsv|
+        dtsv.workflow_state = 'active'
+        dtsv.save
+      end
+    end
     self.workflow_state = can_unpublish? ? 'unpublished' : 'active'
     self.save
 
@@ -760,8 +1018,10 @@ class DiscussionTopic < ActiveRecord::Base
   end
 
   def initialize_last_reply_at
-    self.posted_at ||= Time.now.utc
-    self.last_reply_at ||= Time.now.utc unless [:migration, :after_migration].include?(self.saved_by)
+    unless [:migration, :after_migration].include?(self.saved_by)
+      self.posted_at ||= Time.now.utc
+      self.last_reply_at ||= Time.now.utc
+    end
   end
 
   set_policy do
@@ -786,23 +1046,23 @@ class DiscussionTopic < ActiveRecord::Base
 
     given { |user, session|
       !is_announcement &&
-      context.grants_right?(user, session, :post_to_forum) &&
+      context.grants_right?(user, session, :create_forum) &&
       context_allows_user_to_create?(user)
     }
     can :create
 
-    given { |user, session| context.respond_to?(:allow_student_forum_attachments) && context.allow_student_forum_attachments && context.grants_right?(user, session, :post_to_forum) }
+    given { |user, session| context.respond_to?(:allow_student_forum_attachments) && context.allow_student_forum_attachments && context.grants_any_right?(user, session, :create_forum, :post_to_forum) }
     can :attach
 
     given { |user, session| !self.root_topic_id && self.context.grants_all_rights?(user, session, :read_forum, :moderate_forum) && self.available_for?(user) }
-    can :update and can :delete and can :create and can :read and can :attach
+    can :update and can :read_as_admin and can :delete and can :create and can :read and can :attach
 
     # Moderators can still modify content even in unavailable topics (*especially* unlocking them), but can't create new content
     given { |user, session| !self.root_topic_id && self.context.grants_all_rights?(user, session, :read_forum, :moderate_forum) }
-    can :update and can :delete and can :read and can :attach
+    can :update and can :read_as_admin and can :delete and can :read and can :attach
 
-    given { |user, session| self.root_topic && self.root_topic.grants_right?(user, session, :update) }
-    can :update
+    given { |user, session| self.root_topic && self.root_topic.grants_right?(user, session, :read_as_admin) }
+    can :read_as_admin
 
     given { |user, session| self.root_topic && self.root_topic.grants_right?(user, session, :delete) }
     can :delete
@@ -823,7 +1083,7 @@ class DiscussionTopic < ActiveRecord::Base
 
   def context_allows_user_to_create?(user)
     return true unless context.respond_to?(:allow_student_discussion_topics)
-    return true unless context.user_is_student?(user)
+    return true if context.user_is_admin?(user)
     context.allow_student_discussion_topics
   end
 
@@ -860,23 +1120,29 @@ class DiscussionTopic < ActiveRecord::Base
     tags_to_update = self.context_module_tags.to_a
     if self.for_assignment?
       tags_to_update += self.assignment.context_module_tags
-      self.ensure_submission(user) if context.grants_right?(user, :participate_as_student) && assignment.visible_to_user?(user) && action == :contributed
+      if context.grants_right?(user, :participate_as_student) && assignment.visible_to_user?(user) && [:contributed, :deleted].include?(action)
+        only_update = (action == :deleted) # if we're deleting an entry, don't make a submission if it wasn't there already
+        self.ensure_submission(user, only_update)
+      end
     end
-    tags_to_update.each { |tag| tag.context_module_action(user, action, points) }
+    unless action == :deleted
+      tags_to_update.each { |tag| tag.context_module_action(user, action, points) }
+    end
   end
 
-  def ensure_submission(user)
-    submission = Submission.where(assignment_id: self.assignment_id, user_id: user).first
-    unless submission && submission.submission_type == 'discussion_topic' && submission.workflow_state != 'unsubmitted'
-      submission = self.assignment.submit_homework(user, :submission_type => 'discussion_topic')
-    end
+  def ensure_submission(user, only_update=false)
     topic = self.root_topic? ? self.child_topic_for(user) : self
+
+    submission = Submission.active.where(assignment_id: self.assignment_id, user_id: user).first
+    unless only_update || (submission && submission.submission_type == 'discussion_topic' && submission.workflow_state != 'unsubmitted')
+      submission = self.assignment.submit_homework(user, :submission_type => 'discussion_topic',
+        :submitted_at => topic && topic.discussion_entries.active.where(:user_id => user).minimum(:created_at))
+    end
+    return unless submission
     if topic
-      attachment_ids = topic.discussion_entries.where(:user_id => user).where.not(:attachment_id => nil).pluck(:attachment_id)
-      if attachment_ids.any?
-        submission.attachment_ids = attachment_ids.sort.map(&:to_s).join(",")
-        submission.save! if submission.changed?
-      end
+      attachment_ids = topic.discussion_entries.active.where(:user_id => user).where.not(:attachment_id => nil).pluck(:attachment_id)
+      submission.attachment_ids = attachment_ids.sort.map(&:to_s).join(",")
+      submission.save! if submission.changed?
     end
   end
 
@@ -887,14 +1153,14 @@ class DiscussionTopic < ActiveRecord::Base
       else
         self.context
       end
-    notification_context.available? && !notification_context.concluded?
+    notification_context.available?
   end
 
   has_a_broadcast_policy
 
   set_broadcast_policy do |p|
     p.dispatch :new_discussion_topic
-    p.to { users_with_permissions(active_participants_with_visibility - [user]) }
+    p.to { users_with_permissions(active_participants_with_visibility) }
     p.whenever { |record|
       record.send_notification_for_context? and
       ((record.just_created && record.active?) || record.changed_state(:active, !record.is_announcement ? :unpublished : :post_delayed))
@@ -905,14 +1171,41 @@ class DiscussionTopic < ActiveRecord::Base
 
   def set_assignment=(val); end
 
+  # From the given list of users, return those that are permitted to see the section
+  # of the topic.  If the topic is not section specific this just returns the
+  # original list.
+  def users_with_section_visibility(users)
+    return users unless self.is_section_specific? && self.context.is_a?(Course)
+    non_nil_users = users.compact
+    section_ids = DiscussionTopicSectionVisibility.active.where(:discussion_topic_id => self.id).
+      pluck(:course_section_id)
+    user_ids = non_nil_users.pluck(:id)
+    # Context is known to be a course here
+    users_in_sections = self.context.enrollments.active.
+      where(:user_id => user_ids, :course_section_id => section_ids).pluck(:user_id).to_set
+    unlocked_teachers = self.context.enrollments.active.instructor.
+      where(:limit_privileges_to_course_section => false, :user_id => user_ids).
+      pluck(:user_id).to_set
+    permitted_user_ids = users_in_sections.union(unlocked_teachers)
+    return non_nil_users.select { |u| permitted_user_ids.include?(u.id) }
+  end
+
   def participants(include_observers=false)
-    participants = [ self.user ]
-    participants += context.participants(include_observers: include_observers)
-    participants.compact.uniq
+    participants = context.participants(include_observers: include_observers, by_date: true)
+    participants_in_section = self.users_with_section_visibility(participants.compact)
+    if self.user && !participants_in_section.map(&:id).to_set.include?(self.user.id)
+      participants_in_section += [ self.user ]
+    end
+    return participants_in_section
+  end
+
+  def visible_to_admins_only?
+    self.context.respond_to?(:available?) && !self.context.available? ||
+      unpublished? || not_available_yet? || not_available_anymore?
   end
 
   def active_participants(include_observers=false)
-    if self.context.respond_to?(:available?) && !self.context.available? && self.context.respond_to?(:participating_admins)
+    if visible_to_admins_only? && self.context.respond_to?(:participating_admins)
       self.context.participating_admins
     else
       self.participants(include_observers)
@@ -922,8 +1215,7 @@ class DiscussionTopic < ActiveRecord::Base
   def active_participants_include_tas_and_teachers(include_observers=false)
     participants = active_participants(include_observers)
     if self.context.is_a?(Group) && !self.context.course.nil?
-      participants += self.context.course.teachers
-      participants += self.context.course.tas
+      participants += self.context.course.participating_instructors_by_date
       participants = participants.compact.uniq
     end
     participants
@@ -931,12 +1223,15 @@ class DiscussionTopic < ActiveRecord::Base
 
   def users_with_permissions(users)
     permission = self.is_announcement ? :read_announcements : :read_forum
-    if self.course.is_a?(Course)
-      self.course.filter_users_by_permission(users, permission)
-    else
-      # sucks to be an account-level group
-      users.select{|u| self.is_announcement ? self.context.grants_right?(u, :read_announcements) : self.context.grants_right?(u, :read_forum)}
+    course = self.course
+    if !(course.is_a?(Course))
+      return users.select do |u|
+        self.is_announcement ? self.context.grants_right?(u, :read_announcements) : self.context.grants_right?(u, :read_forum)
+      end
     end
+
+    readers = self.course.filter_users_by_permission(users, permission)
+    return self.users_with_section_visibility(readers)
   end
 
   def course
@@ -1019,17 +1314,27 @@ class DiscussionTopic < ActiveRecord::Base
   #
   # Returns a boolean.
   def visible_for?(user = nil)
-    RequestCache.cache('discussion_visible_for', self, user) do
+    RequestCache.cache('discussion_visible_for', self, is_announcement, user) do
       # user is the topic's author
-      next true if user && user == self.user
+      next true if user && user.id == self.user_id
 
       next false unless (is_announcement ? context.grants_right?(user, :read_announcements) : context.grants_right?(user, :read_forum))
+
+      # Don't have visibilites for any of the specific sections in a section specific topic
+      if context.is_a?(Course) && self.try(:is_section_specific)
+        section_visibilities = context.course_section_visibility(user)
+        next false if section_visibilities == :none
+        if section_visibilities != :all
+          course_specific_sections = self.course_sections.pluck(:id)
+          next false if (section_visibilities & course_specific_sections).empty?
+        end
+      end
 
       # user is an admin in the context (teacher/ta/designer) OR
       # user is an account admin with appropriate permission
       next true if context.grants_any_right?(user, :manage, :read_course_content)
 
-      # assignment exists and isnt assigned to user (differentiated assignments)
+      # assignment exists and isn't assigned to user (differentiated assignments)
       if for_assignment? && !self.assignment.visible_to_user?(user)
         next false
       end
@@ -1058,25 +1363,25 @@ class DiscussionTopic < ActiveRecord::Base
     end
   end
 
-  # Public: Determine if the discussion topic is locked for a specific user. The topic is locked when the
+  #         Determine if the discussion topic is locked for a specific user. The topic is locked when the
   #         delayed_post_at is in the future or the group assignment is locked. This does not determine
   #         the visibility of the topic to the user, only that they are unable to reply.
-  def locked_for?(user, opts={})
-    return false if opts[:check_policies] && self.grants_right?(user, :update)
+  def low_level_locked_for?(user, opts={})
+    return false if opts[:check_policies] && self.grants_right?(user, :read_as_admin)
 
     Rails.cache.fetch(locked_cache_key(user), :expires_in => 1.minute) do
       locked = false
       if (self.delayed_post_at && self.delayed_post_at > Time.now)
-        locked = {:asset_string => self.asset_string, :unlock_at => self.delayed_post_at}
+        locked = {object: self, unlock_at: delayed_post_at}
       elsif (self.lock_at && self.lock_at < Time.now)
-        locked = {:asset_string => self.asset_string, :lock_at => self.lock_at, :can_view => true}
-      elsif !opts[:skip_assignment] && (self.assignment && l = self.assignment.locked_for?(user, opts))
+        locked = {object: self, lock_at: lock_at, can_view: true}
+      elsif !opts[:skip_assignment] && (assignment && l = assignment.low_level_locked_for?(user, opts))
         locked = l
       elsif self.could_be_locked && item = locked_by_module_item?(user, opts)
-        locked = {:asset_string => self.asset_string, :context_module => item.context_module.attributes}
+        locked = {object: self, module: item.context_module}
       elsif self.locked? # nothing more specific, it's just locked
-        locked = {:asset_string => self.asset_string, :can_view => true}
-      elsif (self.root_topic && l = self.root_topic.locked_for?(user, opts))
+        locked = {object: self, can_view: true}
+      elsif (root_topic && l = root_topic.low_level_locked_for?(user, opts))
         locked = l
       end
       locked
@@ -1199,14 +1504,10 @@ class DiscussionTopic < ActiveRecord::Base
     end.compact
   end
 
-  def initial_post_required?(user, enrollment, session)
+  def initial_post_required?(user, session=nil)
     if require_initial_post?
-      # check if the user, or the user being observed can see the posts
-      if enrollment && enrollment.respond_to?(:associated_user) && enrollment.associated_user
-        return true if !user_can_see_posts?(enrollment.associated_user)
-      elsif !user_can_see_posts?(user, session)
-        return true
-      end
+      associated_user_ids = user.observer_enrollments.active.where(course_id: self.course).pluck(:associated_user_id).compact
+      return !user_can_see_posts?(user, session, associated_user_ids)
     end
     false
   end
@@ -1234,6 +1535,16 @@ class DiscussionTopic < ActiveRecord::Base
 
   # synchronously create/update the materialized view
   def create_materialized_view
-    DiscussionTopic::MaterializedView.for(self).update_materialized_view_without_send_later
+    DiscussionTopic::MaterializedView.for(self).update_materialized_view_without_send_later(use_master: true)
+  end
+
+  def grading_standard_or_default
+    grading_standard_context = assignment || context
+
+    if grading_standard_context.present?
+      grading_standard_context.grading_standard_or_default
+    else
+      GradingStandard.default_instance
+    end
   end
 end

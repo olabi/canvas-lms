@@ -1,9 +1,26 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 
 module Qti
 class ExtendedTextInteraction < AssessmentItemConverter
   include Canvas::Migration::XMLHelper
-  
+
   def initialize(opts)
     super(opts)
   end
@@ -17,9 +34,9 @@ class ExtendedTextInteraction < AssessmentItemConverter
       # a short answer question with no answers is an essay question
       @question[:question_type] = "essay_question"
     end
-    
+
     get_feedback
-    
+
     @question
   end
 
@@ -38,7 +55,7 @@ class ExtendedTextInteraction < AssessmentItemConverter
         match_data = regex.match(match_data.post_match)
       end
       @question.delete :is_vista_fib
-    elsif @question[:question_type] == 'fill_in_multiple_blanks_question' 
+    elsif @question[:question_type] == 'fill_in_multiple_blanks_question'
       # the python tool "fixes" IDs that aren't quite legal QTI (e.g., "1a" becomes "RESPONSE_1a")
       # but does not update the question text, breaking fill-in-multiple-blanks questions.
       # fortunately it records what it does in an XML comment at the top of the doc, so we can undo it.
@@ -63,7 +80,7 @@ class ExtendedTextInteraction < AssessmentItemConverter
           answer = {}
         end
         answer[:text] ||= text
-        unless answer[:feedback_id] 
+        unless answer[:feedback_id]
           if f_id = get_feedback_id(cond)
             answer[:feedback_id] = f_id
           end
@@ -85,7 +102,8 @@ class ExtendedTextInteraction < AssessmentItemConverter
           @question[:answers] << answer
           answer[:weight] = 100
           answer[:comments] = ""
-          answer[:id] = unique_local_id
+          bv = match.at_css('baseValue')
+          answer[:id] = get_or_generate_answer_id(bv && bv['identifier'])
         end
       end
     end

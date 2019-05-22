@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../qti_helper')
 if Qti.migration_executable
 describe "Converting Blackboard 8 qti" do
@@ -6,7 +23,7 @@ describe "Converting Blackboard 8 qti" do
     expect(get_question_hash(bb8_question_dir, 'multiple_choice')).to eq BB8Expected::MULTIPLE_CHOICE
   end
 
-  it "should convert multiple choice" do
+  it "should convert multiple choice with blanke answers" do
     expect(get_question_hash(bb8_question_dir, 'multiple_choice_blank_answers')).to eq BB8Expected::MULTIPLE_CHOICE_BLANK_ANSWERS
   end
 
@@ -472,7 +489,6 @@ module BB8Expected
                                 [{:end=>4.0,
                                   :numerical_answer_type=>"range_answer",
                                   :start=>4.0,
-                                  :exact=>4.0,
                                   :comments=>"",
                                   :weight=>100}],
                         :question_text=>"What is 10 - 6?<br>",

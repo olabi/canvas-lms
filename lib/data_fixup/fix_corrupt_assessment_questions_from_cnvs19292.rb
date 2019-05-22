@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 DataFixup::FixCorruptAssessmentQuestionsFromCnvs19292 = Struct.new(:question_types, :bug_start_date, :bug_end_date) do
   LOG_PREFIX = "FIX_19292_CORRUPTION - "
 
@@ -98,18 +115,16 @@ DataFixup::FixCorruptAssessmentQuestionsFromCnvs19292 = Struct.new(:question_typ
       "assessment_questions.question_data LIKE '%#{qt}%'"
     end.join(" or ")
 
-    query = AssessmentQuestion
-            .joins(:assessment_question_bank => {:quiz_groups => :quiz})
-            .joins("INNER JOIN #{Quizzes::QuizQuestion.quoted_table_name}
-                      ON quiz_questions.assessment_question_id = assessment_questions.id
-                      AND quiz_questions.quiz_id = quizzes.id
-                  ")
-            .where("quiz_questions.updated_at > assessment_questions.updated_at")
-            .where(question_type_queries)
+    query = AssessmentQuestion.
+      joins(:assessment_question_bank => {:quiz_groups => :quiz}).
+      joins("INNER JOIN #{Quizzes::QuizQuestion.quoted_table_name}
+               ON quiz_questions.assessment_question_id = assessment_questions.id
+               AND quiz_questions.quiz_id = quizzes.id").
+      where("quiz_questions.updated_at > assessment_questions.updated_at").
+      where(question_type_queries)
 
     if bug_start_date && bug_end_date
-      query = query
-              .where(quiz_questions: {updated_at: bug_start_date..bug_end_date})
+      query = query.where(quiz_questions: {updated_at: bug_start_date..bug_end_date})
     end
 
     Shackles.activate(:slave) do

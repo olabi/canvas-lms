@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/conversations_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/assignment_overrides')
 
@@ -47,7 +64,6 @@ describe "conversations new" do
       conversations
       compose course: @course, subject: 'Christmas', to: [@s1], body: 'The Fat Man cometh.', journal: true, send: true
       time = format_time_for_view(UserNote.last.updated_at)
-      remove_user_session
       get student_user_notes_url
       expect(f('.subject')).to include_text('Christmas')
       expect(f('.user_content').text).to eq 'The Fat Man cometh.'
@@ -56,10 +72,10 @@ describe "conversations new" do
     end
 
     it "should allow an admin to delete a Journal message", priority: "1", test_id: 75703 do
+      skip_if_safari(:alert)
       user_session(@teacher)
       conversations
       compose course: @course, subject: 'Christmas', to: [@s1], body: 'The Fat Man cometh.', journal: true, send: true
-      remove_user_session
       get student_user_notes_url
       f('.delete_link').click
       driver.switch_to.alert.accept
@@ -141,7 +157,6 @@ describe "conversations new" do
     end
 
     it "should have the Journal entry checkbox come back unchecked", priority: "1", test_id: 523385 do
-      skip_if_chrome('Fragile in Chrome')
       f('#compose-btn').click
       wait_for_ajaximations
       expect(f('.user_note')).not_to be_displayed
@@ -163,7 +178,6 @@ describe "conversations new" do
     end
 
     it "should have the Journal entry checkbox visible", priority: "1", test_id: 75008 do
-      skip_if_chrome('Fragile in Chrome')
       f('#compose-btn').click
       wait_for_ajaximations
       expect(f('.user_note')).not_to be_displayed
@@ -188,7 +202,7 @@ describe "conversations new" do
       conversations
       # First verify teacher can send a message with faculty journal entry checked to one student
       compose course: @course, to: [@s1], body: 'hallo!', journal: true, send: true
-      expect_flash_message :success, /Message sent!/
+      expect_flash_message :success, "Message sent!"
       # Now verify adding another user while the faculty journal entry checkbox is checked doesn't uncheck it and
       #   still lets teacher know it was sent successfully.
       fj('.ic-flash-success:last').click
@@ -196,7 +210,7 @@ describe "conversations new" do
       add_message_recipient(@s2)
       expect(is_checked('.user_note')).to be_truthy
       click_send
-      expect_flash_message :success, /Message sent!/
+      expect_flash_message :success, "Message sent!"
     end
   end
 end

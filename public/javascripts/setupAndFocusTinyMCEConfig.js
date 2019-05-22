@@ -1,9 +1,25 @@
-define([
-  'jquery',
-  'compiled/editor/editorAccessibility',
-  'INST'
-], function($, EditorAccessibility, INST){
-  return function (tinymce, autoFocus, enableBookmarkingOverride) {
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import $ from 'jquery'
+import INST from './INST'
+
+export default function setupAndFocusTinyMCEConfig (tinymce, autoFocus, enableBookmarkingOverride) {
 
     if (enableBookmarkingOverride == undefined) {
       var enableBookmarking = !!INST.browser.ie;
@@ -15,21 +31,12 @@ define([
       auto_focus: autoFocus,
       setup : function(ed) {
         var $editor = $("#" + ed.id);
-        var focus = function() {
-          $editor.triggerHandler('editor_box_focus');
-        };
-
-        ed.on('click', focus);
-        ed.on('keypress', focus);
-
         // KeyboardShortcuts.coffee needs to listen to events
         // fired from inside the editor, so we pass out
         // keyup events to the document
         ed.on('keyup', function(e){
           $(document).trigger("editorKeyUp", [e]);
         });
-
-        ed.on('activate', focus);
 
         ed.on('change', function() {
           $editor.trigger('change');
@@ -42,9 +49,12 @@ define([
           }
         });
 
-        ed.on('init', function(){
-          new EditorAccessibility(ed).accessiblize();
-        });
+        if (!ENV.use_rce_enhancements) {
+          ed.on('init', function(){
+            const EditorAccessibility = require('compiled/editor/editorAccessibility')
+            new EditorAccessibility(ed).accessiblize();
+          });
+        }
 
         ed.on('init', function(){
           $(window).triggerHandler("resize");
@@ -84,4 +94,3 @@ define([
       } // function setup()
     }
   };
-});

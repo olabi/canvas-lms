@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import 'pages/shared/_outcome_colors';
 
 $border-light: #d3d9d9;
@@ -5,7 +23,7 @@ $border-sidebar: #c9d0d6;
 $border-dark:  #bbb;
 $default-link-color: #0088cc;
 $font-color: #555;
-$header-child-margin: 10px 8px 2px 8px;
+$header-child-margin: direction-sides(10px 8px 2px 8px);
 $header-font-color: #627382;
 $page-light: #f3f5f7;
 $page-dark: #ebeff2;
@@ -39,17 +57,26 @@ $page-dark: #ebeff2;
     border-color: $border-light;
   }
 }
+.checkbox-view {
+  max-width: 210px;
+}
 .checkbox-view .checkbox,
 .operation-view .operation {
   border-radius: 3px;
   box-sizing: border-box;
   display: inline-block;
   height: 18px;
-  float: left;
-  margin-right: 24px;
+  float: direction(left);
+  margin-#{direction(right)}: 24px;
   min-height: 18px; /* overwrites .checkbox in g_vendor */
   padding: 0;
   width: 18px;
+}
+.checkbox-label {
+  display: block;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-wrap: break-word; /* for IE support */
 }
 
 .checkbox[aria-checked=false] {
@@ -63,7 +90,7 @@ $page-dark: #ebeff2;
   box-sizing: border-box;
   color: $font-color;
   box-sizing: border-box;
-  padding-left: 22px;
+  padding-#{direction(left)}: 22px;
 }
 
 .outcome-gradebook-wrapper {
@@ -77,8 +104,8 @@ $page-dark: #ebeff2;
 
 .outcome-gradebook-sidebar {
   background: $page-dark;
-  border-left: 1px solid $border-dark;
-  float: right;
+  border-#{direction(left)}: 1px solid $border-dark;
+  float: direction(right);
   position: relative;
 }
 
@@ -92,7 +119,7 @@ $page-dark: #ebeff2;
 
 .outcome-gradebook-sidebar-header {
   border-bottom: 1px solid $border-sidebar;
-  margin: 0 12px 16px 12px;
+  margin: 0 12px 16px;
   padding: 8px 12px;
 }
 
@@ -101,7 +128,7 @@ $page-dark: #ebeff2;
 
   .outcome-gradebook-sidebar-header {
     padding: 8px 0;
-    margin: 0 6px 16px 6px;
+    margin: 0 6px 16px;
   }
 
   .outcome-gradebook-sidebar-content {
@@ -130,8 +157,8 @@ $page-dark: #ebeff2;
 
 .outcome-gradebook-sidebar-content {
   width: auto;
-  padding-left: 12px;
-  padding-right: 12px;
+  padding-#{direction(left)}: 12px;
+  padding-#{direction(right)}: 12px;
   .operations {
     border-top: 1px solid $border-sidebar;
     a {
@@ -143,7 +170,7 @@ $page-dark: #ebeff2;
 
 .gradebook-header {
   display: flex;
-  align-items: right;
+  align-items: direction(right);
   @include clearfix;
   padding-top: $ic-sp;
   + .assignment-gradebook-container {
@@ -153,7 +180,7 @@ $page-dark: #ebeff2;
 
   .header-buttons {
     flex: 1;
-    text-align: right;
+    text-align: direction(right);
     margin-bottom: $ic-sp;
 
     .post-grades-button-placeholder {
@@ -170,7 +197,7 @@ $page-dark: #ebeff2;
 /* slickgrid overrides */
 .outcome-gradebook-wrapper {
   .slick-viewport {
-    border-left: 1px solid $border-light;
+    border-#{direction(left)}: 1px solid $border-light;
     border-top: 1px solid $border-dark;
   }
 
@@ -238,14 +265,14 @@ $page-dark: #ebeff2;
   }
 
   .slick-headerrow, .slick-header {
-    border-left: 1px solid transparent;
+    border-#{direction(left)}: 1px solid transparent;
   }
 
   .slick-headerrow-column {
     background: #fff;
     border: 1px solid transparent;
-    border-left: none;
-    border-right-color: $border-light;
+    border-#{direction(left)}: none;
+    border-#{direction(right)}-color: $border-light;
     border-bottom-color: $border-light;
     border-top-color: $border-light;
     line-height: 37px;
@@ -269,8 +296,8 @@ $page-dark: #ebeff2;
       color: $font-color;
     }
 
-    &.r1 {
-      border-left: 1px solid $border-light;
+    &.f1 {
+      border-#{direction(left)}: 1px solid $border-light;
     }
   }
 
@@ -278,9 +305,9 @@ $page-dark: #ebeff2;
     .slick-cell {
       border: 1px solid transparent;
       border-top: none;
-      border-left: none;
+      border-#{direction(left)}: none;
       border-bottom-color: $border-light;
-      border-right-color: $border-light;
+      border-#{direction(right)}-color: $border-light;
       @include fontSize(15px);
       height: 37px;
       line-height: 37px;
@@ -289,7 +316,7 @@ $page-dark: #ebeff2;
   }
 
   .outcome-student-header-cell {
-    text-align: right;
+    text-align: direction(right);
   }
 
   .outcome-student-cell.slick-cell {
@@ -301,23 +328,32 @@ $page-dark: #ebeff2;
   }
 
   .outcome-student-cell-content {
-    padding-left: 8px;
+    padding-#{direction(left)}: 8px;
     margin-top: 1px;
     .avatar {
       width: 25px;
       height: 25px;
       margin-top: 3px;
-      margin-right: 4px;
-      float: left;
+      margin-#{direction(right)}: 4px;
+      float: direction(left);
       position: relative;
       z-index: 1;
     }
   }
 }
 
+.outcome-description {
+  width: 70%;
+  float: direction(left);
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .outcome-cell-wrapper {
-  text-align: right;
-  padding-right: 10px;
+  text-align: direction(right);
+  padding-#{direction(right)}: 10px;
 }
 
 .outcome-score {
@@ -329,7 +365,7 @@ $page-dark: #ebeff2;
   display: inline-block;
   height: 18px;
   width: 18px;
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
   vertical-align: text-top;
 
   &.exceeds      { background: $exceeds-color; }

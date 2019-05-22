@@ -1,15 +1,28 @@
-class Notifier
-  def send_notification()
-  end
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
-  def send_notification(record, dispatch, messages, to_list, asset_context=nil, data=nil)
+class Notifier
+  def send_notification(record, dispatch, messages, to_list, data=nil)
     messages = DelayedNotification.send_later_if_production_enqueue_args(
         :process,
-        {:priority => Delayed::LOW_PRIORITY, :max_attempts => 1},
+        {:priority => 30, :max_attempts => 1},
         record,
         messages,
         (to_list || []).compact.map(&:asset_string),
-        asset_context,
         data
     )
 
@@ -17,7 +30,6 @@ class Notifier
           :asset => record,
           :notification => messages,
           :recipient_keys => (to_list || []).compact.map(&:asset_string),
-          :asset_context => asset_context,
           :data => data
       )
 

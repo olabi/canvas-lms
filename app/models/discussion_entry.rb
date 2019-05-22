@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,7 +29,7 @@ class DiscussionEntry < ActiveRecord::Base
   has_many :unordered_discussion_subentries, :class_name => 'DiscussionEntry', :foreign_key => "parent_id"
   has_many :flattened_discussion_subentries, :class_name => 'DiscussionEntry', :foreign_key => "root_entry_id"
   has_many :discussion_entry_participants
-  belongs_to :discussion_topic
+  belongs_to :discussion_topic, inverse_of: :discussion_entries
   # null if a root entry
   belongs_to :parent_entry, :class_name => 'DiscussionEntry', :foreign_key => :parent_id
   # also null if a root entry
@@ -43,11 +43,13 @@ class DiscussionEntry < ActiveRecord::Base
   after_save :update_discussion
   after_save :context_module_action_later
   after_create :create_participants
+  after_create :clear_planner_cache_for_participants
   validates_length_of :message, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
   validates_presence_of :discussion_topic_id
   before_validation :set_depth, :on => :create
   validate :validate_depth, on: :create
   validate :discussion_not_deleted, on: :create
+  validate :must_be_reply_to_same_discussion, on: :create
 
   sanitize_field :message, CanvasSanitize::SANITIZE
 
@@ -75,14 +77,16 @@ class DiscussionEntry < ActiveRecord::Base
 
   on_create_send_to_streams do
     if self.root_entry_id.nil?
-      # If the topic has beeng going for more than two weeks, only show
+      participants = discussion_topic.active_participants_with_visibility
+
+      # If the topic has been going for more than two weeks, only show
       # people who have been participating in the topic
       if self.created_at > self.discussion_topic.created_at + 2.weeks
-        DiscussionEntry.active.
-            where('discussion_topic_id=? AND created_at > ?', self.discussion_topic_id, 2.weeks.ago).
-            uniq.pluck(:user_id)
+        participants.map(&:id) & DiscussionEntry.active.
+          where('discussion_topic_id=? AND created_at > ?', self.discussion_topic_id, 2.weeks.ago).
+          distinct.pluck(:user_id)
       else
-        self.discussion_topic.active_participants
+        participants
       end
     else
       []
@@ -113,6 +117,12 @@ class DiscussionEntry < ActiveRecord::Base
     errors.add(:base, "Requires non-deleted discussion topic") if self.discussion_topic.deleted?
   end
 
+  def must_be_reply_to_same_discussion
+    if self.parent_entry && self.parent_entry.discussion_topic_id != self.discussion_topic_id
+      errors.add(:parent_id, "Parent entry must belong to the same discussion topic")
+    end
+  end
+
   def reply_from(opts)
     raise IncomingMail::Errors::UnknownAddress if self.context.root_account.deleted?
     raise IncomingMail::Errors::ReplyToDeletedDiscussion if self.discussion_topic.deleted?
@@ -129,15 +139,16 @@ class DiscussionEntry < ActiveRecord::Base
     elsif !message || message.empty?
       raise "Message body cannot be blank"
     else
-      entry = DiscussionEntry.new(:message => message)
-      entry.discussion_topic_id = self.discussion_topic_id
-      entry.parent_entry = self
-      entry.user = user
-      if entry.grants_right?(user, :create)
-        entry.save!
-        entry
-      else
-        raise IncomingMail::Errors::ReplyToLockedTopic
+      self.shard.activate do
+        entry = discussion_topic.discussion_entries.new(message: message,
+                                                        user: user,
+                                                        parent_entry: self)
+        if entry.grants_right?(user, :create)
+          entry.save!
+          entry
+        else
+          raise IncomingMail::Errors::ReplyToLockedTopic
+        end
       end
     end
   end
@@ -177,7 +188,7 @@ class DiscussionEntry < ActiveRecord::Base
   end
 
   def update_discussion
-    if %w(workflow_state message attachment_id editor_id).any? { |a| self.changed.include?(a) }
+    if %w(workflow_state message attachment_id editor_id).any? { |a| self.saved_change_to_attribute?(a) }
       dt = self.discussion_topic
       loop do
         dt.touch
@@ -339,15 +350,14 @@ class DiscussionEntry < ActiveRecord::Base
   end
 
   def context_module_action_later
-    unless self.deleted?
-      self.send_later_if_production(:context_module_action)
-    end
+    self.send_later_if_production(:context_module_action)
   end
   protected :context_module_action_later
 
   def context_module_action
     if self.discussion_topic && self.user
-      self.discussion_topic.context_module_action(user, :contributed)
+      action = self.deleted? ? :deleted : :contributed
+      self.discussion_topic.context_module_action(user, action)
     end
   end
 
@@ -372,6 +382,19 @@ class DiscussionEntry < ActiveRecord::Base
                                                                                          :unread_entry_count => new_count,
                                                                                          :workflow_state => "unread",
                                                                                          :subscribed => self.discussion_topic.subscribed?(self.user))
+        end
+      end
+    end
+  end
+
+  def clear_planner_cache_for_participants
+    # If this is a top level reply we do not need to clear the cache here,
+    # because the creation of this object will also create a stream item which
+    # takes care of clearing the cache
+    self.class.connection.after_transaction_commit do
+      if self.root_entry_id.present?
+        if self.discussion_topic.for_assignment? || self.discussion_topic.todo_date.present?
+          User.where(:id => self.discussion_topic.discussion_topic_participants.select(:user_id)).touch_all
         end
       end
     end
@@ -459,11 +482,9 @@ class DiscussionEntry < ActiveRecord::Base
 
     DiscussionEntry.where(id: id). update_all([
       'rating_count = COALESCE(rating_count, 0) + ?,
-        rating_sum = COALESCE(rating_sum, 0) + ?,
-        updated_at = ?',
+        rating_sum = COALESCE(rating_sum, 0) + ?',
       count_delta,
-      sum_delta,
-      Time.current
+      sum_delta
     ])
     self.discussion_topic.update_materialized_view
   end

@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% css_bundle :reports %>
 <% js_bundle :teacher_activity_report %>
 <% add_crumb(t('crumbs.interaction_report', "Student Interactions Report")) %>
@@ -65,8 +83,8 @@
           <td><%= n(student[:enrollment].computed_final_score, percentage: true, precision: 1) %></td>
           <td data-number="<%= (student[:ungraded].map(&:submitted_at).compact.min || 1.day.from_now).to_i / 3600 %>">
             <% student[:ungraded].each do |submission| %>
-              <%= link_to(submission.assignment.title, speed_grader_course_gradebook_path(course, :assignment_id => submission.assignment.id, :anchor => { :student_id => student[:enrollment].user_id }.to_json)) %><br/>
-              <div style="padding-bottom: 5px; margin-top: -2px; padding-left: 20px; font-size: 0.8em; color: #888;">
+              <%= link_to(submission.assignment.title, speed_grader_course_gradebook_path(course, assignment_id: submission.assignment.id, student_id: student[:enrollment].user_id)) %><br/>
+              <div style="padding-bottom: 5px; margin-top: -2px; padding-<%= direction('left') %>: 20px; font-size: 0.8em; color: #888;">
                 <% if submission.submitted_at %>
                   <%= t 'submitted_time', { :zero => "submitted less than 1 day ago", :one => "submitted 1 day ago", :other => "submitted %{count} days ago" }, :count => (((Time.now - submission.submitted_at)/60)/1440).abs.to_i %>
                 <% end %>

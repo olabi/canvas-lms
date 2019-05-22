@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,8 @@
 #
 
 class InfoController < ApplicationController
-  skip_before_filter :load_account, :only => :health_check
-  skip_before_filter :load_user, :only => [:health_check, :browserconfig]
+  skip_before_action :load_account, :only => :health_check
+  skip_before_action :load_user, :only => [:health_check, :browserconfig]
 
   def styleguide
     js_bundle :styleguide
@@ -40,7 +40,10 @@ class InfoController < ApplicationController
 
     links = links.select do |link|
       available_to = link[:available_to] || []
-      available_to.detect { |role| role == 'user' || current_user_roles.include?(role) }
+      available_to.detect do |role|
+        (role == 'user' || current_user_roles.include?(role)) ||
+        (current_user_roles == ['user'] && role == 'unenrolled')
+      end
     end
 
     render :json => links
@@ -54,12 +57,35 @@ class InfoController < ApplicationController
     end
     Tempfile.open("heartbeat", ENV['TMPDIR'] || Dir.tmpdir) { |f| f.write("heartbeat"); f.flush }
 
+    # javascript/css build process didn't die, right?
+    asset_urls = {
+      common_css: css_url_for("common"), # ensures brandable_css_bundles_with_deps exists
+      common_js: ActionController::Base.helpers.javascript_url("#{js_base_url}/common"), # ensures webpack worked
+      revved_url: Canvas::Cdn::RevManifest.gulp_manifest.values.first # makes sure `gulp rev` has ran
+    }
+
     respond_to do |format|
-      format.html { render :text => 'canvas ok' }
+      format.html { render plain: 'canvas ok' }
       format.json { render json:
                                { status: 'canvas ok',
+                                 asset_urls: asset_urls,
                                  revision: Canvas.revision,
                                  installation_uuid: Canvas.installation_uuid } }
+    end
+  end
+
+  def health_prognosis
+    # do some checks on things that aren't a problem yet, but will be if nothing is done to fix them
+    checks = {
+      'messages_partition' => Messages::Partitioner.processed?,
+      'quizzes_submission_events_partition' => Quizzes::QuizSubmissionEventPartitioner.processed?,
+      'versions_partition' => Version::Partitioner.processed?,
+    }
+    failed = checks.reject{|_k, v| v}.map(&:first)
+    if failed.any?
+      render :json => {:status => "failed upcoming health checks - #{failed.join(", ")}"}, :status => :internal_server_error
+    else
+      render :json => {:status => "canvas will be ok, probably"}
     end
   end
 
@@ -70,6 +96,22 @@ class InfoController < ApplicationController
   end
 
   def test_error
+    @context = Course.find(params[:course_id]) if params[:course_id].present?
+
+    if params[:status].present?
+      case params[:status].to_i
+      when 401
+        @unauthorized_reason = :unpublished if params[:reason] == 'unpublished'
+        @needs_cookies = true if params[:reason] == 'needs_cookies'
+        return render_unauthorized_action
+      when 422
+        raise ActionController::InvalidAuthenticityToken.new('test_error')
+      else
+        @not_found_message = '(test_error message details)' if params[:message].present?
+        raise RequestError.new('test_error', params[:status].to_i)
+      end
+    end
+
     render status: 404, template: "shared/errors/404_message"
   end
 end

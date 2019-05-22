@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,6 @@ describe InfoController do
         user_factory
         get "/images/users/#{@user.id}"
         expect(response).to be_redirect
-        expect(response['Location']).to match(%r{gravatar})
         expect(response['Location']).to match(%r{avatar-50})
 
         @user.avatar_image = { 'type' => 'attachment', 'url' => '/images/thumbnails/blah' }
@@ -34,7 +33,7 @@ describe InfoController do
 
         get "/images/users/#{@user.id}"
         expect(response).to be_redirect
-        expect(response['Location']).not_to match(%r{gravatar})
+        expect(response['Location']).not_to match(%r{avatar-50})
         expect(response['Location']).to match(%r{/images/thumbnails/blah})
       end
     end

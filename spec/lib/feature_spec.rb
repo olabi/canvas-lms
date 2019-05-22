@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,8 @@ describe Feature do
   let(:t_user) { user_with_pseudonym account: t_root_account }
 
   before do
-    Feature.stubs(:definitions).returns({
+    allow_any_instance_of(User).to receive(:set_default_feature_flags)
+    allow(Feature).to receive(:definitions).and_return({
         'RA' => Feature.new(feature: 'RA', applies_to: 'RootAccount', state: 'hidden'),
         'A' => Feature.new(feature: 'A', applies_to: 'Account', state: 'on'),
         'C' => Feature.new(feature: 'C', applies_to: 'Course', state: 'off'),
@@ -187,25 +188,25 @@ describe "Feature.register" do
     end
 
     it "should register in a dev environment" do
-      Rails.env.stubs(:test?).returns(false)
-      Rails.env.stubs(:development?).returns(true)
+      allow(Rails.env).to receive(:test?).and_return(false)
+      allow(Rails.env).to receive(:development?).and_return(true)
       Feature.register({dev_feature: t_dev_feature_hash})
       expect(Feature.definitions['dev_feature']).not_to be_nil
     end
 
     it "should register in a production test cluster" do
-      Rails.env.stubs(:test?).returns(false)
-      Rails.env.stubs(:production?).returns(true)
-      ApplicationController.stubs(:test_cluster?).returns(true)
+      allow(Rails.env).to receive(:test?).and_return(false)
+      allow(Rails.env).to receive(:production?).and_return(true)
+      allow(ApplicationController).to receive(:test_cluster?).and_return(true)
       Feature.register({dev_feature: t_dev_feature_hash})
       expect(Feature.definitions['dev_feature']).not_to be_nil
     end
 
     it "should not register in production" do
-      Rails.env.stubs(:test?).returns(false)
-      Rails.env.stubs(:production?).returns(true)
+      allow(Rails.env).to receive(:test?).and_return(false)
+      allow(Rails.env).to receive(:production?).and_return(true)
       Feature.register({dev_feature: t_dev_feature_hash})
-      expect(Feature.definitions['dev_feature']).to be_nil
+      expect(Feature.definitions['dev_feature']).to eq Feature::DISABLED_FEATURE
     end
   end
 
@@ -220,10 +221,160 @@ describe "Feature.register" do
     end
 
     it "should register as 'hidden' in production" do
-      Rails.env.stubs(:test?).returns(false)
-      Rails.env.stubs(:production?).returns(true)
+      allow(Rails.env).to receive(:test?).and_return(false)
+      allow(Rails.env).to receive(:production?).and_return(true)
       Feature.register({dev_feature: t_hidden_in_prod_feature_hash})
       expect(Feature.definitions['dev_feature']).to be_hidden
+    end
+  end
+end
+
+describe "new_gradebook" do
+  let(:ngb_trans_proc) { Feature.definitions["new_gradebook"].custom_transition_proc }
+  let(:root_account) { account_model }
+  let(:transitions) { { "on" => {}, "allowed" => {}, "off" => {} } }
+  let(:course) { course_factory(account: root_account, active_all: true) }
+  let(:teacher) { teacher_in_course(course: course).user }
+  let(:ta) { ta_in_course(course: course).user }
+  let(:admin) { account_admin_user(account: root_account) }
+
+  LOCKED = { "locked" => true }.freeze
+  UNLOCKED = { "locked" => false }.freeze
+
+  it "allows admins to enable the new gradebook" do
+    ngb_trans_proc.call(admin, course, nil, transitions)
+    expect(transitions).to include({ "on" => {}, "off" => UNLOCKED })
+  end
+
+  it "allows teachers to enable the new gradebook" do
+    ngb_trans_proc.call(teacher, course, nil, transitions)
+    expect(transitions).to include({ "on" => {}, "off" => UNLOCKED })
+  end
+
+  it "doesn't allow tas to enable the new gradebook" do
+    ngb_trans_proc.call(ta, course, nil, transitions)
+    expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+  end
+
+  it "allows teachers without change_course_state permission to enable" do
+    course.account.role_overrides.create!(permission: :change_course_state, role: teacher_role, enabled: false)
+    ngb_trans_proc.call(teacher, course, nil, transitions)
+    expect(transitions).to include({ "on" => {}, "off" => UNLOCKED })
+  end
+
+  describe "course-level backwards compatibility" do
+    let(:student) { student_in_course(course: course).user }
+    let!(:assignment) { course.assignments.create!(title: 'assignment', points_possible: 10) }
+    let(:submission) { assignment.submissions.find_by(user: student) }
+
+    it "blocks disabling new gradebook on a course if there are any submissions with a late_policy_status of none" do
+      submission.late_policy_status = 'none'
+      submission.save!
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "on" => {}, "off" => LOCKED })
+    end
+
+    it "blocks disabling new gradebook on a course if there are any submissions with a late_policy_status of missing" do
+      submission.late_policy_status = 'missing'
+      submission.save!
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => LOCKED })
+    end
+
+    it "blocks disabling new gradebook on a course if there are any submissions with a late_policy_status of late" do
+      submission.late_policy_status = 'late'
+      submission.save!
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => LOCKED })
+    end
+
+    it "allows disabling new gradebook on a course if there are no submissions with a late_policy_status" do
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => UNLOCKED })
+    end
+
+    it "blocks disabling new gradebook on a course if a late policy is configured" do
+      course.late_policy = LatePolicy.new(late_submission_deduction_enabled: true)
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => LOCKED })
+    end
+
+    it "blocks disabling new gradebook on a course if a missing policy is configured" do
+      course.late_policy = LatePolicy.new(missing_submission_deduction_enabled: true)
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => LOCKED })
+    end
+
+    it "blocks disabling new gradebook on a course if both a late and missing policy is configured" do
+      course.late_policy =
+        LatePolicy.new(late_submission_deduction_enabled: true, missing_submission_deduction_enabled: true)
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => LOCKED })
+    end
+
+    it "allows disabling new gradebook on a course if both policies are disabled" do
+      course.late_policy =
+        LatePolicy.new(late_submission_deduction_enabled: false, missing_submission_deduction_enabled: false)
+
+      ngb_trans_proc.call(admin, course, nil, transitions)
+      expect(transitions).to include({ "off" => UNLOCKED })
+    end
+  end
+
+  describe 'account-level backwards compatibility' do
+    let(:sub_account) do
+      first_level = account_model(parent_account: root_account)
+      account_model(parent_account: first_level)
+    end
+
+    let(:course_at_sub_account) { course_factory(account: sub_account, active_all: true) }
+
+    context 'when no course or sub-account has the flag enabled' do
+      it 'allows disabling the flag' do
+        expect(transitions['off']['locked']).to be_falsey
+      end
+
+      it 'adds no warnings' do
+        expect(transitions['off']['warning']).to be_blank
+      end
+    end
+
+    context 'when any course has the flag enabled' do
+      before do
+        course_at_sub_account.enable_feature!(:new_gradebook)
+
+        ngb_trans_proc.call(admin, root_account, nil, transitions)
+      end
+
+      it 'blocks disabling the flag' do
+        expect(transitions['off']['locked']).to be(true)
+      end
+
+      it 'adds a warning' do
+        expect(transitions['off']['warning']).to be_present
+      end
+    end
+
+    context 'when any sub-account has the flag enabled' do
+      before do
+        sub_account.enable_feature!(:new_gradebook)
+
+        ngb_trans_proc.call(admin, root_account, nil, transitions)
+      end
+
+      it 'blocks disabling the flag' do
+        expect(transitions['off']['locked']).to be(true)
+      end
+
+      it 'adds a warning' do
+        expect(transitions['off']['warning']).to be_present
+      end
     end
   end
 end

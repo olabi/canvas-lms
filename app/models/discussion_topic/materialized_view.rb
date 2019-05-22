@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -67,6 +67,37 @@ class DiscussionTopic::MaterializedView < ActiveRecord::Base
     end
   end
 
+  def relativize_ids(ids)
+    if self.shard.id == Shard.current.id
+      ids
+    else
+      ids.map { |id| Shard.relative_id_for(id, self.shard, Shard.current) }
+    end
+  end
+
+  def recursively_relativize_json_ids(data)
+    data.map do |entry|
+      entry["id"] = Shard.relative_id_for(entry["id"], self.shard, Shard.current).to_s
+      if entry.key? "user_id"
+        entry["user_id"] = Shard.relative_id_for(entry["user_id"], self.shard, Shard.current).to_s
+      end
+      if entry["replies"]
+        entry["replies"] = recursively_relativize_json_ids(entry["replies"])
+      end
+      entry
+    end
+  end
+
+  def relativize_json_structure_ids
+    if self.shard.id == Shard.current.id
+      self.json_structure
+    else
+      data = JSON.parse(self.json_structure)
+      relativized = recursively_relativize_json_ids(data)
+      JSON.dump(relativized)
+    end
+  end
+
   # this view is eventually consistent -- once we've generated the view, we
   # continue serving the view to clients even once it's become outdated, while
   # the background job runs to generate the new view. this is preferred over
@@ -77,17 +108,18 @@ class DiscussionTopic::MaterializedView < ActiveRecord::Base
   # that have been created or updated since the view was generated.
   def materialized_view_json(opts = {})
     if !up_to_date?
-      update_materialized_view
+      update_materialized_view(xlog_location: self.class.current_xlog_location)
     end
 
-    if json_structure.present?
-      participant_ids = self.participants_array
-      entry_ids = self.entry_ids_array
+    if self.json_structure.present?
+      json_structure = relativize_json_structure_ids()
+      participant_ids = relativize_ids(self.participants_array)
+      entry_ids = relativize_ids(self.entry_ids_array)
 
       if opts[:include_new_entries]
         @for_mobile = true if opts[:include_mobile_overrides]
 
-        new_entries = all_entries.where("updated_at >= ?", (self.generation_started_at || self.updated_at)).to_a
+        new_entries = all_entries.count != entry_ids.count ? all_entries.where.not(:id => entry_ids).to_a : []
         participant_ids = (Set.new(participant_ids) + new_entries.map(&:user_id).compact + new_entries.map(&:editor_id).compact).to_a
         entry_ids = (Set.new(entry_ids) + new_entries.map(&:id)).to_a
         new_entries_json_structure = discussion_entry_api_json(new_entries, discussion_topic.context, nil, nil, [])
@@ -95,16 +127,25 @@ class DiscussionTopic::MaterializedView < ActiveRecord::Base
         new_entries_json_structure = []
       end
 
-      return self.json_structure, participant_ids, entry_ids, new_entries_json_structure
+      return json_structure, participant_ids, entry_ids, new_entries_json_structure
     else
       return nil
     end
   end
 
-  def update_materialized_view
+  def update_materialized_view(xlog_location: nil, use_master: false)
+    unless use_master
+      if !self.class.wait_for_replication(start: xlog_location, timeout: 1.minute)
+        # failed to replicate - requeue later
+        self.send_later_enqueue_args(:update_materialized_view_without_send_later,
+          {:singleton => "materialized_discussion:#{ Shard.birth.activate { self.discussion_topic_id } }", :run_at => 5.minutes.from_now},
+          xlog_location: xlog_location, use_master: use_master)
+        raise "timed out waiting for replication"
+      end
+    end
     self.generation_started_at = Time.zone.now
     view_json, user_ids, entry_lookup =
-      self.build_materialized_view
+      self.build_materialized_view(use_master: use_master)
     self.json_structure = view_json
     self.participants_array = user_ids
     self.entry_ids_array = entry_lookup
@@ -112,14 +153,13 @@ class DiscussionTopic::MaterializedView < ActiveRecord::Base
   end
 
   handle_asynchronously :update_materialized_view,
-    :singleton => proc { |o| "materialized_discussion:#{ Shard.birth.activate { o.discussion_topic_id } }" },
-    :run_at => proc { 10.seconds.from_now } # delay for replication to slave
+    :singleton => proc { |o| "materialized_discussion:#{ Shard.birth.activate { o.discussion_topic_id } }" }
 
-  def build_materialized_view
+  def build_materialized_view(use_master: false)
     entry_lookup = {}
     view = []
     user_ids = Set.new
-    Shackles.activate(:slave) do
+    Shackles.activate(use_master ? :master : :slave) do
       all_entries.find_each do |entry|
         json = discussion_entry_api_json([entry], discussion_topic.context, nil, nil, []).first
         entry_lookup[entry.id] = json

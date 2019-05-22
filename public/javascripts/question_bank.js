@@ -1,24 +1,39 @@
-define([
-  'i18n!question_bank',
-  'jquery' /* $ */,
-  'find_outcome',
-  'jst/quiz/move_question',
-  'str/htmlEscape',
-  'jsx/quizzes/question_bank/moveMultipleQuestionBanks',
-  'jsx/quizzes/question_bank/loadBanks',
-  'jsx/quizzes/question_bank/addBank',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_forms' /* formSubmit, getFormData, formErrors */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers' /* replaceTags */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, showIf, .dim */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */
-], function(I18n, $, find_outcome, moveQuestionTemplate, htmlEscape, moveMultipleQuestionBanks, loadBanks, addBank) {
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-  var questionBankPage = {
-    updateAlignments: function(alignments) {
+import I18n from 'i18n!question_bank'
+import $ from 'jquery'
+import find_outcome from './find_outcome'
+import moveQuestionTemplate from 'jst/quiz/move_question'
+import htmlEscape from './str/htmlEscape'
+import moveMultipleQuestionBanks from 'jsx/quizzes/question_bank/moveMultipleQuestionBanks'
+import loadBanks from 'jsx/quizzes/question_bank/loadBanks'
+import addBank from 'jsx/quizzes/question_bank/addBank'
+import './jquery.ajaxJSON'
+import './jquery.instructure_forms' /* formSubmit, getFormData, formErrors */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_helpers' /* replaceTags */
+import './jquery.instructure_misc_plugins' /* confirmDelete, showIf, .dim */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import './jquery.templateData'
+
+export function updateAlignments (alignments) {
       $(".add_outcome_text").text(I18n.t("updating_outcomes", "Updating Outcomes...")).attr('disabled', true);
       var params = {};
       for(var idx in alignments) {
@@ -57,9 +72,9 @@ define([
       }, function(data) {
         $(".add_outcome_text").text(I18n.t("update_outcomes_fail", "Updating Outcomes Failed")).attr('disabled', false);
       });
-    },
+    }
 
-    _attachPageEvents: function(e) {
+export function attachPageEvents(e) {
       $("#aligned_outcomes_list").delegate('.delete_outcome_link', 'click', function(event) {
         event.preventDefault();
         var result = confirm(I18n.t("remove_outcome_from_bank", "Are you sure you want to remove this outcome from the bank?")),
@@ -76,7 +91,7 @@ define([
               alignments.push([id, pct]);
             }
           });
-          questionBankPage.updateAlignments(alignments);
+          updateAlignments(alignments);
         }
       });
 
@@ -294,10 +309,3 @@ define([
         $("#move_question_dialog .new_question_bank_name").showIf($(this).attr('checked') && $(this).val() == 'new');
       });
     }
-  };
-
-  questionBankPage.attachPageEvents = questionBankPage._attachPageEvents.bind(questionBankPage);
-
-  return questionBankPage;
-});
-

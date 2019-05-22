@@ -1,4 +1,5 @@
-# Copyright (C) 2012 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -51,24 +52,24 @@ describe MultiCache do
   end
 
   it "should delete from _all_ nodes" do
-    ring = [mock, mock]
-    ring[0].expects(:del).with('key').returns(true)
-    ring[1].expects(:del).with('key').returns(false)
+    ring = [double, double]
+    expect(ring[0]).to receive(:del).with('key').and_return(true)
+    expect(ring[1]).to receive(:del).with('key').and_return(false)
 
     # TODO remove this when removing the shim from active_support.rb
-    ring[0].expects(:del).with('rails5:key').returns(false)
-    ring[1].expects(:del).with('rails5:key').returns(false)
+    expect(ring[0]).to receive(:del).with('rails52:key').and_return(false)
+    expect(ring[1]).to receive(:del).with('rails52:key').and_return(false)
 
     store = MultiCache.new(ring)
     expect(store.delete('key')).to eq true
   end
 
   it 'allows writing to all nodes' do
-    ring = [mock, mock]
-    ring[0].expects(:get).once
-    ring[0].expects(:set).once
-    ring[1].expects(:get).once
-    ring[1].expects(:set).once
+    ring = [double, double]
+    expect(ring[0]).to receive(:get).once
+    expect(ring[0]).to receive(:set).once
+    expect(ring[1]).to receive(:get).once
+    expect(ring[1]).to receive(:set).once
 
     store = MultiCache.new(ring)
     generated = 0

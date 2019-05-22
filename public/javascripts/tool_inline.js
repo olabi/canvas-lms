@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,10 +12,17 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define(['jquery', 'jquery.google-analytics', 'compiled/jquery/ModuleSequenceFooter'], function($) {
+
+import $ from 'jquery'
+import htmlEscape from 'str/htmlEscape'
+import './jquery.google-analytics'
+import 'compiled/jquery/ModuleSequenceFooter'
+import MarkAsDone from 'compiled/util/markAsDone'
+import ToolLaunchResizer from './lti/tool_launch_resizer'
+import { monitorLtiMessages } from './lti/messages'
 
 var $toolForm = $("#tool_form")
 
@@ -85,18 +92,24 @@ $.trackEvent(messageType, toolName, toolPath);
 var $tool_content_wrapper;
 var min_tool_height, canvas_chrome_height;
 
-function tool_content_wrapper() {
-  return $tool_content_wrapper || $('.tool_content_wrapper');
-}
-
-var resize_tool_content_wrapper = function(height) {
-  var tool_height = min_tool_height || 450;
-  tool_content_wrapper().height(tool_height > height ? tool_height : height);
-}
-
 $(function() {
   var $window = $(window);
   $tool_content_wrapper = $('.tool_content_wrapper');
+  const toolResizer = new ToolLaunchResizer(min_tool_height);
+  const $tool_content = $('iframe#tool_content')
+
+  const $external_content_info_alerts = $tool_content_wrapper
+    .find('.before_external_content_info_alert, .after_external_content_info_alert');
+
+  $external_content_info_alerts.on('focus', function(e) {
+    $tool_content_wrapper.find('iframe').css('border', '2px solid #008EE2');
+    $(this).removeClass('screenreader-only');
+  })
+
+  $external_content_info_alerts.on('blur', function(e) {
+    $tool_content_wrapper.find('iframe').css('border', 'none');
+    $(this).addClass('screenreader-only');
+  })
 
   if ( !$('body').hasClass('ic-full-screen-lti-tool') ) {
     canvas_chrome_height = $tool_content_wrapper.offset().top + $('#footer').outerHeight(true);
@@ -107,7 +120,7 @@ $(function() {
   if ( $tool_content_wrapper.length && !$('body').hasClass('ic-full-screen-lti-tool') ) {
     $window.resize(function () {
       if (!$tool_content_wrapper.data('height_overridden')) {
-        resize_tool_content_wrapper($window.height() - canvas_chrome_height - $('#sequence_footer').outerHeight(true));
+        toolResizer.resize_tool_content_wrapper($window.height() - canvas_chrome_height - $('#sequence_footer').outerHeight(true));
       }
     }).triggerHandler('resize');
   }
@@ -120,64 +133,9 @@ $(function() {
     });
   }
 
+  $('#content').on('click', '#mark-as-done-checkbox', function () {
+    MarkAsDone.toggle(this)
+  })
 });
 
-window.addEventListener('message', function(e) {
-  try {
-    var message = JSON.parse(e.data);
-    switch (message.subject) {
-      case 'lti.frameResize':
-        var height = message.height;
-        if (height <= 0) height = 1;
-
-        tool_content_wrapper().data('height_overridden', true);
-        resize_tool_content_wrapper(height);
-        break;
-
-      case 'lti.showModuleNavigation':
-        if(message.show === true || message.show === false){
-          $('.module-sequence-footer').toggle(message.show);
-        }
-        break;
-
-      case 'lti.scrollToTop':
-        $('html,body').animate({
-           scrollTop: $('.tool_content_wrapper').offset().top
-         }, 'fast');
-        break;
-
-      case 'lti.setUnloadMessage':
-        setUnloadMessage(message.message);
-        break;
-
-      case 'lti.removeUnloadMessage':
-        removeUnloadMessage();
-        break;
-
-      case 'lti.screenReaderAlert':
-        $.screenReaderFlashMessageExclusive(message.body)
-        break;
-    }
-  } catch(err) {
-    (console.error || console.log).call(console, 'invalid message received from');
-  }
-});
-
-var beforeUnloadHandler;
-function setUnloadMessage(msg) {
-  removeUnloadMessage();
-
-  beforeUnloadHandler = function(e) {
-    return (e.returnValue = msg || "");
-  }
-  window.addEventListener('beforeunload', beforeUnloadHandler);
-}
-
-function removeUnloadMessage() {
-  if (beforeUnloadHandler) {
-    window.removeEventListener('beforeunload', beforeUnloadHandler);
-    beforeUnloadHandler = null;
-  }
-}
-
-});
+monitorLtiMessages()

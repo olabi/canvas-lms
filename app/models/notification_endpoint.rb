@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,9 +16,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require 'aws-sdk'
+require 'aws-sdk-sns'
 
 class NotificationEndpoint < ActiveRecord::Base
+  include Canvas::SoftDeletable
+
   belongs_to :access_token
 
   validates_presence_of :token, :access_token

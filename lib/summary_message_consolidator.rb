@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,11 +34,16 @@ class SummaryMessageConsolidator
     end
 
     dm_id_batches.in_groups_of(Setting.get('summary_message_consolidator_batch_size', '500').to_i, false) do |batches|
-      DelayedMessage.where(:id => batches.flatten).
-          update_all(:batched_at => Time.now.utc, :workflow_state => 'sent', :updated_at => Time.now.utc)
+      ids_to_update = batches.flatten
+      update_sql = DelayedMessage.send(:sanitize_sql_array, ["UPDATE #{DelayedMessage.quoted_table_name}
+                    SET workflow_state='sent', updated_at=?, batched_at=?
+                    WHERE workflow_state='pending' AND id IN (?) RETURNING id", Time.now.utc, Time.now.utc, ids_to_update])
+      updated_ids = Shard.current.database_server.unshackle{ DelayedMessage.connection.select_values(update_sql)}
 
       Delayed::Batch.serial_batch do
         batches.each do |dm_ids|
+          dm_ids = dm_ids & updated_ids
+          next unless dm_ids.any?
           DelayedMessage.send_later_enqueue_args(:summarize, { :priority => Delayed::LOWER_PRIORITY }, dm_ids)
         end
       end
@@ -49,7 +54,7 @@ class SummaryMessageConsolidator
   def delayed_message_batch_ids
     Shackles.activate(:slave) do
       DelayedMessage.connection.select_all(
-        DelayedMessage.select('communication_channel_id').select('root_account_id').uniq.
+        DelayedMessage.select('communication_channel_id').select('root_account_id').distinct.
           where("workflow_state = ? AND send_at <= ?", 'pending', Time.now.to_s(:db)).
           to_sql)
     end
@@ -59,7 +64,7 @@ class SummaryMessageConsolidator
     DelayedMessage.
       where("workflow_state = ? AND send_at <= ?", 'pending', Time.now.to_s(:db)).
       where(batch). # hash condition will properly handle the case where root_account_id is null
-      all.map(&:id)
+      pluck(:id)
   end
 
 end

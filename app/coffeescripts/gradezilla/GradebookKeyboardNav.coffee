@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,44 +18,112 @@
 
 define [
   'i18n!gradezilla'
-  'compiled/gradezilla/GradebookTranslations'
+  '../gradezilla/GradebookTranslations'
+  'jquery'
   'jquery.keycodes'
-], (I18n, GRADEBOOK_TRANSLATIONS) ->
+], (I18n, GRADEBOOK_TRANSLATIONS, $) ->
   class GradebookKeyboardNav
-    constructor: (@slickGrid, @$grid) ->
+    constructor: (@options) ->
+      @gridSupport = @options.gridSupport
+      @gradebookElements = [document.querySelector('#gradebook_grid')]
+      @sortOnHeader = @preprocessKeydown(@sortOnHeader)
+      @toggleColumnHeaderMenu = @preprocessKeydown(@toggleColumnHeaderMenu, true)
+      @gotoAssignment = @preprocessKeydown(@gotoAssignment)
+      @showSubmissionTray = @preprocessKeydown(@showSubmissionTray)
 
     init: ->
       for binding in @keyBindings
         if binding.handler? && binding.key? && @[binding.handler]?
-          @$grid.keycodes(binding.key, @[binding.handler])
+          $(document.body).keycodes(binding.key, @[binding.handler])
+
+    shouldHandleEvent: (e) =>
+      for element in @gradebookElements
+        return true if element.contains(e.target)
+
+      false
+
+    haveLocation: (usePrevActiveLocation) =>
+      return true if @gridSupport.state.getActiveLocation().cell?
+      usePrevActiveLocation && @prevActiveLocation?
+
+    preprocessKeydown: (handler, usePrevActiveLocation) =>
+      (e) =>
+        return unless @shouldHandleEvent(e)
+        return unless @haveLocation(usePrevActiveLocation)
+
+        handler(e)
+
+    currentRegion: =>
+      @gridSupport.state.getActiveLocation().region
+
+    currentColumnId: =>
+      @gridSupport.state.getActiveLocation().columnId
+
+    currentColumnType: =>
+      @options.getColumnTypeForColumnId(@currentColumnId())
+
+    handleMenuOrDialogClose: =>
+      return unless @prevActiveLocation?
+
+      if @prevActiveLocation.region == 'header'
+        @gridSupport.state.setActiveLocation(@prevActiveLocation.region, @prevActiveLocation)
+        @prevActiveElement.focus()
+      else
+        @gridSupport.state.setActiveLocation(@prevActiveLocation.region, @prevActiveLocation)
+        # return to the cell, but do not engage the editor
+        # (exit any existing editor)
+        @gridSupport.helper.commitCurrentEdit() if @currentColumnType() == 'assignment'
+        @gridSupport.helper.focus()
+
+      @prevActiveLocation = null
+      @prevActiveElement = null
+
+    addGradebookElement: (element) =>
+      @gradebookElements.push(element) unless @gradebookElements.includes(element)
+
+    removeGradebookElement: (element) =>
+      @gradebookElements = @gradebookElements.filter (e) -> e != element
 
     getHeaderFromActiveCell: =>
-      coords = @slickGrid.getActiveCell()
-      @$grid.find('.slick-header-column').eq(coords.cell)
+      header = @gridSupport.state.getActiveColumnHeaderNode()
+
+      if !header && @prevActiveLocation?.cell?
+        header = @gridSupport.state.getColumnHeaderNode(@prevActiveLocation.cell)
+
+      header
 
     sortOnHeader: =>
-      @getHeaderFromActiveCell().click()
+      @options.toggleDefaultSort(@currentColumnId())
 
-    showAssignmentMenu: =>
-      @getHeaderFromActiveCell().find('.gradebook-header-drop').click()
-      $('.gradebook-header-menu:visible').focus()
+      activeLocation = @gridSupport.state.getActiveLocation()
+
+      if @currentColumnType() == 'student' && activeLocation.region == 'body'
+        @gridSupport.state.setActiveLocation(activeLocation.region, activeLocation)
+
+    toggleColumnHeaderMenu: (e) =>
+      # Prevent sending keystroke to text input of editable cells
+      e.preventDefault()
+      activeLocation = @gridSupport.state.getActiveLocation()
+
+      if activeLocation.cell? && !@prevActiveLocation
+        @prevActiveLocation = activeLocation
+        @prevActiveElement = document.activeElement
+
+      @getHeaderFromActiveCell().querySelector('.Gradebook__ColumnHeaderAction button')?.click()
 
     gotoAssignment: =>
-      url = @getHeaderFromActiveCell().find('.assignment-name').attr('href')
+      return unless @currentColumnType() == 'assignment'
+      url = @getHeaderFromActiveCell().querySelector('.assignment-name a').href
       window.location = url
 
-    showCommentDialog: =>
-      commentingIsDisabled = $(@slickGrid.getActiveCellNode()).hasClass("cannot_edit")
-      return if commentingIsDisabled
-      $(@slickGrid.getActiveCellNode()).find('.gradebook-cell-comment').click()
+    showSubmissionTray: =>
+      return unless @currentRegion() == 'body' && @currentColumnType() == 'assignment'
 
-    showToolTip: =>
-      node = $(@slickGrid.getActiveCellNode())
-      if node.parent().css('top') == '0px'
-        node.find('div.gradebook-tooltip').addClass('first-row')
-      else
-        node.find('div.gradebook-tooltip').removeClass('first-row')
-      node.toggleClass("hover")
+      activeLocation = @gridSupport.state.getActiveLocation()
+      assignmentId = @gridSupport.grid.getColumns()[activeLocation.cell]?.assignmentId
+      studentId = @gridSupport.options.rows[activeLocation.row]?.id
+
+      @options.openSubmissionTray(studentId, assignmentId) if studentId? && assignmentId?
 
     keyBindings:
       #   handler: function
@@ -68,14 +136,14 @@ define [
         desc: I18n.t 'keyboard_sort_desc', 'Sort the grid on the current active column'
         }
         {
-        handler: 'showAssignmentMenu'
+        handler: 'toggleColumnHeaderMenu'
         key: I18n.t 'keycodes.menu', 'm'
-        desc: I18n.t 'keyboard_menu_desc', 'Open the menu for the active column\'s assignment'
+        desc: I18n.t 'keyboard_menu_desc', 'Open menu for the active column'
         }
          # this one is just for display in the dialog, the menu will take care of itself
         {
         key: I18n.t 'keycodes.close_menu', 'esc'
-        desc: I18n.t 'keyboard_close_menu', 'Close the currently active assignment menu'
+        desc: I18n.t 'keyboard_close_menu', 'Close the currently active menu'
         }
 
         {
@@ -84,14 +152,8 @@ define [
         desc: I18n.t 'keyboard_assignment_desc', 'Go to the current assignment\'s detail page'
         }
         {
-        handler: 'showCommentDialog'
-        key: I18n.t 'keycodes.comment', 'c'
-        desc: I18n.t 'keyboard_comment_desc', 'Comment on the active submission'
-        }
-        {
-        handler: 'showToolTip'
-        key: I18n.t 'keycodes.tooltip', 't'
-        desc: I18n.t 'keyboard_tooltip_desc', 'Show the submission type of the active submission'
+        handler: 'showSubmissionTray'
+        key: 'c'
+        desc: I18n.t 'Open the grade detail tray'
         }
       ]
-

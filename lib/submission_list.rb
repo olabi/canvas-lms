@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-12 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -182,10 +182,11 @@ class SubmissionList
         h
       end
 
-      hsh.each do |k, v|
+      hsh.each_value do |v|
+        v['submissions'] = Canvas::ICU.collate_by(v.submissions, &:student_name)
         v.submission_count = v.submissions.size
       end
-      # puts "-------------------------------Time Spent in assignments_for_grader_and_day: #{Time.now-start}-------------------------------"
+
       hsh.values
     end
 
@@ -202,7 +203,7 @@ class SubmissionList
 
     # A hash of the current grades of each submission, keyed by submission.id
     def current_grade_map
-      @current_grade_map ||= self.course.submissions.inject({}) do |hash, submission|
+      @current_grade_map ||= self.course.submissions.not_placeholder.inject({}) do |hash, submission|
         grader = if submission.grader_id.present?
           self.grader_map[submission.grader_id].try(:name)
         end
@@ -294,7 +295,7 @@ class SubmissionList
 
     # A list of all versions in YAML format
     def yaml_list
-      @yaml_list ||= self.course.submissions.preload(:versions).map do |s|
+      @yaml_list ||= self.course.submissions.not_placeholder.preload(:versions).map do |s|
         s.versions.map { |v| v.yaml }
       end.flatten
     end

@@ -1,3 +1,21 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
 require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
 
 describe LtiApiController, type: :request do
@@ -39,13 +57,18 @@ describe LtiApiController, type: :request do
     }
   end
 
+  before do
+    allow(BasicLTI::Sourcedid).to receive(:encryption_secret) {'encryption-secret-5T14NjaTbcYjc4'}
+    allow(BasicLTI::Sourcedid).to receive(:signing_secret) {'signing-secret-vp04BNqApwdwUYPUI'}
+  end
+
 
   def lti_api_call(method, path, body = nil)
     consumer = OAuth::Consumer.new(tool.consumer_key, tool.shared_secret, :site => "https://www.example.com", :signature_method => "HMAC-SHA1")
     req = consumer.create_signed_request(:post, path, nil, { :scheme => 'header', :timestamp => Time.now.to_i, :nonce => SecureRandom.hex(32) }, body)
     content_type = body.is_a?(Hash) ? 'application/x-www-form-urlencoded' : 'application/json'
-    __send__(method, "https://www.example.com#{req.path}", req.body,
-    { 'CONTENT_TYPE' => content_type, "HTTP_AUTHORIZATION" => req['Authorization'] })
+    __send__(method, "https://www.example.com#{req.path}", params: req.body,
+      headers: { 'CONTENT_TYPE' => content_type, "HTTP_AUTHORIZATION" => req['Authorization'] })
   end
 
 
@@ -57,7 +80,7 @@ describe LtiApiController, type: :request do
     it 'accepts valid oauth request' do
       lti_api_call(:post, request_path, request_body.to_json)
       expect(request.headers["Authorization"]).to include 'oauth_body_hash'
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it 'disables the turnitin plugin for the assignment' do

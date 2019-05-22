@@ -1,6 +1,32 @@
-gem "aws-sdk", "=2.6.7" unless defined? Bundler
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+unless defined? Bundler
+  # we selinimize outside of bundler for great speed. but there may be
+  # multiple versions of this gem installed though (especially if someone
+  # is upgrading). such haax :o
+  aws_sdk_s3_version = File.read(File.expand_path(File.dirname(__FILE__) + '/../../../../Gemfile.d/app.rb'))
+    .lines
+    .grep(/aws-sdk-s3/)[0]
+    .sub(/.*'(\d+.*?)'.*\n/, '\1')
+  gem "aws-sdk-s3", aws_sdk_s3_version
+end
 require "json"
-require "aws-sdk"
+require "aws-sdk-s3"
 require "fileutils"
 require "tmpdir"
 require 'yaml'
@@ -67,9 +93,7 @@ module Selinimum
         objects.each do |object|
           file_name = object.key.sub(prefix, "")
           File.open("#{dest}/#{file_name}", "wb") do |file|
-            object.get do |chunk|
-              file.write(chunk)
-            end
+            file.write object.get.body.read
           end
         end
       end

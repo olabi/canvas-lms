@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 require 'sanitize'
 
@@ -87,8 +104,28 @@ module Qti
 
     # try to escape unmatched '<' and '>' characters because some people don't format their QTI correctly...
     def escape_unmatched_brackets(string)
-      string.split(/(\<[^\<\>]*\>)/).map do |sub|
-        if sub.start_with?("<") && sub.end_with?(">")
+      unmatched = false
+      lcount = 0
+      string.scan(/[\<\>]/) do |s|
+        if s == ">"
+          if lcount == 0
+            unmatched = true
+          else
+            lcount -= 1
+          end
+        else
+          lcount += 1
+        end
+      end
+      return string unless unmatched || lcount > 0
+
+      if string.include?("data-equation-content")
+        # try to fix a weird issue with unescaped brackets inside html attribute values
+        string = Nokogiri::HTML::DocumentFragment.parse(string).to_xml rescue string
+      end
+
+      string.split(/(\<[^\<\>]*\>)/m).map do |sub|
+        if sub.strip.start_with?("<") && sub.strip.end_with?(">")
           sub
         else
           sub.gsub("<", "&lt;").gsub(">", "&gt;")
@@ -108,8 +145,12 @@ module Qti
       is_html = (html_node && @flavor == Qti::Flavors::CANVAS) ? true : false
       # heuristic for detecting html: the sanitized html node is more than just a container for a single text node
       sanitized = sanitize_html!(html_node ? Nokogiri::HTML::DocumentFragment.parse(node.text) : node, true) { |s| is_html ||= !(s.children.size == 1 && s.children.first.is_a?(Nokogiri::XML::Text)) }
-      if is_html && sanitized.present?
-        html = sanitized
+      if sanitized.present?
+        if is_html
+          html = sanitized
+        else
+          text = sanitized.gsub(/\s+/, " ").strip
+        end
       end
       [text, html]
     end

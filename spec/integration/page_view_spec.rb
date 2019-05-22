@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,8 +28,8 @@ describe "page views" do
     course_with_teacher_logged_in(active_all: 1, user: @user)
     @topic = @course.discussion_topics.create!
 
-    post "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", :message => 'hello'
-    expect(response).to be_success
+    post "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: {:message => 'hello'}
+    expect(response).to be_successful
 
     pv = PageView.last
     expect(pv.context).to eq @course
@@ -37,13 +37,32 @@ describe "page views" do
     expect(pv.action).to eq 'add_entry'
   end
 
+  it "should record get request for api request" do
+    course_with_teacher(active_all: 1, user: user_with_pseudonym)
+    @topic = @course.discussion_topics.create!
+    enable_default_developer_key!
+    get "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: {access_token: @user.access_tokens.create!.full_token}
+    pv = PageView.last
+    expect(pv.http_method).to eq 'get'
+  end
+
+  it "should not record gets for api request when setting disabled" do
+    Setting.set('create_get_api_page_views', 'false')
+    course_with_teacher(active_all: 1, user: user_with_pseudonym)
+    @topic = @course.discussion_topics.create!
+    expect do
+      get "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: {access_token: @user.access_tokens.create!.full_token}
+    end.not_to change(PageView, :count)
+  end
+
   it "records the developer key when an access token was used" do
     user_with_pseudonym(active_all: 1)
     course_with_teacher(active_all: 1, user: @user)
     @topic = @course.discussion_topics.create!
+    enable_default_developer_key!
 
-    post "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", :message => 'hello', access_token: @user.access_tokens.create!.full_token
-    expect(response).to be_success
+    post "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: {:message => 'hello', access_token: @user.access_tokens.create!.full_token}
+    expect(response).to be_successful
 
     pv = PageView.last
     expect(pv.context).to eq @course
@@ -60,8 +79,8 @@ describe "page views" do
       page_view.user = @user
       page_view.save
 
-      xhr :put, "/page_views/#{page_view.id}", :page_view_token => page_view.token, :interaction_seconds => 42
-      expect(response).to be_success
+      put "/page_views/#{page_view.id}", params: {:page_view_token => page_view.token, :interaction_seconds => 42}, xhr: true
+      expect(response).to be_successful
       expect(response['X-Canvas-Meta']).to match(/r=#{page_view.request_id}\|#{page_view.created_at.iso8601(2)}\|42;/)
     end
   end

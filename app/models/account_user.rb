@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,16 +30,33 @@ class AccountUser < ActiveRecord::Base
   after_save :update_account_associations_if_changed
   after_destroy :update_account_associations_later
 
-  validate :valid_role?
+  validate :valid_role?, :unless => :deleted?
 
   validates_presence_of :account_id, :user_id, :role_id
 
   alias_method :context, :account
 
+  scope :active, -> { where.not(workflow_state: 'deleted') }
 
+  include Workflow
+  workflow do
+    state :active
+
+    state :deleted do
+      event :reactivate, transitions_to: :active
+    end
+  end
+
+  alias_method :destroy_permanently!, :destroy
+  def destroy
+    return if self.new_record?
+    self.workflow_state = 'deleted'
+    self.save!
+  end
 
   def update_account_associations_if_changed
-    if (self.account_id_changed? || self.user_id_changed?)
+    being_deleted = self.workflow_state == 'deleted' && self.workflow_state_before_last_save != 'deleted'
+    if (self.saved_change_to_account_id? || self.saved_change_to_user_id?) || being_deleted
       if self.new_record?
         return if %w{creation_pending deleted}.include?(self.user.workflow_state)
         account_chain = self.account.account_chain
@@ -157,7 +174,7 @@ class AccountUser < ActiveRecord::Base
   def self.account_ids_for_user(user)
     @account_ids_for ||= {}
     @account_ids_for[user.id] ||= Rails.cache.fetch(['account_ids_for_user', user].cache_key) do
-      AccountUser.for_user(user).map(&:account_id)
+      AccountUser.active.for_user(user).map(&:account_id)
     end
   end
 

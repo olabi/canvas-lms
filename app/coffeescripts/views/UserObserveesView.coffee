@@ -1,11 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
+  'jquery'
   'underscore'
   'i18n!observees'
-  'jst/UserObservees'
+  'jst/PairingCodeUserObservees'
   'jst/ExternalAuthUserObservees'
-  'compiled/views/UserObserveeView'
-  'compiled/views/PaginatedCollectionView'
-], (_, I18n, template, extAuthTemplate, itemView, PaginatedCollectionView) ->
+  './UserObserveeView'
+  './PaginatedCollectionView'
+], ($, _, I18n, pairingCodeTemplate, extAuthTemplate, itemView, PaginatedCollectionView) ->
 
   class UserObserveesView extends PaginatedCollectionView
     autoFetch: true
@@ -16,7 +34,7 @@ define [
       if ENV.AUTH_TYPE == 'saml'
         extAuthTemplate
       else
-        template
+        pairingCodeTemplate
 
     events:
       'submit .add-observee-form': 'addObservee'
@@ -30,11 +48,13 @@ define [
         @setLoading(true)
       @collection.on 'fetch', =>
         @setLoading(false)
+      @collection.on 'fetched:last', =>
+        $('<em>').text(I18n.t('No students being observed')).appendTo(@$('.observees-list-container')) if @collection.size() == 0
 
     addObservee: (ev) ->
       ev.preventDefault()
-      observee = @$form.getFormData()
-      d = $.post(@collection.url(), {observee: observee})
+      data = @$form.getFormData()
+      d = $.post(@collection.url(), data)
 
       d.done (model) =>
         if model.redirect
@@ -59,5 +79,9 @@ define [
       field.focus()
 
     setLoading: (loading) ->
-      @$el.toggleClass('loading', loading)
-      @$('.observees-list-container').attr('aria-busy', if loading then 'true' else 'false')
+      if loading
+        @$('.observees-list-container').attr('aria-busy', 'true')
+        @$('.loading-indicator').show()
+      else
+        @$('.observees-list-container').attr('aria-busy', 'false')
+        @$('.loading-indicator').hide()

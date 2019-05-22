@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Migration::ExternalContent
   class Migrator
     class << self
@@ -20,7 +37,9 @@ module Canvas::Migration::ExternalContent
         self.registered_services.each do |key, service|
           if service.applies_to_course?(course)
             begin
-              pending_exports[key] = service.begin_export(course, opts)
+              if export = service.begin_export(course, opts)
+                pending_exports[key] = export
+              end
             rescue => e
               Canvas::Errors.capture_exception(:external_content_migration, e)
             end
@@ -104,7 +123,7 @@ module Canvas::Migration::ExternalContent
           service = import_service_for(key)
           if service
             begin
-              if import = service.send_imported_content(migration.context, content)
+              if import = service.send_imported_content(migration.context, migration, content)
                 pending_imports[key] = import
               end
             rescue => e

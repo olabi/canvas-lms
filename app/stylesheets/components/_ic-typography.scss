@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /// This is the beginning of fixing typography usage in Canvas. We originally were pulling in a bunch of
 /// bootstrap styles, of which, we'd like to phase out in multiple iterations.
 /// Below is the combination of overwrites and bootstrap styles that were originally in Canvas.
@@ -10,57 +28,20 @@
 ///////==============
 /// Global Settings
 ///////==============
-
-
-@font-face {
-  font-family: 'LatoWeb';
-  src: url('/fonts/lato/latin/LatoLatin-Regular.woff2') format('woff2'),
-       url('/fonts/lato/latin/LatoLatin-Regular.woff') format('woff'),
-       url('/fonts/lato/latin/LatoLatin-Regular.ttf') format('truetype');
-  font-style: normal;
-  font-weight: normal;
-}
-
-@font-face {
-  font-family: 'LatoWeb';
-  src: url('/fonts/lato/latin/LatoLatin-Italic.woff2') format('woff2'),
-       url('/fonts/lato/latin/LatoLatin-Italic.woff') format('woff'),
-       url('/fonts/lato/latin/LatoLatin-Italic.ttf') format('truetype');
-  font-style: italic;
-  font-weight: normal;
-}
-
-@font-face {
-  font-family: 'LatoWeb';
-  src: url('/fonts/lato/latin/LatoLatin-Bold.woff2') format('woff2'),
-       url('/fonts/lato/latin/LatoLatin-Bold.woff') format('woff'),
-       url('/fonts/lato/latin/LatoLatin-Bold.ttf') format('truetype');
-  font-style: normal;
-  font-weight: bold;
-}
-
-@font-face {
-  font-family: 'LatoWeb';
-  src: url('/fonts/lato/latin/LatoLatin-Light.woff2') format('woff2'),
-       url('/fonts/lato/latin/LatoLatin-Light.woff') format('woff'),
-       url('/fonts/lato/latin/LatoLatin-Light.ttf') format('truetype');
-  font-style: normal;
-  font-weight: 300;
-}
-
 html {
-  font-family: $ic-font-family-fallback;
-  &.lato-font-loaded {
-    font-family: $ic-font-family;
-  }
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  font-family: $ic-font-family;
 }
 
 body {
   @include fontSize($ic-font-size);
   font-weight: normal;
-  margin: 0;
   line-height: $ic-line-height;
   color: $ic-font-color-dark;
+  -webkit-font-smoothing: antialiased; // needed to help render the iconFont clearer
+  -moz-osx-font-smoothing: grayscale; // needed to help render the iconFont clearer
 }
 
 p {
@@ -99,8 +80,8 @@ a.text-warning:hover { color: darken($ic-color-alert, 10%); }
 .text-error { color: $ic-color-danger; }
 a.text-error:hover { color: darken($ic-color-danger, 10%); }
 
-.text-info { color: $ic-brand-primary; }
-a.text-info:hover { color: darken($ic-brand-primary, 10%); }
+.text-info { color: var(--ic-brand-primary); }
+a.text-info:hover { color: var(--ic-brand-primary-darkened-10); }
 
 .text-success { color: $ic-color-success; }
 a.text-success:hover { color: darken($ic-color-success, 10%); }
@@ -122,15 +103,15 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-h1 { font-size: $ic-font-size * 2.75; } // ~38px
-h2 { font-size: $ic-font-size * 2.25; } // ~32px
-h3 { font-size: $ic-font-size * 1.75; } // ~24px
-h4 { font-size: $ic-font-size * 1.25; } // ~18px
+h1 { font-size: $ic-font-size * 2.375; } // ~38px
+h2 { font-size: $ic-font-size * 2.00; } // ~32px
+h3 { font-size: $ic-font-size * 1.50; } // ~24px
+h4 { font-size: $ic-font-size * 1.125; } // ~18px
 h5 { font-size: $ic-font-size; }
-h6 { font-size: $ic-font-size * 0.85; } // ~12px
+h6 { font-size: $ic-font-size * 0.75; } // ~12px
 
-h1 small { font-size: $ic-font-size * 1.75; } // ~24px
-h2 small { font-size: $ic-font-size * 1.25; } // ~18px
+h1 small { font-size: $ic-font-size * 1.50; } // ~24px
+h2 small { font-size: $ic-font-size * 1.125; } // ~18px
 h3 small { font-size: $ic-font-size; }
 h4 small { font-size: $ic-font-size; }
 
@@ -158,14 +139,16 @@ h3, .h3 {
 ///////==============
 
 a {
-  color: $ic-link-color;
-  &:focus, &:hover { color: darken($ic-link-color, 10%); }
+  color: var(--ic-link-color);
+  &:focus, &:hover {
+    color: var(--ic-link-color-darkened-10);
+  }
 
   @if $use_high_contrast {
     text-decoration: underline;
     &:focus, &:hover { text-decoration: none; }
     @include ic-focus-base;
-    &:focus { @include ic-focus-variant($color: $ic-link-color, $offset: -1px); }
+    &:focus { @include ic-focus-variant; }
   }
 
   @else {
@@ -178,11 +161,11 @@ a {
 /// Underline All Links Feature Flag
 ////////=============
 .Underline-All-Links__enabled {
-  a:not(.Button, .btn, .ui-button) {
+  a:not(.Button, .btn, .ui-button, .ui-tabs-anchor) {
     text-decoration: underline;
     &:focus, &:hover { text-decoration: none; }
     @include ic-focus-base;
-    &:focus { @include ic-focus-variant($color: $ic-link-color, $offset: -1px); }
+    &:focus { @include ic-focus-variant($color: var(--ic-link-color)); }
   }
 }
 
@@ -199,7 +182,7 @@ a {
 // Unordered and Ordered lists
 ul, ol {
   padding: 0;
-  margin: 0 0 6px 25px;
+  margin: direction-sides(0 0 6px 25px);
 }
 ul ul,
 ul ol,
@@ -209,7 +192,7 @@ ol ul {
 }
 ul.unstyled,
 ol.unstyled {
-  margin-left: 0;
+  margin-#{direction(left)}: 0;
   list-style: none;
 }
 
@@ -225,21 +208,41 @@ dt {
   font-weight: bold;
 }
 dd {
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
 }
 // Horizontal layout (like forms)
 .dl-horizontal {
   @include clearfix(); // Ensure dl clears floats if empty dd elements present
   dt {
-    float: left;
+    float: direction(left);
     width: $horizontalComponentOffset - 20;
-    clear: left;
-    text-align: right;
-    @include text-overflow();
+    clear: direction(left);
+    text-align: direction(right);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   dd {
-    margin-left: $horizontalComponentOffset;
+    margin-#{direction(left)}: $horizontalComponentOffset;
   }
+}
+
+///////==============
+/// Prevents sub and sup affecting line-height in all browsers
+///////==============
+
+sub,
+sup {
+  position: relative;
+  font-size: 75%;
+  line-height: 0;
+  vertical-align: baseline;
+}
+sup {
+  top: -0.5em;
+}
+sub {
+  bottom: -0.25em;
 }
 
 ///////==============
@@ -282,7 +285,7 @@ select.un-bootrstrapify {
 }
 
 .form-actions {
-  text-align: right;
+  text-align: direction(right);
   padding: 10px 10px 11px;
 
   // when .form-actions is in a modal box, make it look different per Kyle mockup
@@ -294,8 +297,8 @@ select.un-bootrstrapify {
   // when you want your non-modal .form-actions footer to not have any whitespace around it
   &.flush {
     margin-bottom: -1em;
-    margin-left: -1em;
-    margin-right: -1em;
+    margin-#{direction(left)}: -1em;
+    margin-#{direction(right)}: -1em;
   }
 }
 
@@ -419,12 +422,14 @@ abbr.initialism {
 
 // Blockquotes
 blockquote {
-  padding: 0 0 0 15px;
+  padding: direction-sides(0 0 0 15px);
   margin: 0 0 20px;
-  border-left: 5px solid $ic-border-color;
+  border-#{direction(left)}: 5px solid $ic-border-color;
   p {
     margin-bottom: 0;
-    @include font-shorthand(16px,300, 25px);
+    @include fontSize(16px);
+    font-weight: 300;
+    line-height: 25px;
   }
   small {
     display: block;
@@ -437,14 +442,14 @@ blockquote {
 
   // Float right with text-align: right
   &.pull-right {
-    float: right;
-    padding-right: 15px;
-    padding-left: 0;
-    border-right: 5px solid $ic-border-color;
-    border-left: 0;
+    float: direction(right);
+    padding-#{direction(right)}: 15px;
+    padding-#{direction(left)}: 0;
+    border-#{direction(right)}: 5px solid $ic-border-color;
+    border-#{direction(left)}: 0;
     p,
     small {
-      text-align: right;
+      text-align: direction(right);
     }
     small {
       &:before {
@@ -504,7 +509,7 @@ Here's an accessible way to do it for popovers without a header.
   max-width: 236px;
   width: 236px;
   color: $gray;
-  text-align: left;
+  text-align: direction(left);
   text-decoration: none;
   background-color: $popoverBackground;
   opacity: 1;
@@ -529,21 +534,21 @@ $popoverArrowDistanceFromCorner: $popoverArrowOuterWidth;
     height:0;
     content: "";
     top: -$popoverArrowOuterWidth * 2;
-    left: $popoverArrowDistanceFromCorner;
+    #{direction(left)}: $popoverArrowDistanceFromCorner;
   }
   &:after {
     border-bottom-color: $popoverTitleBackground;
     border-width: $popoverArrowWidth;
     top: -$popoverArrowWidth * 2;
-    left: $popoverArrowDistanceFromCorner + 1;
+    #{direction(left)}: $popoverArrowDistanceFromCorner + 1;
   }
   &.right:before {
-    left: auto;
-    right: $popoverArrowDistanceFromCorner;
+    #{direction(left)}: auto;
+    #{direction(right)}: $popoverArrowDistanceFromCorner;
   }
   &.right:after {
-    left: auto;
-    right: $popoverArrowDistanceFromCorner + 1;
+    #{direction(left)}: auto;
+    #{direction(right)}: $popoverArrowDistanceFromCorner + 1;
   }
   &.bottom:before {
     border-color: $popoverArrowOuterColor transparent transparent transparent;
@@ -556,14 +561,14 @@ $popoverArrowDistanceFromCorner: $popoverArrowOuterWidth;
     bottom: -$popoverArrowWidth * 2;
   }
   &.center:before {
-    left: 50%;
-    margin-left: -$popoverArrowOuterWidth;
-    right: auto;
+    #{direction(left)}: 50%;
+    margin-#{direction(left)}: -$popoverArrowOuterWidth;
+    #{direction(right)}: auto;
   }
   &.center:after {
-    left: 50%;
-    margin-left: -$popoverArrowWidth;
-    right: auto;
+    #{direction(left)}: 50%;
+    margin-#{direction(left)}: -$popoverArrowWidth;
+    #{direction(right)}: auto;
   }
   &.middle:before {
     top: 50%;
@@ -579,26 +584,26 @@ $popoverArrowDistanceFromCorner: $popoverArrowOuterWidth;
     top: 50%;
     margin-top: -$popoverArrowOuterWidth;
     bottom: auto;
-    left: -$popoverArrowOuterWidth * 2;
-    right: auto;
+    #{direction(left)}: -$popoverArrowOuterWidth * 2;
+    #{direction(right)}: auto;
     border-color: transparent $popoverArrowOuterColor transparent transparent;
   }
   &.horizontal:after {
     top: 50%;
     margin-top: -$popoverArrowWidth;
     bottom: auto;
-    left: -$popoverArrowWidth * 2;
-    right: auto;
+    #{direction(left)}: -$popoverArrowWidth * 2;
+    #{direction(right)}: auto;
     border-color: transparent $popoverArrowColor transparent transparent;
   }
   &.right.horizontal:before {
-    left: auto;
-    right: -$popoverArrowOuterWidth * 2;
+    #{direction(left)}: auto;
+    #{direction(right)}: -$popoverArrowOuterWidth * 2;
     border-color: transparent transparent transparent $popoverArrowOuterColor;
   }
   &.right.horizontal:after {
-    left: auto;
-    right: -$popoverArrowWidth * 2;
+    #{direction(left)}: auto;
+    #{direction(right)}: -$popoverArrowWidth * 2;
     border-color: transparent transparent transparent $popoverArrowColor;
   }
   &.bottom.horizontal:before {

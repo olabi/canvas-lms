@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__)+'/../../../../spec/apis/api_spec_helper')
 
 describe 'simply_versioned' do
@@ -68,7 +85,7 @@ describe 'simply_versioned' do
       woozel.with_versioning(&:save!)
       expect(woozel.versions.loaded?).to eq false
       first = woozel.versions.first
-      Woozel.connection.expects(:select_all).never
+      expect(Woozel.connection).to receive(:select_all).never
       expect(first.versionable).to eq woozel
     end
 
@@ -77,7 +94,7 @@ describe 'simply_versioned' do
       woozel.with_versioning(&:save!)
       expect(woozel.versions.loaded?).to eq false
       all = woozel.versions.to_a
-      Woozel.connection.expects(:select_all).never
+      expect(Woozel.connection).to receive(:select_all).never
       all.each do |version|
         expect(version.versionable).to eq woozel
       end

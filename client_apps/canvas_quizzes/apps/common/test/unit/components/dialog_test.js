@@ -1,63 +1,81 @@
-define(function(require) {
-  var React = require('old_version_of_react_used_by_canvas_quizzes_client_apps');
-  var Subject = require('jsx!components/dialog');
+// /*
+//  * Copyright (C) 2014 - present Instructure, Inc.
+//  *
+//  * This file is part of Canvas.
+//  *
+//  * Canvas is free software: you can redistribute it and/or modify it under
+//  * the terms of the GNU Affero General Public License as published by the Free
+//  * Software Foundation, version 3 of the License.
+//  *
+//  * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+//  * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+//  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+//  * details.
+//  *
+//  * You should have received a copy of the GNU Affero General Public License along
+//  * with this program. If not, see <http://www.gnu.org/licenses/>.
+//  */
 
-  describe('Components.Dialog', function() {
-    var Contents = React.createClass({
-      render: function() {
-        return React.DOM.p({ children: 'Hello from Dialog!' });
-      }
-    });
+// define(function(require) {
+//   var React = require('old_version_of_react_used_by_canvas_quizzes_client_apps');
+//   var Subject = require('jsx!components/dialog');
 
-    this.reactSuite({
-      type: Subject
-    });
+//   describe('Components.Dialog', function() {
+//     var Contents = React.createClass({
+//       render: function() {
+//         return React.DOM.p({ children: 'Hello from Dialog!' });
+//       }
+//     });
 
-    var getDialog = function() {
-      return document.body.querySelector('.ui-dialog');
-    };
+//     this.reactSuite({
+//       type: Subject
+//     });
 
-    it('should render', function() {
-      setProps({ content: Contents });
+//     var getDialog = function() {
+//       return document.body.querySelector('.ui-dialog');
+//     };
 
-      expect(getDialog()).toBeTruthy();
-      expect(getDialog().innerText).toMatch('Hello from Dialog!');
-    });
+//     it('should render', function() {
+//       setProps({ content: Contents });
 
-    it('should pass properties through to the content', function() {
-      setProps({ name: 'Ahmad' }).then(function() {
-        expect(subject.state.content.props.name).toEqual('Ahmad');
-      });
-    });
+//       expect(getDialog()).toBeTruthy();
+//       expect(getDialog().innerText).toMatch('Hello from Dialog!');
+//     });
 
-    it('should not pass parent-specific props, like @className', function() {
-      setProps({ className: 'test' }).then(function() {
-        expect(subject.props.className).toEqual('test');
-        expect(subject.state.content.props.className).toBeFalsy();
-      });
-    });
+//     it('should pass properties through to the content', function() {
+//       setProps({ name: 'Ahmad' }).then(function() {
+//         expect(subject.state.content.props.name).toEqual('Ahmad');
+//       });
+//     });
 
-    it('should accept custom tagNames', function() {
-      setProps({ tagName: 'button' });
-      expect(subject.getDOMNode().tagName).toEqual('BUTTON');
-    });
+//     it('should not pass parent-specific props, like @className', function() {
+//       setProps({ className: 'test' }).then(function() {
+//         expect(subject.props.className).toEqual('test');
+//         expect(subject.state.content.props.className).toBeFalsy();
+//       });
+//     });
 
-    describe('#open, #isOpen, #close', function() {
-      it('should work', function() {
-        setProps({ content: Contents });
+//     it('should accept custom tagNames', function() {
+//       setProps({ tagName: 'button' });
+//       expect(subject.getDOMNode().tagName).toEqual('BUTTON');
+//     });
 
-        subject.open();
-        expect(subject.isOpen()).toBe(true);
-        expect(getDialog().style.display).toEqual('block');
+//     describe('#open, #isOpen, #close', function() {
+//       it('should work', function() {
+//         setProps({ content: Contents });
 
-        subject.close();
-        expect(subject.isOpen()).toBe(false);
-        expect(getDialog().style.display).toEqual('none');
+//         subject.open();
+//         expect(subject.isOpen()).toBe(true);
+//         expect(getDialog().style.display).toEqual('block');
 
-        subject.open();
-        expect(subject.isOpen()).toBe(true);
-        expect(getDialog().style.display).toEqual('block');
-      });
-    });
-  });
-});
+//         subject.close();
+//         expect(subject.isOpen()).toBe(false);
+//         expect(getDialog().style.display).toEqual('none');
+
+//         subject.open();
+//         expect(subject.isOpen()).toBe(true);
+//         expect(getDialog().style.display).toEqual('block');
+//       });
+//     });
+//   });
+// });

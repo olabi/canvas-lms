@@ -18,11 +18,13 @@
 
 require File.expand_path(File.dirname(__FILE__) + '/api_spec_helper')
 require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
+require 'imperium/testing'
 
 describe "API Authentication", type: :request do
 
   before :once do
     @key = DeveloperKey.create!
+    enable_developer_key_account_binding!(@key)
   end
 
   before :each do
@@ -38,12 +40,12 @@ describe "API Authentication", type: :request do
 
   if Canvas.redis_enabled? # eventually we're going to have to just require redis to run the specs
     it "should require a valid client id" do
-      get "/login/oauth2/auth", :response_type => 'code', :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'
+      get "/login/oauth2/auth", params: {:response_type => 'code', :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'}
       expect(response).to be_client_error
     end
 
     it "should require a valid code to get an access_token" do
-      post "/login/oauth2/token", :client_id => @client_id, :client_secret => @client_secret, :code => 'asdf'
+      post "/login/oauth2/token", params: {:client_id => @client_id, :client_secret => @client_secret, :code => 'asdf'}
       expect(response).to be_client_error
     end
 
@@ -55,18 +57,18 @@ describe "API Authentication", type: :request do
 
       before :each do
         # Trust the referer
-        Account.any_instance.stubs(:trusted_referer?).returns(true)
-        post '/login', 'pseudonym_session[unique_id]' => 'test1@example.com', 'pseudonym_session[password]' => 'test1234'
+        allow_any_instance_of(Account).to receive(:trusted_referer?).and_return(true)
+        post '/login/canvas', params: {'pseudonym_session[unique_id]' => 'test1@example.com', 'pseudonym_session[password]' => 'test1234'}
       end
 
        it "should not need developer key when we have an actual application session" do
         expect(response).to redirect_to("http://www.example.com/?login_success=1")
-        get "/api/v1/courses.json", {}
-        expect(response).to be_success
+        get "/api/v1/courses.json", params: {}
+        expect(response).to be_successful
       end
 
        it "should have anti-crsf meausre in normal session" do
-        get "/api/v1/courses.json", {}
+        get "/api/v1/courses.json", params: {}
         # because this is a normal application session, the response is prepended
         # with our anti-csrf measure
         json = response.body
@@ -76,7 +78,7 @@ describe "API Authentication", type: :request do
 
       it "should not allow post without authenticity token in application session" do
         post "/api/v1/courses/#{@course.id}/assignments.json",
-             { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' },
+             params: { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' },
                :authenticity_token => 'asdf' }
           expect(response.response_code).to eq 422
       end
@@ -84,15 +86,15 @@ describe "API Authentication", type: :request do
       it "should allow post with cookie authenticity token in application session" do
         get "/"
         post "/api/v1/courses/#{@course.id}/assignments.json",
-             { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' },
+             params: { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' },
                :authenticity_token => cookies['_csrf_token'] }
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@course.assignments.count).to eq 1
       end
 
       it "should not allow replacing the authenticity token with api_key without basic auth" do
         post "/api/v1/courses/#{@course.id}/assignments.json?api_key=#{@key.api_key}",
-             { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' } }
+             params: { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' } }
         expect(response.response_code).to eq 422
       end
     end
@@ -104,8 +106,8 @@ describe "API Authentication", type: :request do
       end
 
       it "should not allow basic auth with api key" do
-        get "/api/v1/courses.json?api_key=#{@key.api_key}", {},
-            { 'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Basic.encode_credentials('test1@example.com', 'test1234') }
+        get "/api/v1/courses.json?api_key=#{@key.api_key}",
+            headers: { 'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Basic.encode_credentials('test1@example.com', 'test1234') }
         expect(response.response_code).to eq 401
       end
     end
@@ -117,7 +119,7 @@ describe "API Authentication", type: :request do
           course_with_teacher(:user => @user)
 
           # step 1
-          get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob', :purpose => 'fun'
+          get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob', :purpose => 'fun'}
           expect(response).to redirect_to(login_url)
 
           yield
@@ -128,7 +130,7 @@ describe "API Authentication", type: :request do
           get response['Location']
           expect(response).to render_template("oauth2_provider/confirm")
 
-          post "/login/oauth2/accept", { :authenticity_token => cookies['_csrf_token'] }
+          post "/login/oauth2/accept", params: { :authenticity_token => cookies['_csrf_token'] }
 
           expect(response).to be_redirect
           expect(response['Location']).to match(%r{/login/oauth2/auth\?})
@@ -136,12 +138,12 @@ describe "API Authentication", type: :request do
           expect(code).to be_present
 
           # we have the code, we can close the browser session
-          post "/login/oauth2/token", :client_id => @client_id, :client_secret => @client_secret, :code => code
-          expect(response).to be_success
+          post "/login/oauth2/token", params: {:client_id => @client_id, :client_secret => @client_secret, :code => code}
+          expect(response).to be_successful
           expect(response.header[content_type_key]).to eq 'application/json; charset=utf-8'
           json = JSON.parse(response.body)
           token = json['access_token']
-          expect(json['user']).to eq({ 'id' => @user.id, 'name' => 'test1@example.com' })
+          expect(json['user']).to eq({ 'id' => @user.id, 'global_id' => @user.global_id.to_s, 'name' => 'test1@example.com', 'effective_locale' => 'en' })
           reset!
 
           # try an api call
@@ -149,7 +151,7 @@ describe "API Authentication", type: :request do
           expect(response.response_code).to eq 401
 
           get "/api/v1/courses.json?access_token=#{token}"
-          expect(response).to be_success
+          expect(response).to be_successful
           json = JSON.parse(response.body)
           expect(json.size).to eq 1
           expect(json.first['enrollments']).to eq [{'type' => 'teacher', 'role' => 'TeacherEnrollment', 'role_id' => teacher_role.id, 'user_id' => @user.id, 'enrollment_state' => 'invited'}]
@@ -157,10 +159,10 @@ describe "API Authentication", type: :request do
           expect(AccessToken.last.purpose).to eq 'fun'
 
           # post requests should work with nothing but an access token
-          post "/api/v1/courses/#{@course.id}/assignments.json?access_token=1234", { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' } }
+          post "/api/v1/courses/#{@course.id}/assignments.json?access_token=1234", params: { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' } }
           expect(response.response_code).to eq 401
-          post "/api/v1/courses/#{@course.id}/assignments.json?access_token=#{token}", { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' } }
-          expect(response).to be_success
+          post "/api/v1/courses/#{@course.id}/assignments.json?access_token=#{token}", params: { :assignment => { :name => 'test assignment', :points_possible => '5.3', :grading_type => 'points' } }
+          expect(response).to be_successful
           expect(@course.assignments.count).to eq 1
           expect(@course.assignments.first.title).to eq 'test assignment'
           expect(@course.assignments.first.points_possible).to eq 5.3
@@ -169,12 +171,12 @@ describe "API Authentication", type: :request do
 
       it "should not prepend the csrf protection even if the post has a session" do
         user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234')
-        post "/login", :pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }
+        post "/login/canvas", params: {:pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }}
         code = SecureRandom.hex(64)
         code_data = { 'user' => @user.id, 'client_id' => @client_id }
         Canvas.redis.setex("oauth2:#{code}", 1.day, code_data.to_json)
-        post "/login/oauth2/token", :client_id => @client_id, :client_secret => @client_secret, :code => code
-        expect(response).to be_success
+        post "/login/oauth2/token", params: {:client_id => @client_id, :client_secret => @client_secret, :code => code}
+        expect(response).to be_successful
         json = JSON.parse(response.body)
         expect(AccessToken.authenticate(json['access_token'])).to eq AccessToken.last
       end
@@ -183,26 +185,26 @@ describe "API Authentication", type: :request do
         flow do
           follow_redirect!
           expect(response).to redirect_to(canvas_login_url)
-          Account.any_instance.stubs(:trusted_referer?).returns(true)
-          post canvas_login_url, :pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }
+          allow_any_instance_of(Account).to receive(:trusted_referer?).and_return(true)
+          post canvas_login_url, params: {:pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }}
         end
       end
 
       it "should execute for saml login" do
-        skip("requires SAML extension") unless AccountAuthorizationConfig::SAML.enabled?
+        skip("requires SAML extension") unless AuthenticationProvider::SAML.enabled?
         account_with_saml(account: Account.default)
         flow do
-          Onelogin::Saml::Response.any_instance.stubs(:settings=)
-          Onelogin::Saml::Response.any_instance.stubs(:logger=)
-          Onelogin::Saml::Response.any_instance.stubs(:is_valid?).returns(true)
-          Onelogin::Saml::Response.any_instance.stubs(:success_status?).returns(true)
-          Onelogin::Saml::Response.any_instance.stubs(:name_id).returns('test1@example.com')
-          Onelogin::Saml::Response.any_instance.stubs(:name_qualifier).returns(nil)
-          Onelogin::Saml::Response.any_instance.stubs(:session_index).returns(nil)
-          Onelogin::Saml::Response.any_instance.stubs(:issuer).returns("saml_entity")
-          Onelogin::Saml::Response.any_instance.stubs(:trusted_roots).returns([])
+          response = SAML2::Response.new
+          response.issuer = SAML2::NameID.new('saml_entity')
+          response.assertions << (assertion = SAML2::Assertion.new)
+          assertion.subject = SAML2::Subject.new
+          assertion.subject.name_id = SAML2::NameID.new('test1@example.com')
+          allow(SAML2::Bindings::HTTP_POST).to receive(:decode).and_return(
+            [response, nil]
+          )
+          allow_any_instance_of(SAML2::Entity).to receive(:valid_response?)
 
-          post '/login/saml', :SAMLResponse => "foo"
+          post '/login/saml', params: {:SAMLResponse => "foo"}
         end
       end
 
@@ -220,40 +222,40 @@ describe "API Authentication", type: :request do
             st.success = response.is_success?
             return st
           end
-          CASClient::Client.stubs(:new).returns(cas)
+          allow(CASClient::Client).to receive(:new).and_return(cas)
 
           follow_redirect!
           expect(response).to redirect_to("/login/cas")
           follow_redirect!
           expect(response).to redirect_to(controller.delegated_auth_redirect_uri(cas.add_service_to_login_url(url_for(controller: 'login/cas', action: :new))))
 
-          get "/login/cas", :ticket => 'ST-abcd'
+          get "/login/cas", params: {:ticket => 'ST-abcd'}
           expect(response).to be_redirect
         end
       end
 
       it "should not require logging in again, or log out afterwards" do
         course_with_student_logged_in(:active_all => true, :user => user_with_pseudonym)
-        get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'
+        get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'}
         expect(response).to be_redirect
         expect(response['Location']).to match(%r{/login/oauth2/confirm$})
         get response['Location']
         expect(response).to render_template("oauth2_provider/confirm")
-        post "/login/oauth2/accept", { :authenticity_token => cookies['_csrf_token'] }
+        post "/login/oauth2/accept", params: { :authenticity_token => cookies['_csrf_token'] }
         expect(response).to be_redirect
         expect(response['Location']).to match(%r{/login/oauth2/auth\?})
         code = response['Location'].match(/code=([^\?&]+)/)[1]
         expect(code).to be_present
         get response['Location']
-        expect(response).to be_success
+        expect(response).to be_successful
         # verify we're still logged in
         get "/courses/#{@course.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it "should redirect with access_denied if the user doesn't accept" do
         course_with_student_logged_in(:active_all => true, :user => user_with_pseudonym)
-        get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'
+        get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'}
         expect(response).to be_redirect
         expect(response['Location']).to match(%r{/login/oauth2/confirm$})
         get response['Location']
@@ -265,38 +267,46 @@ describe "API Authentication", type: :request do
         expect(error).to eq "access_denied"
         expect(response['Location']).not_to match(%r{code=})
         get response['Location']
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it "should require the correct client secret" do
         # step 1
-        get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'
+        get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'}
         expect(response).to redirect_to(login_url)
 
         follow_redirect!
         expect(response).to be_redirect
         follow_redirect!
-        expect(response).to be_success
+        expect(response).to be_successful
 
         user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234')
         course_with_teacher(:user => @user)
-        Account.any_instance.stubs(:trusted_referer?).returns(true)
-        post "/login", :pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }
+        allow_any_instance_of(Account).to receive(:trusted_referer?).and_return(true)
+        post "/login/canvas", params: {:pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }}
 
         # step 2
         expect(response).to be_redirect
         expect(response['Location']).to match(%r{/login/oauth2/confirm$})
         follow_redirect!
-        expect(response).to be_success
+        expect(response).to be_successful
 
-        post "/login/oauth2/accept", { :authenticity_token => controller.send(:form_authenticity_token) }
+        post "/login/oauth2/accept", params: { :authenticity_token => controller.send(:form_authenticity_token) }
 
         code = response['Location'].match(/code=([^\?&]+)/)[1]
         expect(code).to be_present
 
         # we have the code, we can close the browser session
-        post "/login/oauth2/token", :client_id => @client_id, :client_secret => 'nuh-uh', :code => code
+        post "/login/oauth2/token", params: {:client_id => @client_id, :client_secret => 'nuh-uh', :code => code}
         expect(response).to be_client_error
+      end
+
+      it "works when the user logs in via a session_token" do
+        flow do
+          follow_redirect!
+          expect(response).to redirect_to(canvas_login_url)
+          get root_url, params: { session_token: SessionToken.new(@pseudonym.id) }
+        end
       end
 
       context "sharding" do
@@ -307,26 +317,26 @@ describe "API Authentication", type: :request do
 
           @shard1.activate do
             account = Account.create!
-            LoadAccount.stubs(:default_domain_root_account).returns(account)
-            account.stubs(:trusted_account_ids).returns([Account.default.id])
+            allow(LoadAccount).to receive(:default_domain_root_account).and_return(account)
+            allow(account).to receive(:trusted_account_ids).and_return([Account.default.id])
 
             # step 1
-            get "/login/oauth2/auth", :response_type => 'code', :client_id => @key.id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'
+            get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @key.id, :redirect_uri => 'urn:ietf:wg:oauth:2.0:oob'}
             expect(response).to redirect_to(login_url)
 
             follow_redirect!
             expect(response).to be_redirect
             follow_redirect!
-            expect(response).to be_success
-            Account.any_instance.stubs(:trusted_referer?).returns(true)
-            post "/login", :pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }
+            expect(response).to be_successful
+            allow_any_instance_of(Account).to receive(:trusted_referer?).and_return(true)
+            post "/login/canvas", params: {:pseudonym_session => { :unique_id => 'test1@example.com', :password => 'test1234' }}
 
             # step 3
             expect(response).to be_redirect
             expect(response['Location']).to match(%r{/login/oauth2/confirm$})
             get response['Location']
             expect(response).to render_template("oauth2_provider/confirm")
-            post "/login/oauth2/accept", { :authenticity_token => cookies['_csrf_token'] }
+            post "/login/oauth2/accept", params: { :authenticity_token => cookies['_csrf_token'] }
 
             expect(response).to be_redirect
             expect(response['Location']).to match(%r{/login/oauth2/auth\?})
@@ -334,12 +344,12 @@ describe "API Authentication", type: :request do
             expect(code).to be_present
 
             # we have the code, we can close the browser session
-            post "/login/oauth2/token", :client_id => @key.id, :client_secret => @client_secret, :code => code
-            expect(response).to be_success
+            post "/login/oauth2/token", params: {:client_id => @key.id, :client_secret => @client_secret, :code => code}
+            expect(response).to be_successful
             expect(response.header[content_type_key]).to eq 'application/json; charset=utf-8'
             json = JSON.parse(response.body)
             @token = json['access_token']
-            expect(json['user']).to eq({ 'id' => @user.id, 'name' => 'test1@example.com' })
+            expect(json['user']).to eq({ 'id' => @user.id, 'global_id' => @user.global_id.to_s, 'name' => 'test1@example.com', 'effective_locale' => 'en' })
             reset!
           end
 
@@ -351,19 +361,19 @@ describe "API Authentication", type: :request do
 
     describe "oauth2 web app flow" do
       it "should require the developer key to have a redirect_uri" do
-        get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/oauth2response"
+        get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/oauth2response"}
         expect(response).to be_client_error
         expect(response.body).to match /redirect_uri/
       end
 
       it "should require the redirect_uri domains to match" do
         @key.update_attribute :redirect_uri, 'http://www.example2.com/oauth2response'
-        get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/oauth2response"
+        get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/oauth2response"}
         expect(response).to be_client_error
         expect(response.body).to match /redirect_uri/
 
         @key.update_attribute :redirect_uri, 'http://www.example.com/oauth2response'
-        get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/oauth2response"
+        get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/oauth2response"}
         expect(response).to be_redirect
       end
 
@@ -378,20 +388,20 @@ describe "API Authentication", type: :request do
                 @user.access_tokens.create!(developer_key: @key)
               end
 
-              get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/my_uri"
+              get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/my_uri"}
               expect(response).to redirect_to(login_url)
 
               follow_redirect!
               expect(response).to be_redirect
               follow_redirect!
-              expect(response).to be_success
-              Account.any_instance.stubs(:trusted_referer?).returns(true)
-              post "/login", :pseudonym_session => {:unique_id => 'test1@example.com', :password => 'test1234'}
+              expect(response).to be_successful
+              allow_any_instance_of(Account).to receive(:trusted_referer?).and_return(true)
+              post "/login/canvas", params: {:pseudonym_session => {:unique_id => 'test1@example.com', :password => 'test1234'}}
 
               expect(response).to be_redirect
               expect(response['Location']).to match(%r{/login/oauth2/confirm$})
               get response['Location']
-              post "/login/oauth2/accept", {:authenticity_token => cookies['_csrf_token']}
+              post "/login/oauth2/accept", params: {:authenticity_token => cookies['_csrf_token']}
 
               expect(response).to be_redirect
               expect(response['Location']).to match(%r{http://www.example.com/my_uri?})
@@ -399,8 +409,9 @@ describe "API Authentication", type: :request do
               expect(code).to be_present
 
               # exchange the code for the token
-              post "/login/oauth2/token", {:code => code}, {'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Basic.encode_credentials(@client_id, @client_secret)}
-              expect(response).to be_success
+              post "/login/oauth2/token", params: {:code => code},
+                headers: {'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Basic.encode_credentials(@client_id, @client_secret)}
+              expect(response).to be_successful
               expect(response.header[content_type_key]).to eq 'application/json; charset=utf-8'
               json = JSON.parse(response.body)
               token = json['access_token']
@@ -408,7 +419,7 @@ describe "API Authentication", type: :request do
 
               # try an api call
               get "/api/v1/courses.json?access_token=#{token}"
-              expect(response).to be_success
+              expect(response).to be_successful
               json = JSON.parse(response.body)
               expect(json.size).to eq 1
               expect(json.first['enrollments']).to eq [{'type' => 'teacher', 'role' => 'TeacherEnrollment', 'role_id' => teacher_role.id, 'user_id' => @user.id, 'enrollment_state' => 'invited'}]
@@ -436,13 +447,13 @@ describe "API Authentication", type: :request do
               account2 = Account.create!
               developer_key = DeveloperKey.create!(account: account2, redirect_uri: "http://www.example.com/my_uri")
 
-              get "/login/oauth2/auth", :response_type => 'code', :client_id => developer_key.id, :redirect_uri => "http://www.example.com/my_uri"
+              get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => developer_key.id, :redirect_uri => "http://www.example.com/my_uri"}
               expect(response).to be_redirect
               expect(response.location).to match(/unauthorized_client/)
 
               @user.access_tokens.create!(developer_key: developer_key)
 
-              get "/login/oauth2/auth", :response_type => 'code', :client_id => developer_key.id, :redirect_uri => "http://www.example.com/my_uri"
+              get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => developer_key.id, :redirect_uri => "http://www.example.com/my_uri"}
               expect(response).to be_redirect
               expect(response.location).to match(/unauthorized_client/)
             end
@@ -464,15 +475,16 @@ describe "API Authentication", type: :request do
                 @user.access_tokens.create!(developer_key: @key)
               end
 
-              get "/login/oauth2/auth", :response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/my_uri"
+              get "/login/oauth2/auth", params: {:response_type => 'code', :client_id => @client_id, :redirect_uri => "http://www.example.com/my_uri"}
               expect(response).to be_redirect
               expect(response['Location']).to match(%r{http://www.example.com/my_uri?})
               code = response['Location'].match(/code=([^\?&]+)/)[1]
               expect(code).to be_present
 
               # exchange the code for the token
-              post "/login/oauth2/token", {:code => code}, {'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Basic.encode_credentials(@client_id, @client_secret)}
-              expect(response).to be_success
+              post "/login/oauth2/token", params: {:code => code},
+                headers: {'HTTP_AUTHORIZATION' => ActionController::HttpAuthentication::Basic.encode_credentials(@client_id, @client_secret)}
+              expect(response).to be_successful
               expect(response.header[content_type_key]).to eq 'application/json; charset=utf-8'
               JSON.parse(response.body)
             end
@@ -524,7 +536,7 @@ describe "API Authentication", type: :request do
     end
 
     it "allows API access with a wrapped JWT" do
-      get "/api/v1/courses", nil, {
+      get "/api/v1/courses", headers: {
         'HTTP_AUTHORIZATION' => "Bearer #{wrapped_jwt_from_service}"
       }
       assert_status(200)
@@ -536,7 +548,7 @@ describe "API Authentication", type: :request do
         sub: @user.global_id,
         masq_sub: User.first.global_id
       })
-      get "/api/v1/courses", nil, {
+      get "/api/v1/courses", headers: {
         'HTTP_AUTHORIZATION' => "Bearer #{token}"
       }
       assert_status(200)
@@ -551,14 +563,14 @@ describe "API Authentication", type: :request do
         expired_services_jwt = wrapped_jwt_from_service
       end
       auth_header = { 'HTTP_AUTHORIZATION' => "Bearer #{expired_services_jwt}" }
-      get "/api/v1/courses", nil, auth_header
+      get "/api/v1/courses", headers: auth_header
       assert_status(401)
       expect(response['WWW-Authenticate']).to eq %{Bearer realm="canvas-lms"}
     end
 
     it "requires an active pseudonym" do
       @user.pseudonym.destroy
-      get "/api/v1/courses", nil, {
+      get "/api/v1/courses", headers: {
         'HTTP_AUTHORIZATION' => "Bearer #{wrapped_jwt_from_service}"
       }
       assert_status(401)
@@ -566,7 +578,7 @@ describe "API Authentication", type: :request do
     end
 
     it "falls through to checking access token for non-JWT but JWT-like strings" do
-      get "/api/v1/courses", nil, {
+      get "/api/v1/courses", headers: {
         'HTTP_AUTHORIZATION' => "Bearer 1050~LvwezC5Dd3ZK9CR1lusJTRv24dN0263txia3KF3mU6pDjOv5PaoX8Jv4ikdcvoiy"
       }
       # this error message proves that it ended up throwing an AccessTokenError
@@ -587,14 +599,13 @@ describe "API Authentication", type: :request do
     before :once do
       user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234')
       course_with_teacher(:user => @user)
-      @token = @user.access_tokens.create!
-      expect(@token.full_token).not_to be_nil
+      @token = @user.access_tokens.create!(developer_key: @key)
     end
 
     def check_used
       expect(@token.last_used_at).to be_nil
       yield
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(@token.reload.last_used_at).not_to be_nil
     end
 
@@ -604,13 +615,13 @@ describe "API Authentication", type: :request do
     end
 
     it "should allow passing the access token in the authorization header" do
-      check_used { get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
+      check_used { get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
       expect(JSON.parse(response.body).size).to eq 1
     end
 
     it "recovers gracefully if consul is missing encryption data" do
-      Diplomat::Kv.stubs(:get).raises(Diplomat::KeyNotFound, "cannot find some secret")
-      check_used { get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
+      allow(Imperium::KV).to receive(:get).and_return(Imperium::Testing.kv_not_found_response(options: %i{recurse}))
+      check_used { get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
       assert_status(200)
     end
 
@@ -621,7 +632,7 @@ describe "API Authentication", type: :request do
       Account.default.pseudonyms.create!(unique_id: 'user', user: u2)
       @user = @me
       check_used do
-        post "/api/v1/accounts/#{Account.default.id}/admins", {
+        post "/api/v1/accounts/#{Account.default.id}/admins", params: {
           'user_id' => u2.id,
           'access_token' => @token.full_token,
         }
@@ -630,25 +641,25 @@ describe "API Authentication", type: :request do
     end
 
     it "should error if the access token is expired or non-existent" do
-      get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer blahblah" }
+      get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer blahblah" }
       assert_status(401)
       expect(response['WWW-Authenticate']).to eq %{Bearer realm="canvas-lms"}
       @token.update_attribute(:expires_at, 1.hour.ago)
-      get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
+      get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
       assert_status(401)
       expect(response['WWW-Authenticate']).to eq %{Bearer realm="canvas-lms"}
     end
 
     it "should error if the developer key is inactive" do
       @token.developer_key.deactivate!
-      get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
+      get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
       assert_status(401)
       expect(response['WWW-Authenticate']).to eq %{Bearer realm="canvas-lms"}
     end
 
     it "should require an active pseudonym for the access token user" do
       @user.pseudonym.destroy
-      get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
+      get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
       assert_status(401)
       expect(response['WWW-Authenticate']).to eq %{Bearer realm="canvas-lms"}
       json = JSON.parse(response.body)
@@ -665,10 +676,10 @@ describe "API Authentication", type: :request do
 
     it "should be able to log out" do
       get "/api/v1/courses?access_token=#{@token.full_token}"
-      expect(response).to be_success
+      expect(response).to be_successful
 
       delete "/login/oauth2/token?access_token=#{@token.full_token}"
-      expect(response).to be_success
+      expect(response).to be_successful
 
       get "/api/v1/courses?access_token=#{@token.full_token}"
       assert_status(401)
@@ -691,10 +702,11 @@ describe "API Authentication", type: :request do
             user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234', account: @account)
             course_with_teacher(:user => @user, account: @account)
             developer_key = DeveloperKey.create!(account: @account, redirect_uri: "http://www.example.com/my_uri")
+            enable_developer_key_account_binding!(developer_key)
             @token = @user.access_tokens.create!(:developer_key => developer_key)
 
-            LoadAccount.stubs(:default_domain_root_account).returns(@account)
-            check_used {  get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
+            allow(LoadAccount).to receive(:default_domain_root_account).and_return(@account)
+            check_used {  get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
             expect(JSON.parse(response.body).size).to eq 1
           end
         end
@@ -706,10 +718,11 @@ describe "API Authentication", type: :request do
             user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234', account: @sub_account1)
             course_with_teacher(:user => @user, account: @sub_account1)
             developer_key = DeveloperKey.create!(account: @account, redirect_uri: "http://www.example.com/my_uri")
+            enable_developer_key_account_binding!(developer_key)
             @token = @user.access_tokens.create!(:developer_key => developer_key)
 
-            LoadAccount.stubs(:default_domain_root_account).returns(@account)
-            check_used {  get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
+            allow(LoadAccount).to receive(:default_domain_root_account).and_return(@account)
+            check_used {  get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
             expect(JSON.parse(response.body).size).to eq 1
           end
         end
@@ -723,8 +736,8 @@ describe "API Authentication", type: :request do
             developer_key = DeveloperKey.create!(account: @not_sub_account, redirect_uri: "http://www.example.com/my_uri")
             @token = @user.access_tokens.create!(:developer_key => developer_key)
 
-            LoadAccount.stubs(:default_domain_root_account).returns(@account)
-            get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
+            allow(LoadAccount).to receive(:default_domain_root_account).and_return(@account)
+            get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
             assert_status(401)
           end
         end
@@ -737,14 +750,15 @@ describe "API Authentication", type: :request do
       it "should work for an access token from a different shard with the developer key on the default shard" do
         @shard1.activate do
           @account = Account.create!
+          enable_default_developer_key!
           user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234', :account => @account)
           course_with_teacher(:user => @user, :account => @account)
           @token = @user.access_tokens.create!(:developer_key => DeveloperKey.default)
           expect(@token.developer_key.shard).to be_default
         end
-        LoadAccount.stubs(:default_domain_root_account).returns(@account)
+        allow(LoadAccount).to receive(:default_domain_root_account).and_return(@account)
 
-        check_used { get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
+        check_used { get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" } }
         expect(JSON.parse(response.body).size).to eq 1
       end
 
@@ -758,13 +772,14 @@ describe "API Authentication", type: :request do
           # create the dev key on a different account
           account2 = Account.create!
           developer_key = DeveloperKey.create!(account: account2, redirect_uri: "http://www.example.com/my_uri")
+          enable_developer_key_account_binding!(developer_key)
           @token = @user.access_tokens.create!(:developer_key => developer_key)
           expect(@token.developer_key.shard).to be @shard1
 
         end
 
-        LoadAccount.stubs(:default_domain_root_account).returns(@account)
-        get "/api/v1/courses", nil, { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
+        allow(LoadAccount).to receive(:default_domain_root_account).and_return(@account)
+        get "/api/v1/courses", headers: { 'HTTP_AUTHORIZATION' => "Bearer #{@token.full_token}" }
         assert_status(401)
       end
     end
@@ -802,6 +817,7 @@ describe "API Authentication", type: :request do
         'integration_id' => nil,
         'time_zone' => 'Etc/UTC',
         'locale' => nil,
+        'effective_locale' => 'en',
         'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" }
       })
 
@@ -824,6 +840,7 @@ describe "API Authentication", type: :request do
           'integration_id' => nil,
           'time_zone' => 'Etc/UTC',
           'locale' => nil,
+          'effective_locale' => 'en',
           'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" }
       })
 
@@ -844,6 +861,7 @@ describe "API Authentication", type: :request do
           'integration_id' => nil,
           'time_zone' => 'Etc/UTC',
           'locale' => nil,
+          'effective_locale' => 'en',
           'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" }
       })
     end
@@ -870,6 +888,7 @@ describe "API Authentication", type: :request do
         'primary_email' => "blah@example.com",
         'time_zone' => 'Etc/UTC',
         'locale' => nil,
+        'effective_locale' => 'en',
         'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" },
       })
     end
@@ -897,6 +916,7 @@ describe "API Authentication", type: :request do
           'primary_email' => "blah@example.com",
           'time_zone' => 'Etc/UTC',
           'locale' => nil,
+          'effective_locale' => 'en',
           'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" },
       })
     end
@@ -934,7 +954,7 @@ describe "API Authentication", type: :request do
       user_with_pseudonym(:user => @user)
       raw_api_call(:get, "/api/v1/users/self/profile",
                       :controller => "profile", :action => "settings", :user_id => "self", :format => "json")
-      expect(response).to be_success
+      expect(response).to be_successful
       raw_json = response.body
       expect(raw_json).not_to match(%r{^while\(1\);})
       json = JSON.parse(raw_json)
@@ -943,15 +963,15 @@ describe "API Authentication", type: :request do
 
     it "should prepend the CSRF protection for API endpoints, when session auth is used" do
       user_with_pseudonym(:active_user => true, :username => 'test1@example.com', :password => 'test1234')
-      Account.any_instance.stubs(:trusted_referer?).returns(true)
-      post "/login", "pseudonym_session[unique_id]" => "test1@example.com",
-        "pseudonym_session[password]" => "test1234"
+      allow_any_instance_of(Account).to receive(:trusted_referer?).and_return(true)
+      post "/login/canvas", params: {"pseudonym_session[unique_id]" => "test1@example.com",
+        "pseudonym_session[password]" => "test1234"}
       assert_response 302
       get "/api/v1/users/self/profile"
-      expect(response).to be_success
+      expect(response).to be_successful
       raw_json = response.body
       expect(raw_json).to match(%r{^while\(1\);})
-      expect { JSON.parse(raw_json) }.to raise_error
+      expect { JSON.parse(raw_json) }.to raise_error(JSON::ParserError)
       json = JSON.parse(raw_json.sub(%r{^while\(1\);}, ''))
       expect(json['id']).to eq @user.id
     end

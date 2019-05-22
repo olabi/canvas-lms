@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/calendar2_common')
 require File.expand_path(File.dirname(__FILE__) + '/../cassandra_spec_helper')
@@ -5,6 +22,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../cassandra_spec_helper')
 describe "admin_tools" do
   include_context "in-process server selenium tests"
   include Calendar2Common
+  include CustomScreenActions
 
   def load_admin_tools_page
     get "/accounts/#{@account.id}/admin_tools"
@@ -46,8 +64,6 @@ describe "admin_tools" do
   def click_view_tab(tab_name)
     wait_for_ajaximations
     tab = fj("#adminToolsTabs .#{tab_name} > a")
-    expect(tab).not_to be_nil
-    expect(tab).to be_displayed
     tab.click
     wait_for_ajaximations
   end
@@ -95,12 +111,12 @@ describe "admin_tools" do
         site_admin_user
         user_with_pseudonym(:user => @admin, :account => @account)
         user_session(@admin)
-        message(:user_id => @student.id, :body => 'this is my message', :account_id => @account.id)
+        message_model(:user_id => @student.id, :body => 'this is my message', :root_account_id => @account.id)
 
         load_admin_tools_page
         click_view_notifications_tab
         perform_user_search("#commMessagesSearchForm", @student.id)
-        f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+        f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
         wait_for_ajaximations
         expect(f('#commMessagesSearchResults .message-body').text).to include('this is my message')
       end
@@ -109,62 +125,63 @@ describe "admin_tools" do
     context "as AccountAdmin" do
       context "with permissions" do
         it "should perform search" do
-          message(:user_id => @student.id)
+          message_model(:user_id => @student.id, :body => 'foo bar', :root_account_id => @account.id)
           load_admin_tools_page
           click_view_notifications_tab
           perform_user_search("#commMessagesSearchForm", @student.id)
-          f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+          f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
           wait_for_ajaximations
-          expect(f('#commMessagesSearchResults .message-body').text).to include('nice body')
+          expect(f('#commMessagesSearchResults .message-body').text).to include('foo bar')
         end
 
         it "should display nothing found" do
-          message(:user_id => @student.id)
+          message_model(:user_id => @student.id, :body => 'foo bar', :root_account_id => @account.id)
           load_admin_tools_page
           click_view_notifications_tab
           perform_user_search("#commMessagesSearchForm", @student.id)
-          set_value f('#commMessagesSearchForm .dateEndSearchField'), 2.months.ago
-          f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+          set_value f('.userDateRangeSearchModal .dateEndSearchField'), 2.months.ago
+          f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
           wait_for_ajaximations
           expect(f('#commMessagesSearchResults .alert').text).to include('No messages found')
           expect(f("#content")).not_to contain_css('#commMessagesSearchResults .message-body')
         end
 
         it "should display valid search params used" do
-          message(:user_id => @student.id)
+          message_model(:user_id => @student.id, :body => 'foo bar', :root_account_id => @account.id)
           load_admin_tools_page
           click_view_notifications_tab
           # Search with no dates
           perform_user_search("#commMessagesSearchForm", @student.id)
-          f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+          f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
           wait_for_ajaximations
           expect(f('#commMessagesSearchOverview').text).to include("Notifications sent to #{@student.name} from the beginning to now.")
           # Search with begin date and end date - should show time actually being used
           perform_user_search("#commMessagesSearchForm", @student.id)
-          set_value f('#commMessagesSearchForm .dateStartSearchField'), 'Mar 3, 2001'
-          set_value f('#commMessagesSearchForm .dateEndSearchField'), 'Mar 9, 2001'
-          f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+          set_value f('.userDateRangeSearchModal .dateStartSearchField'), 'Mar 3, 2001'
+          set_value f('.userDateRangeSearchModal .dateEndSearchField'), 'Mar 9, 2001'
+          f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
           wait_for_ajaximations
           expect(f('#commMessagesSearchOverview').text).to include("Notifications sent to #{@student.name} from Mar 3, 2001 at 12am to Mar 9, 2001 at 12am.")
           # Search with begin date/time and end date/time - should use and show given time
           perform_user_search("#commMessagesSearchForm", @student.id)
-          set_value f('#commMessagesSearchForm .dateStartSearchField'), 'Mar 3, 2001 1:05p'
-          set_value f('#commMessagesSearchForm .dateEndSearchField'), 'Mar 9, 2001 3p'
-          f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+          set_value f('.userDateRangeSearchModal .dateStartSearchField'), 'Mar 3, 2001 1:05p'
+          set_value f('.userDateRangeSearchModal .dateEndSearchField'), 'Mar 9, 2001 3p'
+          f('.userDateRangeSearchBtn').click
           wait_for_ajaximations
           expect(f('#commMessagesSearchOverview').text).to include("Notifications sent to #{@student.name} from Mar 3, 2001 at 1:05pm to Mar 9, 2001 at 3pm.")
         end
 
-        it "should display search params used when given invalid input data" do
+        it "should display an error when given invalid input data" do
           load_admin_tools_page
           click_view_notifications_tab
           perform_user_search("#commMessagesSearchForm", @student.id)
           # Search with invalid dates
-          set_value f('#commMessagesSearchForm .dateStartSearchField'), 'couch'
-          set_value f('#commMessagesSearchForm .dateEndSearchField'), 'pillow'
-          f('#commMessagesSearchForm .userDateRangeSearchBtn').click
+          set_value f('.userDateRangeSearchModal .dateStartSearchField'), 'couch'
+          set_value f('.userDateRangeSearchModal .dateEndSearchField'), 'pillow'
+          f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
           wait_for_ajaximations
-          expect(f('#commMessagesSearchOverview').text).to include("Notifications sent to #{@student.name} from the beginning to now.")
+          assert_error_box("[name='messages_start_time']")
+          assert_error_box("[name='messages_end_time']")
         end
 
         it "should hide tab if account setting disabled" do
@@ -296,7 +313,7 @@ describe "admin_tools" do
 
     it "should show log history" do
       perform_user_search("#authLoggingSearchForm", @student.id)
-      f('#authLoggingSearchForm .userDateRangeSearchBtn').click
+      f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
       wait_for_ajaximations
       expect(ff('#authLoggingSearchResults table tbody tr').length).to eq 2
       cols = ffj('#authLoggingSearchResults table tbody tr:first td')
@@ -306,7 +323,7 @@ describe "admin_tools" do
 
     it "should search by user name" do
       perform_user_search("#authLoggingSearchForm", 'testuser')
-      f('#authLoggingSearchForm .userDateRangeSearchBtn').click
+      f('.userDateRangeSearchModal .userDateRangeSearchBtn').click
       wait_for_ajaximations
       expect(ff('#authLoggingSearchResults table tbody tr').length).to eq 2
     end
@@ -381,6 +398,7 @@ describe "admin_tools" do
       set_value f("#gradeChangeAssignmentSearch"), @assignment.id
       f('#loggingGradeChange button[name=gradeChange_submit]').click
       wait_for_ajaximations
+      scroll_page_to_bottom
       expect(ff('#gradeChangeLoggingSearchResults table tbody tr').length).to eq 3
     end
 
@@ -554,7 +572,7 @@ describe "admin_tools" do
       expect(fj('.ui-dialog dl dd:last').text).to eq @reset_course.name
     end
 
-    it "should show copied_from event details" do
+    it "should show reset_from event details" do
       @course, @reset_course = @course, course_factory(active_course: true, course_name: "Reset Course")
       @from_event, @to_event = Auditors::Course.record_reset(@course, @reset_course, @teacher)
 

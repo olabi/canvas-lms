@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!turnitin'
   'underscore'
@@ -22,7 +39,7 @@ define [
 
       return unless data.items.length
 
-      stateList = ['no', 'none', 'acceptable', 'warning', 'problem', 'failure']
+      stateList = ['no', 'none', 'acceptable', 'warning', 'problem', 'failure', 'pending', 'error']
       stateMap = invert(stateList)
       states = (parseInt(stateMap[item.state or 'no']) for item in data.items)
       data.state = stateList[max(states)]
@@ -36,10 +53,10 @@ define [
         type = "vericite"
       if submission?.has_originality_report
         type = "originality_report"
-      return {} unless data and data[key] and data[key].similarity_score?
+      return {} unless data and data[key] and (data[key].similarity_score? or data[key].status == 'pending')
       data = data[key]
       data.state = "#{data.state || 'no'}_score"
-      data.score = "#{data.similarity_score}%"
+      data.score = if data.similarity_score then "#{data.similarity_score}%"
       data.reportUrl = "#{urlPrefix}/assignments/#{submission.assignment_id}/submissions/#{submission.user_id}/#{type}/#{key}"
       data.tooltip = I18n.t('tooltip.score', 'Similarity Score - See detailed report')
       data

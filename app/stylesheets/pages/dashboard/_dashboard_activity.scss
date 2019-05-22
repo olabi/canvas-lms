@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 #right-side .placeholder {
@@ -10,9 +28,10 @@
   line-height: 1.2;
   padding-bottom: $ic-sp;
   font-size: 1.5em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-.ic-notification + .recent-activity-header { margin-top: $ic-sp*2; }
 
 .recent_activity > li {
   position: relative;
@@ -25,24 +44,24 @@
   }
   .unread-count {
     display: block;
-    background: $ic-brand-primary;
+    background: var(--ic-brand-primary);
     border-radius: 15px;
     width: 10px;
     height: 10px;
     position: absolute;
-    left: 3px;
+    #{direction(left)}: 3px;
     top: 22px;
     padding: 0;
   }
   .accessibly-hidden {
     position: absolute;
-    left: -9999px;
+    #{direction(left)}: -9999px;
   }
   .unread {
     width: 10px;
     height: 10px;
-    margin-left: -15px;
-    background-color: $ic-brand-primary;
+    margin-#{direction(left)}: -15px;
+    background-color: var(--ic-brand-primary);
     border-radius: 5px;
   }
 }
@@ -66,7 +85,7 @@
     }
     .toggle-details {
       text-indent: 0;
-      text-align: right;
+      text-align: direction(right);
     }
   }
 }
@@ -81,7 +100,7 @@ $ignore-col-width: 50px;
 
 .toggle-details {
   display: block;
-  text-align: right;
+  text-align: direction(right);
   text-indent: 0;
   &:hover {
     text-decoration: none;
@@ -90,7 +109,7 @@ $ignore-col-width: 50px;
 
 .details_container {
   display: none;
-  margin-left: 62px;
+  margin-#{direction(left)}: 62px;
 }
 
 .stream-details {
@@ -144,7 +163,7 @@ $ignore-col-width: 50px;
 }
 
 .fake-link {
-  color: $ic-link-color;
+  color: var(--ic-link-color);
   &:hover {
     text-decoration: underline;
   }
@@ -162,8 +181,8 @@ $dashboardIconSize: 28px;
 
 .recent_activity .image-block-image {
   width: $dashboardIconSize;
-  margin-right: 10px;
-  margin-left: 10px;
+  margin-#{direction(right)}: 10px;
+  margin-#{direction(left)}: 10px;
 }
 
 .recent_activity .image-block-image i {

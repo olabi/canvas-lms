@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -36,9 +36,10 @@
 #     }
 #
 class CustomGradebookColumnDataApiController < ApplicationController
-  before_filter :require_context, :require_user
+  before_action :require_context, :require_user
 
   include Api::V1::CustomGradebookColumn
+  include Api::V1::Progress
 
   # @API List entries for a column
   #
@@ -78,26 +79,74 @@ class CustomGradebookColumnDataApiController < ApplicationController
     user = allowed_users.where(:id => params[:user_id]).first
     raise ActiveRecord::RecordNotFound unless user
 
-    column = @context.custom_gradebook_columns.active.find(params[:id])
-    datum   = column.custom_gradebook_column_data.where(user_id: user).first
-    datum ||= column.custom_gradebook_column_data.build.tap { |d|
-      d.user_id = user.id
-    }
+    column = @context.custom_gradebook_columns.not_deleted.find(params[:id])
+    datum = column.custom_gradebook_column_data.find_or_initialize_by(user_id: user.id)
     if authorized_action? datum, @current_user, :update
-      datum.attributes = params.require(:column_data).permit(:content)
-      if datum.content.blank?
-        datum.destroy
-        render :json => custom_gradebook_column_datum_json(datum, @current_user, session)
-      elsif datum.save
-        render :json => custom_gradebook_column_datum_json(datum, @current_user, session)
-      else
-        render :json => datum.errors
+      CustomGradebookColumnDatum.unique_constraint_retry do |retry_count|
+        if retry_count > 0
+          # query for the datum again if this is a retry
+          datum = column.custom_gradebook_column_data.find_or_initialize_by(user_id: user.id)
+        end
+        datum.attributes = params.require(:column_data).permit(:content)
+        if datum.content.blank?
+          datum.destroy
+          render json: custom_gradebook_column_datum_json(datum, @current_user, session)
+        elsif datum.save
+          render json: custom_gradebook_column_datum_json(datum, @current_user, session)
+        else
+          render json: datum.errors
+        end
       end
     end
   end
 
+  # @API Bulk update column data
+  #
+  # Set the content of custom columns
+  #
+  # @argument column_data[] [Required, Array]
+  #   Column content. Setting this to an empty string will delete the data object.
+  #
+  # @example_request
+  #
+  # {
+  #   "column_data": [
+  #     {
+  #       "column_id": example_column_id,
+  #       "user_id": example_student_id,
+  #       "content": example_content
+  #       },
+  #       {
+  #       "column_id": example_column_id,
+  #       "user_id": example_student_id,
+  #       "content: example_content
+  #     }
+  #   ]
+  # }
+  #
+  # @returns Progress
+
+  def bulk_update
+    bulk_update_params = params.permit(column_data: [:user_id, :column_id, :content])
+    column_data_as_array = bulk_update_params.to_h[:column_data]
+    raise ActionController::BadRequest if column_data_as_array.blank?
+
+    column_ids = column_data_as_array.map { |entry| entry.fetch(:column_id) }
+
+    cc = @context.custom_gradebook_columns.find(column_ids)
+    cc.each do |col|
+      return render_unauthorized_action unless authorized_action? col, @current_user, :read
+    end
+
+    user_ids = column_data_as_array.map { |entry| entry.fetch(:user_id)&.to_i }
+    return render_unauthorized_action if (user_ids - allowed_users.pluck(:id)).any?
+
+    progress = CustomGradebookColumnDatum.queue_bulk_update_custom_columns(@context, column_data_as_array)
+    render json: progress_json(progress, @current_user, session)
+  end
+
   def allowed_users
-    @context.students_visible_to(@current_user, include: :inactive)
+    @context.students_visible_to(@current_user, include: %i{inactive completed})
   end
   private :allowed_users
 

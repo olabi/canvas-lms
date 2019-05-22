@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,6 +30,11 @@ describe LtiApiController, type: :request do
     tag = @assignment.build_external_tool_tag(:url => "http://example.com/one")
     tag.content_type = 'ContextExternalTool'
     tag.save!
+  end
+
+  before do
+    allow(BasicLTI::Sourcedid).to receive(:encryption_secret) {'encryption-secret-5T14NjaTbcYjc4'}
+    allow(BasicLTI::Sourcedid).to receive(:signing_secret) {'signing-secret-vp04BNqApwdwUYPUI'}
   end
 
   def check_error_response(message, check_generated_sig=true)
@@ -75,8 +80,8 @@ describe LtiApiController, type: :request do
 
     req.body = opts['body'] if opts['body']
     post "https://www.example.com#{req.path}",
-      req.body,
-      { "CONTENT_TYPE" => opts['content-type'], "HTTP_AUTHORIZATION" => auth }
+      params: req.body,
+      headers: { "CONTENT_TYPE" => opts['content-type'], "HTTP_AUTHORIZATION" => auth }
 
   end
 
@@ -95,7 +100,7 @@ describe LtiApiController, type: :request do
 
   it "adds xml to an error report if the xml is invalid according to spec" do
     body = %{<imsx_POXEnvelopeRequest xmlns = "http://www.imsglobal.org/services/ltiv1p1/xsd/imsoms_v1p0"></imsx_POXEnvelopeRequest>}
-    Canvas::Errors.expects(:capture).with { |_, opts| opts[:extra][:xml].present? }.returns({})
+    expect(Canvas::Errors).to receive(:capture) { |_, opts| expect(opts[:extra][:xml]).to be_present; {} }
     make_call('body' => body)
   end
 
@@ -142,11 +147,6 @@ describe LtiApiController, type: :request do
       assert_status(401)
       expect(response.body).to match(/expired/i)
       check_error_response("Timestamp too old or too far in the future, request has expired")
-    end
-
-    context "Error reports" do
-      context "Oauth 1" do
-      end
     end
   end
 
@@ -263,20 +263,18 @@ XML
   end
 
   def check_failure(failure_type = 'unsupported', error_message = nil)
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(response.content_type).to eq 'application/xml'
     xml = Nokogiri::XML.parse(response.body)
     expect(xml.at_css('imsx_POXEnvelopeResponse > imsx_POXHeader > imsx_POXResponseHeaderInfo > imsx_statusInfo > imsx_codeMajor').content).to eq failure_type
-    expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+    expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
     desc = xml.at_css('imsx_description').content.match(/(?<description>.+)\n\[EID_(?<error_report>[^\]]+)\]/)
     expect(desc[:description]).to eq error_message if error_message
     expect(desc[:error_report]).to_not be_empty
-
-
   end
 
   def check_success
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(response.content_type).to eq 'application/xml'
     expect(Nokogiri::XML.parse(response.body).at_css('imsx_POXEnvelopeResponse > imsx_POXHeader > imsx_POXResponseHeaderInfo > imsx_statusInfo > imsx_codeMajor').content).to eq 'success'
   end
@@ -292,7 +290,7 @@ XML
     end
 
     it "should allow updating the submission score" do
-      expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+      expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
       make_call('body' => replace_result(score: '0.6'))
       check_success
 
@@ -350,28 +348,28 @@ XML
 
     it "should fail if no score and not submission data" do
       make_call('body' => replace_result(score: nil, sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('imsx_codeMajor').content).to eq 'failure'
       expect(xml.at_css('imsx_description').content).to match /^No score given/
 
-      expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+      expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
     end
 
     it "should fail if bad score given" do
       make_call('body' => replace_result(score: '1.5', sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('imsx_codeMajor').content).to eq 'failure'
       expect(xml.at_css('imsx_description').content).to match /^Score is not between 0 and 1/
 
-      expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+      expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
     end
 
     it "should fail if assignment has no points possible" do
       @assignment.update_attributes(:points_possible => nil, :grading_type => 'percent')
       make_call('body' => replace_result(score: '0.75', sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('imsx_codeMajor').content).to eq 'failure'
       expect(xml.at_css('imsx_description').content).to match /^Assignment has no points possible\./
@@ -394,7 +392,7 @@ XML
     it "should notify users if it fails because the assignment has no points" do
       @assignment.update_attributes(:points_possible => nil, :grading_type => 'percent')
       make_call('body' => replace_result(score: '0.75', sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       submissions = @assignment.submissions.where(user_id: @student).to_a
       comments    = submissions.first.submission_comments
       expect(submissions.count).to eq 1
@@ -406,7 +404,7 @@ to because the assignment has no points possible.
     end
 
     it "should reject out of bound scores" do
-      expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+      expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
       make_call('body' => replace_result(score: '-1'))
       check_failure('failure')
       make_call('body' => replace_result(score: '1.1'))
@@ -426,7 +424,7 @@ to because the assignment has no points possible.
     end
 
     it "should reject non-numeric scores" do
-      expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+      expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
       make_call('body' => replace_result(score: "OHAI SCORES"))
       check_failure('failure')
     end
@@ -499,7 +497,7 @@ to because the assignment has no points possible.
       end
 
       it "should reject non-numeric scores" do
-        expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+        expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
         make_call('body' => replace_result(raw_score: "OHAI SCORES"))
         check_failure('failure')
       end
@@ -647,8 +645,8 @@ to because the assignment has no points possible.
       consumer = OAuth::Consumer.new(opts['key'], opts['secret'], :site => "https://www.example.com", :signature_method => "HMAC-SHA1")
       req = consumer.create_signed_request(:post, opts['path'], nil, { :scheme => 'header', :timestamp => opts['timestamp'], :nonce => opts['nonce'] }, opts['body'])
       post "https://www.example.com#{req.path}",
-        req.body,
-        { 'CONTENT_TYPE' => 'application/x-www-form-urlencoded', "HTTP_AUTHORIZATION" => req['Authorization'] }
+        params: req.body,
+        headers: { 'CONTENT_TYPE' => 'application/x-www-form-urlencoded', "HTTP_AUTHORIZATION" => req['Authorization'] }
     end
 
     it "should require the correct shared secret" do
@@ -682,7 +680,7 @@ to because the assignment has no points possible.
     end
 
     def check_success
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.content_type).to eq 'application/xml'
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('message_response > statusinfo > codemajor').content).to eq 'Success'
@@ -691,17 +689,17 @@ to because the assignment has no points possible.
     end
 
     def check_failure(failure_type = 'Failure', error_message = nil)
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.content_type).to eq 'application/xml'
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('message_response > statusinfo > codemajor').content).to eq failure_type
-      expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+      expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
       xml
     end
 
     describe "basic-lis-updateresult" do
       it "should allow updating the submission score" do
-        expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+        expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
         make_call('body' => update_result('0.6'))
         xml = check_success
 
@@ -715,7 +713,7 @@ to because the assignment has no points possible.
       end
 
       it "should reject out of bound scores" do
-        expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+        expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
         make_call('body' => update_result('-1'))
         check_failure('Failure')
         make_call('body' => update_result('1.1'))
@@ -735,7 +733,7 @@ to because the assignment has no points possible.
       end
 
       it "should reject non-numeric scores" do
-        expect(@assignment.submissions.where(user_id: @student)).not_to be_exists
+        expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
         make_call('body' => update_result("OHAI SCORES"))
         check_failure('Failure')
       end

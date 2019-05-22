@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,37 +19,39 @@
 module IncomingMail
   class MessageHandler
     def handle(outgoing_from_address, body, html_body, incoming_message, tag)
-      secure_id, original_message_id = parse_tag(tag)
-      raise IncomingMail::Errors::SilentIgnore unless original_message_id
+      secure_id, original_message_id, timestamp = parse_tag(tag)
+      return unless original_message_id
 
-      original_message = Message.where(id: original_message_id).first
+      original_message = get_original_message(original_message_id, timestamp)
       # This prevents us from rebouncing users that have auto-replies setup -- only bounce something
       # that was sent out because of a notification.
-      raise IncomingMail::Errors::SilentIgnore unless original_message && original_message.notification_id
-      raise IncomingMail::Errors::SilentIgnore unless valid_secure_id?(original_message_id, secure_id)
+      return unless original_message && original_message.notification_id
+      return unless valid_secure_id?(original_message_id, secure_id)
 
       from_channel = nil
       original_message.shard.activate do
-        context = original_message.context
-        user = original_message.user
-        raise IncomingMail::Errors::UnknownAddress unless valid_user_and_context?(context, user)
-        from_channel = sent_from_channel(user, incoming_message)
-        raise IncomingMail::Errors::UnknownSender unless from_channel
-        Rails.cache.fetch(['incoming_mail_reply_from', context, incoming_message.message_id].cache_key, expires_in: 7.days) do
-          context.reply_from({
-                               :purpose => 'general',
-                               :user => user,
-                               :subject => utf8ify(incoming_message.subject, incoming_message.header[:subject].try(:charset)),
-                               :html => html_body,
-                               :text => body
-                             })
-          true
+        begin
+          context = original_message.context
+          user = original_message.user
+          raise IncomingMail::Errors::UnknownAddress unless valid_user_and_context?(context, user)
+          from_channel = sent_from_channel(user, incoming_message)
+          raise IncomingMail::Errors::UnknownSender unless from_channel
+          Rails.cache.fetch(['incoming_mail_reply_from', context, incoming_message.message_id].cache_key, expires_in: 7.days) do
+            context.reply_from({
+                                 :purpose => 'general',
+                                 :user => user,
+                                 :subject => IncomingMailProcessor::IncomingMessageProcessor.utf8ify(incoming_message.subject, incoming_message.header[:subject].try(:charset)),
+                                 :html => html_body,
+                                 :text => body
+                               })
+            true
+          end
+        rescue IncomingMail::Errors::ReplyFrom => error
+          bounce_message(original_message, incoming_message, error, outgoing_from_address, from_channel)
+        rescue => e
+          Canvas::Errors.capture_exception("IncomingMailProcessor", e)
         end
       end
-    rescue IncomingMail::Errors::ReplyFrom => error
-      bounce_message(original_message, incoming_message, error, outgoing_from_address, from_channel)
-    rescue IncomingMail::Errors::SilentIgnore
-      #do nothing
     end
 
     private
@@ -87,7 +89,7 @@ module IncomingMail
       unless outgoing_message_delivered
         # Can't use our usual mechanisms, so just try to send it once now
         begin
-          res = Mailer.create_message(outgoing_message).deliver
+          Mailer.deliver(Mailer.create_message(outgoing_message))
         rescue => e
           # TODO: put some kind of error logging here?
         end
@@ -148,17 +150,17 @@ module IncomingMail
       user && from_addresses.lazy.map {|addr| user.communication_channels.active.email.by_path(addr).first}.first
     end
 
-    # MOVE!
-    def utf8ify(string, encoding)
-      encoding ||= 'UTF-8'
-      encoding = encoding.upcase
-      # change encoding; if it throws an exception (i.e. unrecognized encoding), just strip invalid UTF-8
-      Iconv.conv('UTF-8//TRANSLIT//IGNORE', encoding, string) rescue TextHelper.strip_invalid_utf8(string)
+    def parse_tag(tag)
+      match = tag.match /^(\h+)-([0-9~]+)(?:-([0-9]+))?$/
+      return match[1], match[2], match[3] if match
     end
 
-    def parse_tag(tag)
-      match = tag.match /^(\h+)-([0-9~]+)$/
-      return match[1], match[2] if match
+    def get_original_message(original_message_id, timestamp)
+      if timestamp
+        Message.where(id: original_message_id).at_timestamp(timestamp).first
+      else
+        Message.where(id: original_message_id).first
+      end
     end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,6 @@
 
 module LiveAssessments
   # @API LiveAssessments
-  # @beta
   # Manage live assessments
   #
   # @model Assessment
@@ -45,11 +44,10 @@ module LiveAssessments
   #     }
 
   class AssessmentsController < ApplicationController
-    before_filter :require_user
-    before_filter :require_context
+    before_action :require_user
+    before_action :require_context
 
     # @API Create or find a live assessment
-    # @beta
     #
     # Creates or finds an existing live assessment with the given key and aligns it with
     # the linked outcome
@@ -93,7 +91,7 @@ module LiveAssessments
           assessment.title = assessment_hash[:title]
           assessment.save!
           if @outcome
-            criterion = @outcome.data && @outcome.data[:rubric_criterion]
+            criterion = @outcome.rubric_criterion
             mastery_score = criterion && criterion[:mastery_points] / criterion[:points_possible]
             @outcome.align(assessment, @context, mastery_type: "none", mastery_score: mastery_score)
           end
@@ -105,9 +103,8 @@ module LiveAssessments
     end
 
     # @API List live assessments
-    # @beta
     #
-    # Returns a list of live assessments.
+    # Returns a paginated list of live assessments.
     #
     # @example_response
     #  {

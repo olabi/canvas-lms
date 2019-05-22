@@ -49,15 +49,15 @@ describe LtiApiController, type: :request do
     req = consumer.create_signed_request(:post, opts['path'], nil, :scheme => 'header', :timestamp => opts['timestamp'], :nonce => opts['nonce'])
     req.body = opts['body'] if opts['body']
     post "http://www.example.com#{req.path}",
-         req.body,
-         { "CONTENT_TYPE" => opts['content-type'], "HTTP_AUTHORIZATION" => req['Authorization'] }
+         params: req.body,
+         headers: { "CONTENT_TYPE" => opts['content-type'], "HTTP_AUTHORIZATION" => req['Authorization'] }
   end
 
   it "should generate a logout service URL with token" do
     p = pseudonym(@student)
     user_session(@student, p)
     get "/courses/#{@course.id}/external_tools/#{@tool.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
     doc = Nokogiri::HTML(response.body)
     logout_service_url = doc.css('#custom_sub_logout_service_url').attr('value').value
     match = %r{\Ahttp://www.example.com/api/lti/v1/logout_service/([a-z0-9-]+)\z}.match(logout_service_url)
@@ -108,7 +108,7 @@ describe LtiApiController, type: :request do
     enable_cache do
       token = Lti::LogoutService.create_token(@tool, @pseudonym)
       make_call('path' => api_path(token, 'http://logout.notify.example.com/123'))
-      expect(response).to be_success
+      expect(response).to be_successful
       make_call('path' => api_path(token, 'http://logout.notify.example.com/456'))
       expect(response.status).to eql 401
       expect(response.body).to match /Logout service token has already been used/
@@ -120,7 +120,7 @@ describe LtiApiController, type: :request do
       login_as 'parajsa', 'password1'
       token = Lti::LogoutService::Token.create(@tool, @pseudonym)
       Lti::LogoutService.register_logout_callback(token, 'http://logout.notify.example.com/789')
-      CanvasHttp.expects(:get).with('http://logout.notify.example.com/789')
+      expect(CanvasHttp).to receive(:get).with('http://logout.notify.example.com/789')
       delete '/logout'
       run_jobs
     end

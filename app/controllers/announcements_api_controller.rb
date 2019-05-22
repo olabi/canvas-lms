@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,8 +24,8 @@
 class AnnouncementsApiController < ApplicationController
   include Api::V1::DiscussionTopics
 
-  before_filter :parse_context_codes, :only => [:index]
-  before_filter :get_dates, :only => [:index]
+  before_action :parse_context_codes, :only => [:index]
+  before_action :get_dates, :only => [:index]
 
   # @API List announcements
   #
@@ -51,6 +51,18 @@ class AnnouncementsApiController < ApplicationController
   #   Defaults to false for users with access to view unpublished items,
   #   otherwise true and unmodifiable.
   #
+  # @argument include [Optional, array]
+  #   Optional list of resources to include with the response. May include
+  #   a string of the name of the resource. Possible values are:
+  #   "sections", "sections_user_count"
+  #   if "sections" is passed, includes the course sections that are associated
+  #   with the topic, if the topic is specific to certain sections of the course.
+  #   If "sections_user_count" is passed, then:
+  #     (a) If sections were asked for *and* the topic is specific to certain
+  #         course sections sections, includes the number of users in each
+  #         section. (as part of the section json asked for above)
+  #     (b) Else, includes at the root level the total number of users in the
+  #         topic's context (group or course) that the topic applies to.
   # @example_request
   #     curl https://<canvas>/api/v1/announcements?context_codes[]=course_1&context_codes[]=course_2 \
   #          -H 'Authorization: Bearer <token>'
@@ -83,15 +95,20 @@ class AnnouncementsApiController < ApplicationController
 
     @start_date ||= 14.days.ago.beginning_of_day
     @end_date ||= @start_date + 28.days
-    scope = scope.where('COALESCE(delayed_post_at, posted_at) BETWEEN ? AND ?', @start_date, @end_date)
-    scope = scope.order('COALESCE(delayed_post_at, posted_at) DESC')
+    scope = scope.where('COALESCE(delayed_post_at, posted_at, created_at) BETWEEN ? AND ?', @start_date, @end_date)
+    scope = scope.order(Arel.sql('COALESCE(delayed_post_at, posted_at, created_at) DESC'))
 
     @topics = Api.paginate(scope, self, api_v1_announcements_url)
 
-    render :json => @topics.map { |topic|
-             discussion_topic_api_json(topic, topic.context, @current_user, session,
-               { :user_can_moderate => false, :include_assignment => false, :include_context_code => true })
-           }
+    include_params = Array(params[:include])
+    text_only = value_to_boolean(params[:text_only])
+
+    render :json => discussion_topics_api_json(@topics, nil, @current_user, session,
+      :user_can_moderate => false, :include_assignment => false,
+      :include_context_code => true, :text_only => text_only,
+      :include_sections => include_params.include?('sections'),
+      :include_sections_user_count => include_params.include?('sections_user_count')
+    )
   end
 
   private

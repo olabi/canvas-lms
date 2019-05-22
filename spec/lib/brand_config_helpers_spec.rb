@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -84,7 +84,6 @@ describe BrandConfigHelpers do
       site_admin_config.save!
       regenerator = BrandConfigRegenerator.new(Account.site_admin, user_factory, site_admin_config)
 
-      brandable_css_stub = BrandableCSS.stubs(:compile_brand!)
       Delayed::Testing.drain
 
       expect(@parent_account.first_parent_brand_config).to eq site_admin_config

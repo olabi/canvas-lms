@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% allow_take ||= false %>
 <% if @quiz.available? || (params[:preview] && @submission) %>
   <div>
@@ -54,7 +72,7 @@
           t('links.preview_survey_again', "Preview the Survey Again") :
           t('links.preview_quiz_again', "Preview the Quiz Again") %><% end %><br/>
     <% elsif !@quiz.single_attempt? || can_do(@quiz, @current_user, :update) %>
-      <div style="margin-left: 20px; margin-top: 20px; line-height: 1.3em;">
+      <div style="margin-<%= direction('left') %>: 20px; margin-top: 20px; line-height: 1.3em;">
         <% if (@submission.attempt > 1 || (@submission.attempt == 1 && can_do(@quiz, @current_user, :update))) &&
             (can_do(@quiz, @current_user, :grade) || !@quiz.muted?) %>
           <%= t(:attempts_so_far, {:one => "1 Attempt so far", :other => "%{count} Attempts so far"}, :count => @submission.attempt) %><br/>
@@ -75,7 +93,7 @@
         <div style="margin-top: 10px; font-size: 1.2em;">
         <% if (!@locked && (@quiz.unlimited_attempts? || @submission.attempts_left > 0)) || can_do(@quiz, @current_user, :update) %>
           <%= link_to_take_or_retake_poll %><br/>
-          <span style="font-size: 0.7em; padding-left: 20px;">
+          <span style="font-size: 0.7em; padding-<%= direction('left') %>: 20px;">
             (<%= score_to_keep_message %>)
           </span>
         <% end %>

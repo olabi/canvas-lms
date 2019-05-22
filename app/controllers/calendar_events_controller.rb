@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,8 @@
 #
 
 class CalendarEventsController < ApplicationController
-  before_filter :require_context
-  before_filter :rich_content_service_config, only: [:new, :edit]
+  before_action :require_context
+  before_action :rce_js_env, only: [:new, :edit]
 
   add_crumb(proc { t(:'#crumbs.calendar_events', "Calendar Events")}, :only => [:show, :new, :edit]) { |c| c.send :calendar_url_for, c.instance_variable_get("@context") }
 
@@ -113,10 +113,6 @@ class CalendarEventsController < ApplicationController
   end
 
   protected
-  def rich_content_service_config
-    rce_js_env(:sidebar)
-  end
-
   def feature_context
     if @context.is_a?(User)
       @domain_root_account

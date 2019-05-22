@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -71,7 +71,7 @@
 #     }
 #
 class GroupMembershipsController < ApplicationController
-  before_filter :find_group, :only => [:index, :show, :create, :update, :destroy]
+  before_action :find_group, :only => [:index, :show, :create, :update, :destroy]
 
   include Api::V1::Group
 
@@ -81,7 +81,7 @@ class GroupMembershipsController < ApplicationController
   #
   # @subtopic Group Memberships
   #
-  # List the members of a group.
+  # A paginated list of the members of a group.
   #
   # @argument filter_states[] [String, "accepted"|"invited"|"requested"]
   #   Only list memberships with the given workflow_states. By default it will
@@ -96,7 +96,7 @@ class GroupMembershipsController < ApplicationController
   def index
     if authorized_action(@group, @current_user, :read_roster)
       memberships_route = polymorphic_url([:api_v1, @group, :memberships])
-      scope = @group.group_memberships
+      scope = @group.group_memberships.preload(group: :root_account)
 
       only_states = ALLOWED_MEMBERSHIP_FILTER
       only_states = only_states & params[:filter_states] if params[:filter_states]
@@ -148,11 +148,14 @@ class GroupMembershipsController < ApplicationController
   def create
     @user = api_find(User, params[:user_id])
     if authorized_action(GroupMembership.new(:group => @group, :user => @user), @current_user, :create)
-      @membership = @group.add_user(@user)
-      if @membership.valid?
-        render :json => group_membership_json(@membership, @current_user, session, include: ['just_created'])
-      else
-        render :json => @membership.errors, :status => :bad_request
+      DueDateCacher.with_executing_user(@current_user) do
+        @membership = @group.add_user(@user)
+
+        if @membership.valid?
+          render :json => group_membership_json(@membership, @current_user, session, include: ['just_created'])
+        else
+          render :json => @membership.errors, :status => :bad_request
+        end
       end
     end
   end
@@ -185,10 +188,13 @@ class GroupMembershipsController < ApplicationController
     if authorized_action(@membership, @current_user, :update)
       attrs = params.permit(*UPDATABLE_MEMBERSHIP_ATTRIBUTES)
       attrs.delete(:workflow_state) unless attrs[:workflow_state] == 'accepted'
-      if @membership.update_attributes(attrs)
-        render :json => group_membership_json(@membership, @current_user, session)
-      else
-        render :json => @membership.errors, :status => :bad_request
+
+      DueDateCacher.with_executing_user(@current_user) do
+        if @membership.update_attributes(attrs)
+          render :json => group_membership_json(@membership, @current_user, session)
+        else
+          render :json => @membership.errors, :status => :bad_request
+        end
       end
     end
   end

@@ -1,21 +1,39 @@
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 ///
   /// How to update Icons
   //
   //  The Instructure Icons repo is available at
-  //  https://github.com/instructure/instructure-icons
+  //  https://instructure.design/#ui-icons
   //
   //  - Add your new icon to the repo and release
-  //  - Update the instructure-icons version in package.json
+  //  - Update the @instructure/ui-icons version in package.json
   //
 ///
 
 /* @styleguide Icons
 
-Canvas uses <a href="https://github.com/instructure/instructure-icons">Instructure Icons</a> for its icon library. There are various ways that you can bring icons into Canvas, including as a React component, or from our the icon font.
+Canvas uses <a href="https://instructure.design/#ui-icons">@instructure/ui-icons</a> for its icon library. There are various ways that you can bring icons into Canvas, including as a React component, or from our the icon font.
 
 ## Comprehensive Icon Listing
 
-For a complete list of Instructure Icons go to <a href="http://instructure.github.io/instructure-icons/">http://instructure.github.io/instructure-icons</a>
+For a complete list of Instructure Icons go to <a href="https://instructure.design/#iconography">https://instructure.design/#iconography</a>
 
 ## Light vs Solid
 
@@ -28,10 +46,10 @@ There are two weights to our icons: line or solid. Canvas defaults to solid, how
 ## Using as a React Component
 
 ```javascript
-import { IconAddLine } from 'instructure-icons'
+import IconAdd from '@instructure/ui-icons/lib/Line/IconAdd'
 
 function MyComponent () {
-  return <IconAddLine />
+  return <IconAdd />
 }
 ```
 
@@ -58,15 +76,15 @@ Either use `<a>` with icon desired icon class added or insert `<i>` inside `<but
 
 */
 
-@import "../../../node_modules/instructure-icons/fonts/Line/InstructureIcons-Line_icon-map.scss";
-@import "../../../node_modules/instructure-icons/fonts/Solid/InstructureIcons-Solid_icon-map.scss";
+@import "../../../node_modules/@instructure/ui-icons/lib/font/Line/InstructureIcons-Line_icon-map.scss";
+@import "../../../node_modules/@instructure/ui-icons/lib/font/Solid/InstructureIcons-Solid_icon-map.scss";
 
-$icon_default: "Solid";
+$icon_default: "Line";
 
 // this could be refactored if/when sass allows for variable interpolation
 $icon_index: (
-  "Line": $icons-Line,
-  "Solid": $icons-Solid
+  "Line": $icons-line,
+  "Solid": $icons-solid
 );
 
 @mixin InstIconFontFace($variant) {
@@ -102,10 +120,8 @@ a[class^=icon-] {
   &:before {
     font-family: "InstructureIcons-#{$icon_default}";
     display: inline-block;
-    vertical-align: middle;
+    vertical-align: top;
     line-height: 1;
-    position: relative;
-    top: -1px;
     text-rendering: optimizeLegibility;
 
     // the specific reason for this being in the :before and not part of the <i> was to get
@@ -118,20 +134,25 @@ a[class^=icon-] {
     font-style: normal !important;
   }
 
+  // flip all the arrows around in RTL
+  @if $direction == 'rtl' {
+    &[class*=-right],
+    &[class*=-left] {
+      &:before {
+        transform: scaleX(-1);
+      }
+    }
+  }
 }
 
 i[class*=icon-], i[class^=icon-] {
   display: inline-block;
   font-style: normal !important;
-  width: 1rem;
-  height: 1rem;
   line-height: 1;
 
   // adjust icon sizes to look good with our large-size button class
   .btn-large &,
   .Button--large & {
-    width: 1.125rem;
-    height: 1.125rem;
     line-height: 1;
     &:before{ font-size: 1.125rem; }
   }
@@ -140,8 +161,6 @@ i[class*=icon-], i[class^=icon-] {
   // this should only be used for things like: icon-settings and icon-mini-arrow-down
   .btn-mini &,
   .Button--mini {
-    width: 0.75rem;
-    height: 0.75rem;
     line-height: 1;
     &:before{ font-size: 0.75rem; }
   }
@@ -151,7 +170,10 @@ i[class*=icon-], i[class^=icon-] {
 // when an icon is applied directly to a link, add a little left margin to make
 // things look nicer
 a[class*=icon-], a[class^=icon-] {
-  &:before { margin-right: 4px; }
+  &:before {
+    margin-#{direction(right)}: 4px;
+    vertical-align: text-bottom;
+  }
 }
 
 .standalone-icon {

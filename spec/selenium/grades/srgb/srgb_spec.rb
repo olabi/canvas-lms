@@ -1,11 +1,28 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
 require_relative '../../helpers/gradebook_common'
-require_relative '../page_objects/srgb_page'
-require_relative '../page_objects/grading_curve_page'
+require_relative '../pages/srgb_page'
+require_relative '../pages/grading_curve_page'
 
 describe "Screenreader Gradebook" do
   include_context 'in-process server selenium tests'
-  include_context 'gradebook_components'
-  include_context 'reusable_course'
+  include_context 'reusable_gradebook_course'
   include GradebookCommon
 
   let(:default_gradebook) { "/courses/#{@course.id}/gradebook/change_gradebook_version?version=2" }
@@ -80,11 +97,11 @@ describe "Screenreader Gradebook" do
 
     click_option '#student_select', @students[0].name
     assignment_points = ["(#{@grade_array[0]} / 20)", "(#{@grade_array[2]} / 20)"]
-    expect(ff('#student_information .assignment-group-grade .points').map(&:text)).to eq assignment_points
+    expect(ff('#student_information .assignment-subtotal-grade .points').map(&:text)).to eq assignment_points
 
     click_option '#student_select', @students[1].name
     assignment_points = ["(#{@grade_array[1]} / 20)", "(#{@grade_array[3]} / 20)"]
-    expect(ff('#student_information .assignment-group-grade .points').map(&:text)).to eq assignment_points
+    expect(ff('#student_information .assignment-subtotal-grade .points').map(&:text)).to eq assignment_points
   end
 
   it 'can select a student using buttons', priority: '1', test_id: 163997 do
@@ -144,6 +161,7 @@ describe "Screenreader Gradebook" do
   end
 
   it 'sets default grade', priority: '2', test_id: 615689 do
+    skip_if_safari(:alert)
     num_of_students = 2
     simple_setup(num_of_students)
     SRGB.visit(@course.id)
@@ -321,7 +339,7 @@ describe "Screenreader Gradebook" do
     it "shows sections in drop-down", priority: '1', test_id: 615680 do
       sections=[]
       2.times do |i|
-        sections << @course.course_sections.create!(:name => "other section #{i}")
+        sections << @course.course_sections.create!(name: "other section #{i}")
       end
 
       SRGB.visit(@course.id)
@@ -358,6 +376,7 @@ describe "Screenreader Gradebook" do
     end
 
     it "should focus on accessible elements when setting default grades", priority: '1', test_id: 209991 do
+      skip_if_safari(:alert)
       SRGB.visit(@course.id)
       SRGB.select_assignment(@second_assignment)
 
@@ -423,6 +442,7 @@ describe "Screenreader Gradebook" do
 
   context "curving grades" do
     it "curves grades", priority: '1',test_id: 615690 do
+      skip_if_safari(:alert)
       basic_point_setup 3
 
       grades = [12,10,11]

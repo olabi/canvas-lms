@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -60,17 +60,23 @@ module FeatureFlags
   end
 
   def feature_flag_cache_key(feature)
-    ['feature_flag2', self.class.name, self.global_id, feature.to_s].cache_key
+    ['feature_flag3', self.class.name, self.global_id, feature.to_s].cache_key
+  end
+
+  def feature_flag_cache
+    Rails.cache
   end
 
   # return the feature flag for the given feature that is defined on this object, if any.
   # (helper method.  use lookup_feature_flag to test policy.)
   def feature_flag(feature)
-    self.shard.activate do
-      result = MultiCache.fetch(feature_flag_cache_key(feature)) do
-        self.feature_flags.where(feature: feature.to_s).first
+    RequestCache.cache("feature_flag", self, feature) do
+      self.shard.activate do
+        result = feature_flag_cache.fetch(feature_flag_cache_key(feature)) do
+          self.feature_flags.where(feature: feature.to_s).first
+        end
+        result
       end
-      result
     end
   end
 
@@ -80,10 +86,12 @@ module FeatureFlags
     return [Account.site_admin.global_id] if is_a?(User)
 
     RequestCache.cache('feature_flag_account_ids', self) do
-      Rails.cache.fetch(['feature_flag_account_ids', self].cache_key) do
-        chain = account_chain(include_site_admin: true)
-        chain.shift if is_a?(Account)
-        chain.reverse.map(&:global_id)
+      shard.activate do
+        Rails.cache.fetch(['feature_flag_account_ids', self].cache_key) do
+          chain = account_chain(include_site_admin: true)
+          chain.shift if is_a?(Account)
+          chain.reverse.map(&:global_id)
+        end
       end
     end
   end
@@ -93,8 +101,10 @@ module FeatureFlags
   def lookup_feature_flag(feature, override_hidden = false)
     feature = feature.to_s
     feature_def = Feature.definitions[feature]
-    return nil unless feature_def
+    raise "no such feature - #{feature}" unless feature_def
     return nil unless feature_def.applies_to_object(self)
+
+    return nil if feature_def.visible_on.is_a?(Proc) && !feature_def.visible_on.call(self)
     return feature_def unless feature_def.allowed? || feature_def.hidden?
 
     is_root_account = self.is_a?(Account) && self.root_account?

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -51,6 +51,39 @@ describe EpubExport do
         epub_export.export_without_send_later
         expect(epub_export.job_progress.reload.running?).to be_truthy
       end
+    end
+  end
+
+  describe "attachment" do
+    let_once(:cartridge_path) do
+      File.join(File.dirname(__FILE__), "/../fixtures/migration/unicode-filename-test-export.imscc")
+    end
+
+    let_once(:content_export) do
+      @course.content_exports.create({
+        user: @student
+      }).tap do |content_export|
+        content_export.create_attachment({
+          context: @course,
+          filename: File.basename(cartridge_path),
+          uploaded_data: File.open(cartridge_path)
+        })
+      end
+    end
+
+    let_once(:epub_export) do
+      @course.epub_exports.create({
+        user: @student,
+        content_export: content_export
+      })
+    end
+
+    it "should be stored in instfs if instfs is enabled" do
+      allow(InstFS).to receive(:enabled?).and_return(true)
+      uuid = "1234-abcd"
+      allow(InstFS).to receive(:direct_upload).and_return(uuid)
+      epub_export.convert_to_epub_without_send_later
+      expect(epub_export.epub_attachment.instfs_uuid).to eq uuid
     end
   end
 
@@ -246,9 +279,9 @@ describe EpubExport do
     end
 
     it 'is called during export and resets locale after' do
-      epub_export.expects(:infer_locale).once
+      expect(epub_export).to receive(:infer_locale).once
         .with(context: @course, user: @student, root_account: @course.root_account)
-        .returns(:ru)
+        .and_return(:ru)
       epub_export.convert_to_epub_without_send_later
       expect(I18n.locale).to be :en
     end
@@ -270,6 +303,39 @@ describe EpubExport do
       @course.update_attribute(:locale, 'da')
       epub_export.reload.send(:set_locale)
       expect(I18n.locale).to eq :da
+    end
+  end
+
+  context "notifications" do
+    before :once do
+      course_with_teacher(:active_all => true)
+      @ce = @course.content_exports.create! { |ce| ce.user = @user }
+      @epub = EpubExport.create!(course: @course, user: @user, content_export: @ce)
+
+      Notification.create!(:name => 'Content Export Finished', :category => 'Migration')
+      Notification.create!(:name => 'Content Export Failed', :category => 'Migration')
+    end
+
+    it "should send notifications immediately" do
+      communication_channel_model.confirm!
+
+      @epub.workflow_state = 'generated'
+      expect { @epub.save! }.to change(DelayedMessage, :count).by 0
+      expect(@epub.messages_sent['Content Export Finished']).not_to be_blank
+
+      @epub.workflow_state = 'failed'
+      expect { @epub.save! }.to change(DelayedMessage, :count).by 0
+      expect(@epub.messages_sent['Content Export Failed']).not_to be_blank
+    end
+
+    it "should not send emails for epub or webzip exports when content export has exported" do
+      @ce.workflow_state = 'exported'
+      expect { @ce.save! }.to change(DelayedMessage, :count).by 0
+      expect(@ce.messages_sent['Content Export Finished']).to be_blank
+
+      @ce.workflow_state = 'failed'
+      expect { @ce.save! }.to change(DelayedMessage, :count).by 0
+      expect(@ce.messages_sent['Content Export Failed']).to be_blank
     end
   end
 end

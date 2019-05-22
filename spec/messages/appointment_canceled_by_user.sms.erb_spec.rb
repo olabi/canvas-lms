@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,13 +20,15 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 require File.expand_path(File.dirname(__FILE__) + '/messages_helper')
 
 describe 'appointment_canceled_by_user.sms' do
+  include MessagesCommon
+
   it "should render" do
     user = user_model
     appointment_participant_model(:participant => user)
 
     generate_message(:appointment_canceled_by_user, :sms, @event,
-                     :data => {:updating_user => user,
-                                       :cancel_reason => "just because"})
+                     :data => { :updating_user_name => user.name,
+                                :cancel_reason => "just because"})
 
     expect(@message.body).to include('some title')
     expect(@message.body).to include(user.name)
@@ -42,8 +44,8 @@ describe 'appointment_canceled_by_user.sms' do
     @event.cancel_reason = 'just because'
 
     generate_message(:appointment_canceled_by_user, :sms, @event,
-                     :data => {:updating_user => user,
-                                       :cancel_reason => "just because"})
+                     :data => { :updating_user_name => user.name,
+                                :cancel_reason => "just because"})
 
     expect(@message.body).to include('some title')
     expect(@message.body).to include(user.name)

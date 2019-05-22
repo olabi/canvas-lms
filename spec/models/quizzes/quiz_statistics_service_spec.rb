@@ -1,6 +1,6 @@
 # encoding: UTF-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -50,34 +50,32 @@ describe Quizzes::QuizStatisticsService do
 
     before do
       [ student_analysis, item_analysis ].each do |analysis|
-        analysis.stubs(:save)
+        allow(analysis).to receive(:save)
       end
     end
 
-    after do
-      Quizzes::QuizStatistics.unstub(:large_quiz?)
-    end
-
     it 'should generate for all quiz versions' do
-      Quizzes::QuizStatistics.stubs(:large_quiz?).returns false
+      allow(Quizzes::QuizStatistics).to receive(:large_quiz?).and_return false
 
-      quiz.expects(:current_statistics_for).with('student_analysis', {
-        includes_all_versions: true
-      }).returns(student_analysis)
+      expect(quiz).to receive(:current_statistics_for).with('student_analysis', {
+        includes_all_versions: true,
+        includes_sis_ids: true
+      }).and_return(student_analysis)
 
-      quiz.expects(:current_statistics_for).with('item_analysis').returns(item_analysis)
+      expect(quiz).to receive(:current_statistics_for).with('item_analysis').and_return(item_analysis)
 
       subject.generate_aggregate_statistics(true)
     end
 
     it 'should generate for the latest quiz version' do
-      Quizzes::QuizStatistics.stubs(:large_quiz?).returns false
+      allow(Quizzes::QuizStatistics).to receive(:large_quiz?).and_return false
 
-      quiz.expects(:current_statistics_for).with('student_analysis', {
-        includes_all_versions: false
-      }).returns(student_analysis)
+      expect(quiz).to receive(:current_statistics_for).with('student_analysis', {
+        includes_all_versions: false,
+        includes_sis_ids: true
+      }).and_return(student_analysis)
 
-      quiz.expects(:current_statistics_for).with('item_analysis').returns(item_analysis)
+      expect(quiz).to receive(:current_statistics_for).with('item_analysis').and_return(item_analysis)
 
       subject.generate_aggregate_statistics(false)
     end

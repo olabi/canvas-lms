@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // section tabs variables
 $section_tabs_color: $ic-font-color-dark;
 $section_tabs_hover_background_color: $ic-bg-light-neutral;
@@ -53,7 +71,7 @@ ul.user_list {
 
 ul.user_list li.user {
   min-height: 30px;
-  padding-left: 10px;
+  padding-#{direction(left)}: 10px;
   color: #444;
   line-height: 1em;
   padding: 8px;
@@ -66,9 +84,9 @@ ul.user_list li.user {
     width: 0;
     height: 0;
     padding: 0;
-    margin: (-8px) 0 0 -8px;
+    margin: direction-sides((-8px) 0 0 -8px);
     border-bottom: 10px solid transparent;
-    border-left: 10px solid #06A9EE;
+    border-#{direction(left)}: 10px solid #06A9EE;
     display: block;
     position: relative;
   }
@@ -80,13 +98,13 @@ ul.user_list li.user:hover {
 
 ul.user_list li.user .email {
   font-size: 0.8em;
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
 }
 
 ul.user_list li.user .associated_user {
   display: none;
   font-size: 0.8em;
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
 }
 
 ul.user_list li.user.observer_enrollment .associated_user {
@@ -95,12 +113,12 @@ ul.user_list li.user.observer_enrollment .associated_user {
 
 ul.user_list li.user .section {
   font-size: 0.8em;
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
 }
 
 ul.user_list li.user .short_name {
   font-size: 0.8em;
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
   margin-top: 2px;
 }
 
@@ -114,8 +132,8 @@ ul.user_list li.user .enrollment_type {
 }
 
 ul.user_list li.user .links {
-  float: right;
-  padding-right: 20px;
+  float: direction(right);
+  padding-#{direction(right)}: 20px;
   padding-top: 5px;
   visibility: hidden;
 }
@@ -125,8 +143,8 @@ ul.user_list li.user .links a {
 }
 
 ul.user_list li.user:hover .links {
-  float: right;
-  padding-right: 20px;
+  float: direction(right);
+  padding-#{direction(right)}: 20px;
   visibility: visible;
 }
 
@@ -143,8 +161,8 @@ ul.user_list div.enrollment_type.pending {
     border-bottom: 1px solid #CCC;
     background-color: #F7F7F7;
     .id-holder {
-      float: left;
-      padding-right: 1em;
+      float: direction(left);
+      padding-#{direction(right)}: 1em;
     }
   }
   #user_list_boxes {
@@ -171,27 +189,15 @@ ul.user_list div.enrollment_type.pending {
 }
 
 #sections .section .section_links {
-  float: right;
-  a {
-    opacity: 0.3;
-  }
-}
-
-#sections .section:hover {
-  background-color: $ic-bg-light-neutral;
-}
-
-#sections .section:hover .section_links a {
-  opacity: 1;
+  float: direction(right);
 }
 
 #sections .section .users_count {
-  font-size: 0.8em;
-  padding-left: 5px;
+  padding-#{direction(left)}: 5px;
 }
 
 #edit_section_form {
-  float: left;
+  float: direction(left);
 }
 
 .nav_list {
@@ -211,10 +217,10 @@ ul.user_list div.enrollment_type.pending {
     cursor: pointer;
     display: block;
     @include fontSize($ic-font-size--small);
-    padding: 4px 0 4px 25px;
+    padding: direction-sides(4px 0 4px 25px);
     border: solid $section_tabs_border_bottom_color;
     border-width: 0 1px 1px;
-    &:hover, &:focus {
+    &:hover {
       background-color: $section_tabs_hover_background_color;
       z-index: 0;
       position: static;
@@ -232,7 +238,7 @@ ul.user_list div.enrollment_type.pending {
 #nav_disabled_list {
   border-top: 0;
   li.disabled {
-    padding: 4px 0 4px 0px;
+    padding: direction-sides(4px 0 4px 0px);
     border-bottom: 1px solid $section_tabs_border_top_color;
   }
   li.navitem {
@@ -240,7 +246,7 @@ ul.user_list div.enrollment_type.pending {
     .disabled_message {
       display: block;
       font-size: 0.8em;
-      padding-left: 10px;
+      padding-#{direction(left)}: 10px;
       line-height: 0.7em;
       font-style: italic;
     }
@@ -257,7 +263,7 @@ ul.user_list div.enrollment_type.pending {
   padding: 0;
   li {
     @include name_bubbles;
-    clear: left;
+    clear: direction(left);
   }
 }
 
@@ -286,7 +292,25 @@ ul.user_list div.enrollment_type.pending {
   top: 1px;
 }
 
+// new icons need a bit more space when used with
+// a link in the right-side-bar
+.Button--course-settings {
+  i[class*=icon-], i[class^=icon-] {
+    margin-#{direction(right)}: .5rem;
+  }
+}
+
 #course_form table.coursesettings {
+  table-layout: fixed;
+  width: 100%;
+  td:nth-of-type(1) {
+    width: 20%;
+  }
+  td:nth-of-type(2) {
+    width: 80%;
+  }
+
+
   input[type=checkbox] + label {
     vertical-align: baseline;
   }
@@ -294,7 +318,7 @@ ul.user_list div.enrollment_type.pending {
     vertical-align: baseline;
   }
   td {
-    padding-right: 10px;
+    padding-#{direction(right)}: 10px;
   }
   .tall-row {
     padding-top: 3px;
@@ -315,23 +339,30 @@ ul.user_list div.enrollment_type.pending {
     line-height: 100%;
     margin-bottom: 10px;
   }
+  .top-hint {
+    margin-top: 10px;
+    margin-bottom: 5px;
+  }
+  .bottom-hint {
+    margin-bottom: 15px;
+  }
   select#course_locale + span {
     white-space: nowrap;
   }
   i.date-warning {
-    padding: 8px 0 0 8px;
+    padding: direction-sides(8px 0 0 8px);
     color: $btnWarningBackground;
   }
 }
 
 input.move-nav-item-label-spacer {
-  margin-right: 10px;
+  margin-#{direction(right)}: 10px;
 }
 
 .move-nav-item-or {
   display: inline-block;
   width: 60px;
-  margin-left: 20px;
+  margin-#{direction(left)}: 20px;
 }
 
 .move-nav-item-select-spacer {
@@ -364,4 +395,18 @@ td.center-text {
   border: 1px solid #ccc;
   padding: 15px;
   width: 300px;
+}
+
+.master_course_restrictions {
+  display: none;
+  margin-top: 5px;
+  margin-#{direction(left)}: 18px;
+}
+
+.master_course_restrictions .ic-Checkbox-group {
+  margin-#{direction(left)}: 18px;
+}
+
+#csp_options {
+  margin-top: 10px;
 }

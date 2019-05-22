@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,8 +25,8 @@ module CC::Importer::Canvas
 
       @manifest.css('resource[type$=learning-application-resource]').each do |res|
         if meta_path = res.at_css('file[href$="assignment_settings.xml"]')
-          meta_path = File.join @unzipped_file_path, meta_path['href']
-          html_path = File.join @unzipped_file_path, res.at_css('file[href$="html"]')['href']
+          meta_path = @package_root.item_path meta_path['href']
+          html_path = @package_root.item_path res.at_css('file[href$="html"]')['href']
           
           meta_node = open_file_xml(meta_path)
           html_node = open_file(html_path)

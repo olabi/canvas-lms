@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 require 'nokogiri'
@@ -97,6 +114,12 @@ describe Quizzes::QuizzesController do
         get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
         expect(response.body).not_to match(%r{SpeedGrader})
       end
+
+      it "should not link to SpeedGrader when moderated grader limit is reached" do
+        allow_any_instance_of(Assignment).to receive(:can_view_speed_grader?).and_return(false)
+        get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
+        expect(response.body).not_to match(%r{SpeedGrader})
+      end
     end
   end
 
@@ -154,7 +177,7 @@ describe Quizzes::QuizzesController do
       end
 
       it "should display message about the quiz changing significantly" do
-        Quizzes::Quiz.any_instance.stubs(:changed_significantly_since?).returns(true)
+        allow_any_instance_of(Quizzes::Quiz).to receive(:changed_significantly_since?).and_return(true)
         mkquiz
         @quiz.check_if_submissions_need_review
         @quiz_submission.submission_data.each { |q| q[:correct] = "false" }
@@ -165,7 +188,7 @@ describe Quizzes::QuizzesController do
       end
 
       it "should display both messages" do
-        Quizzes::Quiz.any_instance.stubs(:changed_significantly_since?).returns(true)
+        allow_any_instance_of(Quizzes::Quiz).to receive(:changed_significantly_since?).and_return(true)
         mkquiz
         get "/courses/#{@course.id}/quizzes/#{@quiz.id}/history?quiz_submission_id=#{@quiz_submission.id}"
         expect(response.body).to match(%r{The following questions need review})

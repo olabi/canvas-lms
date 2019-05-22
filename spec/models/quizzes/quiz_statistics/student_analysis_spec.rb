@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 require File.expand_path(File.dirname(__FILE__) + '/common.rb')
 
@@ -5,14 +22,46 @@ require 'csv'
 
 describe Quizzes::QuizStatistics::StudentAnalysis do
 
+  def temporary_user_code
+    "tmp_#{Digest::MD5.hexdigest("#{Time.now.to_i}_#{rand}")}"
+  end
+
+  def survey_with_logged_out_submission
+    course_with_teacher(:active_all => true)
+
+    @assignment = @course.assignments.create(:title => "Test Assignment")
+    @assignment.workflow_state = "available"
+    @assignment.submission_types = "online_quiz"
+    @assignment.save
+    @quiz = Quizzes::Quiz.where(assignment_id: @assignment).first
+    @quiz.anonymous_submissions = false
+    @quiz.quiz_type = "survey"
+
+    # make questions
+    questions = [{:question_data => { :name => "test 1" }},
+      {:question_data => { :name => "test 2" }},
+      {:question_data => { :name => "test 3" }},
+      {:question_data => { :name => "test 4" }}]
+
+    @questions = questions.map { |q| @quiz.quiz_questions.create!(q) }
+    @quiz.generate_quiz_data
+    @quiz.save!
+
+    @quiz_submission = @quiz.generate_submission(temporary_user_code)
+    @quiz_submission.mark_completed
+    Quizzes::SubmissionGrader.new(@quiz_submission).grade_submission
+    @quiz_submission.save!
+  end
+
   let(:report_type) { 'student_analysis' }
   include_examples "Quizzes::QuizStatistics::Report"
   before(:once) { course_factory }
 
   def csv(opts = {}, quiz = @quiz)
+    opts[:includes_sis_ids] = true unless opts.key?(:includes_sis_ids)
     stats = quiz.statistics_csv('student_analysis', opts)
     run_jobs
-    stats.csv_attachment(true).open.read
+    stats.reload_csv_attachment.open.read
   end
 
   it 'should calculate mean/stddev as expected with no submissions' do
@@ -98,39 +147,16 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
     end.to_not raise_error
   end
 
+  it 'should create quiz statistics with logged out users' do
+    survey_with_logged_out_submission
+    expect do
+      @quiz.quiz_statistics.build(report_type: 'student_analysis',
+                                  includes_all_versions: true,
+                                  anonymous: false).report.generate(false)
+    end.to_not raise_error
+  end
+
   context "csv" do
-
-    def temporary_user_code
-      "tmp_#{Digest::MD5.hexdigest("#{Time.now.to_i}_#{rand}")}"
-    end
-
-    def survey_with_logged_out_submission
-      course_with_teacher(:active_all => true)
-
-      @assignment = @course.assignments.create(:title => "Test Assignment")
-      @assignment.workflow_state = "available"
-      @assignment.submission_types = "online_quiz"
-      @assignment.save
-      @quiz = Quizzes::Quiz.where(assignment_id: @assignment).first
-      @quiz.anonymous_submissions = false
-      @quiz.quiz_type = "survey"
-
-      # make questions
-      questions = [{:question_data => { :name => "test 1" }},
-        {:question_data => { :name => "test 2" }},
-        {:question_data => { :name => "test 3" }},
-        {:question_data => { :name => "test 4" }}]
-
-      @questions = questions.map { |q| @quiz.quiz_questions.create!(q) }
-      @quiz.generate_quiz_data
-      @quiz.save!
-
-      @quiz_submission = @quiz.generate_submission(temporary_user_code)
-      @quiz_submission.mark_completed
-      Quizzes::SubmissionGrader.new(@quiz_submission).grade_submission
-      @quiz_submission.save!
-    end
-
     before(:each) do
       student_in_course(:active_all => true)
       @quiz = @course.quizzes.create!
@@ -151,6 +177,26 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
       stats = CSV.parse(csv(:include_all_versions => true))
       expect(stats.last.length).to eq 9
       stats.first.first == "section"
+    end
+
+    it 'should include sis ids when requested' do
+      qs = @quiz.generate_submission(@student)
+      Quizzes::SubmissionGrader.new(qs).grade_submission
+
+      stats = CSV.parse(csv(includes_sis_ids: true))
+      expect(stats.last.length).to eq 12
+      expect(stats.first).to include 'sis_id'
+      expect(stats.first).to include 'section_sis_id'
+    end
+
+    it 'should not include sis ids when not requested' do
+      qs = @quiz.generate_submission(@student)
+      Quizzes::SubmissionGrader.new(qs).grade_submission
+
+      stats = CSV.parse(csv(includes_sis_ids: false))
+      expect(stats.last.length).to eq 10
+      expect(stats.first).not_to include 'sis_id'
+      expect(stats.first).not_to include 'section_sis_id'
     end
 
     it 'should succeed with logged-out user submissions' do
@@ -299,12 +345,12 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
 
     it 'should include primary domain if trust exists' do
       account2 = Account.create!
-      HostUrl.stubs(:context_host).returns('school')
-      HostUrl.expects(:context_host).with(account2).returns('school1')
+      allow(HostUrl).to receive(:context_host).and_return('school')
+      expect(HostUrl).to receive(:context_host).with(account2).and_return('school1')
       @student.pseudonyms.scope.delete_all
       account2.pseudonyms.create!(user: @student, unique_id: 'user') { |p| p.sis_user_id = 'sisid' }
-      @quiz.context.root_account.any_instantiation.stubs(:trust_exists?).returns(true)
-      @quiz.context.root_account.any_instantiation.stubs(:trusted_account_ids).returns([account2.id])
+      allow_any_instantiation_of(@quiz.context.root_account).to receive(:trust_exists?).and_return(true)
+      allow_any_instantiation_of(@quiz.context.root_account).to receive(:trusted_account_ids).and_return([account2.id])
 
       qs = @quiz.generate_submission(@student)
       Quizzes::SubmissionGrader.new(qs).grade_submission
@@ -331,7 +377,7 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
     q.generate_quiz_data
     q.save!
     qs = q.generate_submission student
-    io = fixture_file_upload('scribd_docs/doc.doc', 'application/msword', true)
+    io = fixture_file_upload('docs/doc.doc', 'application/msword', true)
     attach = qs.attachments.create! :filename => "doc.doc",
       :display_name => "attachment.png", :user => student,
       :uploaded_data => io
@@ -506,10 +552,9 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
       question_data = { question_type: 'essay_question' }
       responses = []
 
-      CanvasQuizStatistics.
-        expects(:analyze).
+      expect(CanvasQuizStatistics).to receive(:analyze).
           with(question_data, responses).
-          returns({ some_metric: 5 })
+          and_return({ some_metric: 5 })
 
       output = subject.send(:stats_for_question, question_data, responses, false)
       expect(output).to eq({
@@ -524,7 +569,7 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
         answers: []
       }
 
-      CanvasQuizStatistics.expects(:analyze).never
+      expect(CanvasQuizStatistics).to receive(:analyze).never
 
       subject.send(:stats_for_question, question_data, [])
     end

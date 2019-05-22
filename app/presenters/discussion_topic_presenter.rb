@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class DiscussionTopicPresenter
   attr_reader :topic, :assignment, :user, :override_list
 
@@ -44,12 +61,13 @@ class DiscussionTopicPresenter
     end
   end
 
-  def has_peer_reviews?(user)
-    peer_reviews_for(user).present?
-  end
-
   def peer_reviews_for(user)
-    user.assigned_submission_assessments.for_assignment(assignment.id)
+    reviews = user.assigned_submission_assessments.for_assignment(assignment.id).to_a
+    if reviews.any?
+      valid_student_ids = assignment.context.participating_students.where(:id => reviews.map(&:user_id)).pluck(:id).to_set
+      reviews = reviews.select{|r| valid_student_ids.include?(r.user_id)}
+    end
+    reviews
   end
 
   # Public: Determine if this discussion's assignment has an attached rubric.

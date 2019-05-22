@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -41,11 +41,11 @@ shared_examples_for "a differentiable_object" do
     context "student" do
       before {student_in_course(:course => @course)}
       it "with a visibility it should be true" do
-        differentiable_view.stubs(:where).returns([:a_record])
+        allow(differentiable_view).to receive(:where).and_return([:a_record])
         expect(differentiable.visible_to_user?(@user)).to be_truthy
       end
       it "without a visibility should be false" do
-        differentiable_view.stubs(:where).returns([])
+        allow(differentiable_view).to receive(:where).and_return([])
         expect(differentiable.visible_to_user?(@user)).to be_falsey
       end
     end

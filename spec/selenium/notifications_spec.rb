@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/notifications_common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/calendar2_common')
@@ -38,8 +55,8 @@ describe "Notifications" do
 
         # Checks that the notification is there and has the correct "Notification Name" field
         fj('.ui-tabs-anchor:contains("Meta Data")').click
-        expect(ff('.table-condensed.grid td').last).to include_text('Assignment Submitted')
-        expect(ff('.table-condensed.grid td')[3]).to include_text("Submission: #{@student.name}, #{@assignment.name}")
+        expect(ff('.ic-Table--condensed.grid td').last).to include_text('Assignment Submitted')
+        expect(ff('.ic-Table--condensed.grid td')[3]).to include_text("Submission: #{@student.name}, #{@assignment.name}")
       end
 
       it "should show assignment re-submitted notifications to teacher", priority: "1", test_id: 186562 do
@@ -52,8 +69,8 @@ describe "Notifications" do
         wait_for_ajaximations
         # Checks that the notification is there and has the correct "Notification Name" field
         fj('.ui-tabs-anchor:contains("Meta Data")').click
-        expect(ff('.table-condensed.grid td').last).to include_text('Assignment Submitted')
-        expect(ff('.table-condensed.grid td')[3]).to include_text("Re-Submission: #{@student.name}, #{@assignment.name}")
+        expect(ff('.ic-Table--condensed.grid td').last).to include_text('Assignment Submitted')
+        expect(ff('.ic-Table--condensed.grid td')[3]).to include_text("Re-Submission: #{@student.name}, #{@assignment.name}")
       end
 
       it "should not show the name of the reviewer for anonymous peer reviews", priority: "1", test_id: 360185 do
@@ -74,12 +91,12 @@ describe "Notifications" do
 
         # Checks that the notification is there and has the correct "Notification Name" field
         fj('.ui-tabs-anchor:contains("Meta Data")').click
-        expect(ff('.table-condensed.grid td').last).to include_text('Submission Comment')
-        expect(ff('.table-condensed.grid td')[7]).to include_text('Anonymous User')
+        expect(ff('.ic-Table--condensed.grid td').last).to include_text('Submission Comment')
+        expect(ff('.ic-Table--condensed.grid td')[7]).to include_text('Anonymous User')
 
         fj('.ui-tabs-anchor:contains("Plain Text")').click
         expect(f('.message-body')).to include_text('Anonymous User just made a new comment on the '\
-                                                   'submission for User for assignment')
+                                                   "submission for #{@student.reload.short_name} for assignment")
       end
 
       context "observer notifications" do
@@ -98,8 +115,8 @@ describe "Notifications" do
 
           # Checks that the notification is there and has the correct "Notification Name" field
           fj('.ui-tabs-anchor:contains("Meta Data")').click
-          expect(ff('.table-condensed.grid td').last).to include_text('Submission Graded')
-          expect(ff('.table-condensed.grid td')[3]).
+          expect(ff('.ic-Table--condensed.grid td').last).to include_text('Submission Graded')
+          expect(ff('.ic-Table--condensed.grid td')[3]).
                                         to include_text("Assignment Graded: #{@assignment.name}, #{@course.name}")
         end
 
@@ -119,8 +136,8 @@ describe "Notifications" do
 
           # Checks that the notification is there and has the correct "Notification Name" field
           fj('.ui-tabs-anchor:contains("Meta Data")').click
-          expect(ff('.table-condensed.grid td').last).to include_text('Submission Comment')
-          expect(ff('.table-condensed.grid td')[3]).
+          expect(ff('.ic-Table--condensed.grid td').last).to include_text('Submission Comment')
+          expect(ff('.ic-Table--condensed.grid td')[3]).
               to include_text("Submission Comment: #{@student.name}, #{@assignment.name}, #{@course.name}")
         end
 
@@ -145,8 +162,8 @@ describe "Notifications" do
         # Checks that the notification is there and has the correct "Notification Name" field
         get "/users/#{@student.id}/messages"
         fj('.ui-tabs-anchor:contains("Meta Data")').click
-        expect(ff('.table-condensed.grid td').last).to include_text('New Announcement')
-        expect(ff('.table-condensed.grid td')[3]).to include_text("Announcement: #{@course.name}")
+        expect(ff('.ic-Table--condensed.grid td').last).to include_text('New Announcement')
+        expect(ff('.ic-Table--condensed.grid td')[3]).to include_text("Announcement: #{@course.name}")
       end
     end
 
@@ -167,8 +184,8 @@ describe "Notifications" do
 
           # Checks that the notification is there and has the correct "Notification Name" field
           fj('.ui-tabs-anchor:contains("Meta Data")').click
-          expect(ff('.table-condensed.grid td').last).to include_text('Grade Weight Changed')
-          expect(ff('.table-condensed.grid td')[3]).
+          expect(ff('.ic-Table--condensed.grid td').last).to include_text('Grade Weight Changed')
+          expect(ff('.ic-Table--condensed.grid td')[3]).
               to include_text("Grade Weight Changed: #{@course.name}")
         end
       end
@@ -191,7 +208,7 @@ describe "Notifications" do
 
           # Checks that the notification is there and has the correct "Notification Name" field
           fj('.ui-tabs-anchor:contains("Meta Data")').click
-          expect(ff('.table-condensed.grid td').last).to include_text('New Event Created')
+          expect(ff('.ic-Table--condensed.grid td').last).to include_text('New Event Created')
 
           # update event
           event.start_at = Time.zone.now.beginning_of_day + 8.hours
@@ -200,7 +217,7 @@ describe "Notifications" do
 
           wait_for_ajaximations
           fj('.ui-tabs-anchor:contains("Meta Data")').click
-          expect(fj('.table-condensed.grid:first tr:contains("Notification Name")').text).
+          expect(fj('.ic-Table--condensed.grid:first tr:contains("Notification Name")').text).
                                                                                to include('Event Date Changed')
         end
       end

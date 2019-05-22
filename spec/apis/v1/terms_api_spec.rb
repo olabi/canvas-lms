@@ -35,6 +35,15 @@ describe TermsApiController, type: :request do
       json['enrollment_terms']
     end
 
+    it "should show sis_batch_id" do
+      @term2.destroy
+      sis_batch = @term1.root_account.sis_batches.create
+      @term1.sis_batch_id = sis_batch.id
+      @term1.save!
+      json = get_terms
+      expect(json.first['sis_import_id']). to eq sis_batch.id
+    end
+
     describe "filtering by state" do
       before :once do
         @term2.destroy
@@ -69,7 +78,7 @@ describe TermsApiController, type: :request do
       end
 
       it "should not blow up for invalid state parameters" do
-        json = get_terms(workflow_state: {all: nil})
+        json = get_terms(workflow_state: ['blall'])
         names = json.map { |t| t['name'] }
         expect(names).to include(@term1.name)
         expect(names).not_to include(@term2.name)
@@ -144,10 +153,29 @@ describe TermsApiController, type: :request do
         expect_terms_index_401
       end
 
-      it "should require root domain auth" do
+      it "should allow sub-account admins to view" do
         subaccount = @account.sub_accounts.create!(name: 'subaccount')
         account_admin_user(account: subaccount)
-        expect_terms_index_401
+        res = get_terms.map{ |t| t['name'] }
+        expect(res).to match_array([@term1.name, @term2.name])
+      end
+
+      it "should require context to be root_account and error nicely" do
+        subaccount = @account.sub_accounts.create!(name: 'subaccount')
+        account_admin_user(account: @account)
+        json = api_call(:get, "/api/v1/accounts/#{subaccount.id}/terms",
+                        { controller: 'terms_api', action: 'index', format: 'json', account_id: subaccount.to_param },
+                        {},
+                        {},
+                        { expected_status: 400 })
+        expect(json['message']).to eq 'Terms only belong to root_accounts.'
+      end
+
+      it "should allow account admins without manage_account_settings to view" do
+        role = custom_account_role("custom")
+        account_admin_user_with_role_changes(account: @account, role: role)
+        res = get_terms.map{ |t| t['name'] }
+        expect(res).to match_array([@term1.name, @term2.name])
       end
     end
   end
@@ -253,6 +281,13 @@ describe TermsController, type: :request do
       expect(@term1.end_at.to_i).to eq end_at.to_i
     end
 
+    it "requires valid dates" do
+      json = api_call(:put, "/api/v1/accounts/#{@account.id}/terms/#{@term1.id}",
+        { controller: 'terms', action: 'update', format: 'json', account_id: @account.to_param, id: @term1.to_param },
+        { enrollment_term: { name: 'Term 2', start_at: 3.days.ago.iso8601, end_at: 5.days.ago.iso8601 } }, {}, {:expected_status => 400})
+      expect(json['errors']['base'].first['message']).to eq "End dates cannot be before start dates"
+    end
+
     describe "sis_term_id" do
       it "allows specifying sis_term_id with :manage_sis permission" do
         expect(@account.grants_right?(@user, :manage_sis)).to be_truthy
@@ -305,6 +340,15 @@ describe TermsController, type: :request do
         student_override = @term1.enrollment_dates_overrides.where(enrollment_type: 'StudentEnrollment').first
         expect(student_override.start_at.iso8601).to eq "2017-01-20T20:00:00Z"
         expect(student_override.end_at.iso8601).to eq "2017-03-20T20:00:00Z"
+      end
+
+      it "requires valid dates for overrides" do
+        overrides_hash = {'StudentEnrollment' => {'start_at' => '2017-04-20T20:00:00Z', 'end_at' => '2017-03-20T20:00:00Z'}, }
+        json = api_call(:put, "/api/v1/accounts/#{@account.id}/terms/#{@term1.id}",
+          { controller: 'terms', action: 'update', format: 'json', account_id: @account.to_param, id: @term1.to_param },
+          { enrollment_term: {overrides: overrides_hash} }, {}, {:expected_status => 400}
+        )
+        expect(json['errors']['base'].first['message']).to eq "End dates cannot be before start dates"
       end
 
       it "rejects override for invalid enrollment type", priority: "1", test_id: 3046399 do

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -80,6 +80,24 @@ module Factories
     @assignment.saved_by = :discussion_topic
     @topic.assignment = @assignment
     @topic.save!
+    @assignment.reload
     @topic
+  end
+
+  def group_discussion_topic_model(opts = {})
+    @context = opts[:context] || @context || course_factory(active_all: true)
+    @group_category = @context.group_categories.create(name: 'Project Group')
+    group_model(name: 'Project Group 1', group_category: @group_category, context: @context)
+    opts[:group_category] = @group_category
+    @group_topic = @context.discussion_topics.create!(valid_discussion_topic_attributes.merge(opts))
+  end
+
+  def graded_discussion_topic(opts = {})
+    @topic = discussion_topic_model(opts)
+    @assignment = @topic.context.assignments.build(:submission_types => 'discussion_topic', :title => @topic.title)
+    @assignment.infer_times
+    @assignment.saved_by = :discussion_topic
+    @topic.assignment = @assignment
+    @topic.save
   end
 end

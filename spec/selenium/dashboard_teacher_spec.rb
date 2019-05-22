@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/notifications_common'
 
@@ -81,7 +98,8 @@ describe "dashboard" do
       it 'shows an assignment stream item under Recent Activity in dashboard', priority: "1", test_id: 108723 do
         assignment_model({:submission_types => ['online_text_entry'], :course => @course})
         get "/"
-        f('#dashboardToggleButton').click
+        f('#DashboardOptionsMenu_Container button').click
+        fj('span[role="menuitemradio"]:contains("Recent Activity")').click
         find('.toggle-details').click
         expect(fj('.fake-link:contains("Unnamed")')).to be_present
       end
@@ -102,6 +120,8 @@ describe "dashboard" do
         wait_for_ajaximations
 
         get "/"
+        f('#DashboardOptionsMenu_Container button').click
+        fj('span[role="menuitemradio"]:contains("Recent Activity")').click
         expect(f('.no_recent_messages')).to be_truthy
       end
     end
@@ -110,7 +130,13 @@ describe "dashboard" do
       before do
         @teacher = @user
         @student = student_in_course(:course => @course, :active_all => true).user
-        @assignment = @course.assignments.create!(:title => "some assignment", :submission_types => ['online_text_entry'], :moderated_grading => true)
+        @assignment = @course.assignments.create!(
+          title: "some assignment",
+          submission_types: ['online_text_entry'],
+          moderated_grading: true,
+          grader_count: 2,
+          final_grader: @teacher
+        )
         @assignment.submit_homework(@student, :body => "submission")
       end
 
@@ -247,7 +273,7 @@ describe "dashboard" do
         get "/"
 
         f('#global_nav_courses_link').click
-        expect(fj('.ic-NavMenu-list-item a:contains("All Courses")')).to be_present
+        expect(fj('[aria-label="Courses tray"] a:contains("All Courses")')).to be_present
       end
     end
   end
@@ -260,7 +286,11 @@ describe "dashboard" do
     it 'should not show an unpublished assignment for an unpublished course', priority: "2", test_id: 56003 do
       name = 'venkman'
       due_date = Time.zone.now.utc + 2.days
-      assignment = @course.assignments.create(:name => name, :submission_types => 'online', :due_at => due_date, :lock_at => Time.zone.now, :unlock_at => due_date)
+      assignment = @course.assignments.create(name: name,
+                                              submission_types: 'online',
+                                              due_at: due_date,
+                                              lock_at: 1.week.from_now,
+                                              unlock_at: due_date)
 
       get '/'
       expect(f('.coming_up')).to include_text(name)

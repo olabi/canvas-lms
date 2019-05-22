@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/calendar2_common')
 
@@ -16,7 +33,7 @@ describe "course copy" do
     @course.syllabus_body = "<p>haha</p>"
     @course.tab_configuration = [{"id" => 0}, {"id" => 14}, {"id" => 8}, {"id" => 5}, {"id" => 6}, {"id" => 2}, {"id" => 3, "hidden" => true}]
     @course.default_view = 'modules'
-    @course.wiki.wiki_pages.create!(:title => "hi", :body => "Whatever")
+    @course.wiki_pages.create!(:title => "hi", :body => "Whatever")
     @course.save!
 
     get "/courses/#{@course.id}/copy"
@@ -28,7 +45,7 @@ describe "course copy" do
     expect(@new_course.syllabus_body).to eq @course.syllabus_body
     expect(@new_course.tab_configuration).to eq @course.tab_configuration
     expect(@new_course.default_view).to eq @course.default_view
-    expect(@new_course.wiki.wiki_pages.count).to eq 1
+    expect(@new_course.wiki_pages.count).to eq 1
   end
 
   # TODO reimplement per CNVS-29604, but make sure we're testing at the right level
@@ -169,12 +186,12 @@ describe "course copy" do
     before(:each) do
       course_with_admin_logged_in
       @date_to_use = 2.weeks.from_now.monday.strftime("%Y-%m-%d")
-      get "/calendar"
-      quick_jump_to_date(@date_to_use)
-      create_calendar_event('Monday Event', true, false, false, @date_to_use, true)
     end
 
     it "shifts the dates a week later", priority: "2", test_id: 2953906 do
+      get "/calendar"
+      quick_jump_to_date(@date_to_use)
+      create_calendar_event('Monday Event', true, false, false, @date_to_use, true)
       get "/courses/#{@course.id}/copy"
       new_course_name = "copied course"
       replace_content(f("input[type=text][id=course_name]"), new_course_name)
@@ -184,8 +201,7 @@ describe "course copy" do
       replace_content(f("input[type=text][id=newStartDate]"), date)
       submit_form('#copy_course_form')
       run_jobs
-      status = f('div.progressStatus span').text
-      keep_trying_until { expect(status == 'Completed') }
+      expect(f('div.progressStatus span')).to include_text 'Completed'
       get "/calendar#view_name=week"
       quick_jump_to_date(@date_to_use)
       f('.fc-event').click

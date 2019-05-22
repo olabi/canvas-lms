@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,6 +19,7 @@
 module Api::V1::Rubric
   include Api::V1::Json
   include Api::V1::RubricAssessment
+  include Api::V1::RubricAssociation
 
   API_ALLOWED_RUBRIC_OUTPUT_FIELDS = {
     only: %w(
@@ -32,6 +33,7 @@ module Api::V1::Rubric
       read_only
       free_form_criterion_comments
       hide_score_total
+      data
     )
   }.freeze
 
@@ -43,7 +45,17 @@ module Api::V1::Rubric
   def rubric_json(rubric, user, session, opts = {})
     json_attributes = API_ALLOWED_RUBRIC_OUTPUT_FIELDS
     hash = api_json(rubric, user, session, json_attributes)
-    hash['assessments'] = rubric_assessments_json(opts[:assessments], user, session, opts) if opts[:assessments].present?
+    hash['criteria'] = rubric.data if opts[:style] == "full"
+    hash['assessments'] = rubric_assessments_json(opts[:assessments], user, session, opts) unless opts[:assessments].nil?
+    hash['associations'] = rubric_associations_json(opts[:associations], user, session, opts) unless opts[:associations].nil?
     hash
+  end
+
+  def rubric_pagination_url
+    if @context.is_a? Course
+      api_v1_course_rubrics_url(@context)
+    else
+      api_v1_account_rubrics_url(@context)
+    end
   end
 end

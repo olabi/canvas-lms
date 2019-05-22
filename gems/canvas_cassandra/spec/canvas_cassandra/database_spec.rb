@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,6 +26,19 @@ describe CanvasCassandra do
       db.send(:instance_variable_set, :@db, conn)
       db.send(:instance_variable_set, :@logger, double().as_null_object)
       allow(db).to receive(:sanitize).and_return("")
+    end
+  end
+
+  describe "#tables" do
+    before do
+      allow(conn).to receive(:use_cql3?).and_return(true)
+      allow(db).to receive(:keyspace).and_return('page_views')
+      allow(conn).to receive(:connection).and_return(double(describe_version: '19'))
+    end
+
+    it 'queries for all column family names in the keyspace' do
+      expect(conn).to receive(:execute).with("SELECT columnfamily_name FROM system.schema_columnfamilies WHERE keyspace_name=?", 'page_views').and_return([])
+      db.tables
     end
   end
 
@@ -255,6 +268,13 @@ describe CanvasCassandra do
 
       expect(db.db).to receive(:keyspace) { keyspace_name }
       expect(db.name).to eq keyspace_name
+    end
+
+    it 'uses utf-8 encoding' do
+      keyspace_name = 'keyspace'
+
+      expect(db.db).to receive(:keyspace) { keyspace_name }
+      expect(db.keyspace.encoding.name).to eq 'UTF-8'
     end
   end
 

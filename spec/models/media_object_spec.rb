@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,7 +29,7 @@ describe MediaObject do
     end
 
     it "should raise an error if someone tries to use find_by_media_id" do
-      expect { MediaObject.find_by_media_id('fjdksl') }.to raise_error
+      expect { MediaObject.find_by_media_id('fjdksl') }.to raise_error('Do not look up MediaObjects by media_id - use the scope by_media_id instead to support migrated content.')
     end
   end
 
@@ -78,19 +78,19 @@ describe MediaObject do
   describe ".ensure_media_object" do
     it "should not create if the media object exists already" do
       MediaObject.create!(:context => user_factory, :media_id => "test")
-      MediaObject.expects(:create!).never
+      expect(MediaObject).to receive(:create!).never
       MediaObject.ensure_media_object("test", {})
     end
 
     it "should not create if the media id doesn't exist in kaltura" do
-      MediaObject.expects(:media_id_exists?).with("test").returns(false)
-      MediaObject.expects(:create!).never
+      expect(MediaObject).to receive(:media_id_exists?).with("test").and_return(false)
+      expect(MediaObject).to receive(:create!).never
       MediaObject.ensure_media_object("test", {})
       run_jobs
     end
 
     it "should create the media object" do
-      MediaObject.expects(:media_id_exists?).with("test").returns(true)
+      expect(MediaObject).to receive(:media_id_exists?).with("test").and_return(true)
       MediaObject.ensure_media_object("test", { :context => user_factory })
       run_jobs
       obj = MediaObject.by_media_id("test").first
@@ -119,8 +119,8 @@ describe MediaObject do
     it "retries later when the transcode isn't available" do
       Timecop.freeze do
         mo = MediaObject.create!(:context => user_factory, :media_id => "test")
-        mo.expects(:retrieve_details)
-        mo.expects(:send_at).with(5.minutes.from_now, :retrieve_details_ensure_codecs, 2)
+        expect(mo).to receive(:retrieve_details)
+        expect(mo).to receive(:send_at).with(5.minutes.from_now, :retrieve_details_ensure_codecs, 2)
         mo.retrieve_details_ensure_codecs(1)
       end
     end
@@ -128,8 +128,8 @@ describe MediaObject do
     it "verifies existence of the transcoded details" do
       mo = MediaObject.create!(:context => user_factory, :media_id => "test")
       mo.data = { extensions: { mp4: { id: "t-yyy" } } }
-      mo.expects(:retrieve_details)
-      mo.expects(:send_at).never
+      expect(mo).to receive(:retrieve_details)
+      expect(mo).to receive(:send_at).never
       mo.retrieve_details_ensure_codecs(1)
     end
   end
@@ -185,15 +185,46 @@ describe MediaObject do
 
   describe ".add_media_files" do
     it "delegates to the KalturaMediaFileHandler to make a bulk upload to kaltura" do
-      kaltura_media_file_handler = mock('KalturaMediaFileHandler')
-      KalturaMediaFileHandler.expects(:new).returns(kaltura_media_file_handler)
+      kaltura_media_file_handler = double('KalturaMediaFileHandler')
+      expect(KalturaMediaFileHandler).to receive(:new).and_return(kaltura_media_file_handler)
 
       attachments = [ Attachment.new ]
       wait_for_completion = true
 
-      kaltura_media_file_handler.expects(:add_media_files).with(attachments, wait_for_completion).returns(:retval)
+      expect(kaltura_media_file_handler).to receive(:add_media_files).with(attachments, wait_for_completion).and_return(:retval)
 
       expect(MediaObject.add_media_files(attachments, wait_for_completion)).to eq :retval
+    end
+  end
+
+  describe ".process_retrieved_details" do
+    before :once do
+      @mock_entry = {
+        name: "Kaltura Title",
+        duration: 30,
+        plays: 0,
+        download_url: "https://google.com"
+      }
+      @media_type = "video"
+      @assets = []
+    end
+
+    it "keeps the current title if already set" do
+        mo = media_object
+        mo.title = "Canvas Title"
+        mo.save!
+
+        mo.process_retrieved_details(@mock_entry, @media_type, @assets)
+        expect(mo.title).to eq "Canvas Title"
+    end
+
+    it "uses the kaltura title if no current title" do
+        mo = media_object
+        mo.title = ""
+        mo.save!
+
+        mo.process_retrieved_details(@mock_entry, @media_type, @assets)
+        expect(mo.title).to eq "Kaltura Title"
     end
   end
 end

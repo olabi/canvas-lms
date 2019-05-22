@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -94,11 +94,10 @@
 class Quizzes::QuizAssignmentOverridesController < ApplicationController
   include ::Filters::Quizzes
 
-  before_filter :require_course, only: [ :index ]
-  skip_around_filter :set_locale, only: [ :index ]
+  before_action :require_course, only: [ :index ]
+  skip_around_action :set_locale, only: [ :index ]
 
   # @API Retrieve assignment-overridden dates for quizzes
-  # @beta
   #
   # Retrieve the actual due-at, unlock-at, and available-at dates for quizzes
   # based on the assignment overrides active for the current API user.

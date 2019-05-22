@@ -1,14 +1,32 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!conferences'
   'jquery'
   'underscore'
   'timezone'
-  'compiled/views/DialogBaseView'
-  'compiled/util/deparam'
+  '../DialogBaseView'
+  '../../util/deparam'
   'jst/conferences/editConferenceForm'
   'jst/conferences/userSettingOptions'
-  'compiled/behaviors/authenticity_token'
-], (I18n, $, _, tz, DialogBaseView, deparam, template, userSettingOptionsTemplate, authenticity_token) ->
+  '../../behaviors/authenticity_token',
+  'jsx/shared/helpers/numberHelper'
+], (I18n, $, _, tz, DialogBaseView, deparam, template, userSettingOptionsTemplate, authenticity_token, numberHelper) ->
 
   class EditConferenceView extends DialogBaseView
 
@@ -20,6 +38,7 @@ define [
 
     events:
       'click .all_users_checkbox': 'toggleAllUsers'
+      'click .remove_observers_checkbox': 'toggleRemoveObservers'
       'change #web_conference_long_running': 'changeLongRunning'
       'change #web_conference_conference_type': 'renderConferenceFormUserSettings'
 
@@ -42,6 +61,13 @@ define [
         error: =>
           @show(@model)
           alert('Save failed.')
+        processData: (formData) =>
+          dkey = 'web_conference[duration]';
+          if(numberHelper.validate(formData[dkey]))
+            # formData.duration doesn't appear to be used by the api,
+            # but since it's in the formData, I feel obliged to process it
+            formData.duration  = formData[dkey] = numberHelper.parse(formData[dkey])
+          formData
       )
 
     show: (model, opts = {}) ->
@@ -73,6 +99,14 @@ define [
       else
         conferenceData.restore_duration = conferenceData.duration
 
+      # convert to a string here rather than using the I18n.n helper in
+      # editConferenceform.handlebars because we don't want to try and parse
+      # the value when the form is redisplayed in the event of an error (like
+      # the user enters an invalid value for duration). This way the value is
+      # redisplayed in the form as the user entered it, and not as "NaN.undefined".
+      if numberHelper.validate(conferenceData.duration)
+        conferenceData.duration = I18n.n(conferenceData.duration)
+
       json =
         settings:
           is_editing: is_editing
@@ -86,6 +120,7 @@ define [
           {name: type.name, type: type.type, selected: (conferenceData.conference_type == type.type)}
         )
         inviteAll: invite_all
+        removeObservers: false
 
     updateConferenceUserSettingDetailsForConference: (conferenceData) ->
       # make handlebars comparisons easy
@@ -115,8 +150,11 @@ define [
             when 'select'
               optionObj['isSelect'] = true
               break
+          return
         )
+        return
       )
+      return
 
     renderConferenceFormUserSettings: ->
       conferenceData = @toJSON()
@@ -153,7 +191,15 @@ define [
       )
 
     toggleAllUsers: ->
+      $('.all_observers_checkbox').attr("checked", false);
       if(@$('.all_users_checkbox').is(':checked'))
+        $("#members_list").hide()
+      else
+        $("#members_list").slideDown()
+
+    toggleRemoveObservers: ->
+      $('.all_users_checkbox').attr("checked", false);
+      if(@$('.remove_observers_checkbox').is(':checked'))
         $("#members_list").hide()
       else
         $("#members_list").slideDown()

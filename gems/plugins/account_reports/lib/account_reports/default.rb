@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,6 +28,10 @@ module AccountReports
 
     def self.outcome_results_csv(account_report)
       OutcomeReports.new(account_report).outcome_results
+    end
+
+    def self.outcome_export_csv(account_report)
+      OutcomeExport.new(account_report).outcome_export
     end
 
     def self.grade_export_csv(account_report)

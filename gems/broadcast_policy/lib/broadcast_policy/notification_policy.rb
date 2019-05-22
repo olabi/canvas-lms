@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 module BroadcastPolicy
 
   class NotificationPolicy
-    attr_accessor :dispatch, :to, :whenever, :context, :data, :recipient_filter
+    attr_accessor :dispatch, :to, :whenever, :data, :recipient_filter
 
     def initialize(dispatch)
       self.dispatch = dispatch
@@ -45,7 +45,6 @@ module BroadcastPolicy
         to_list = Array(to_list).flatten
         next if to_list.empty?
 
-        asset_context = record.instance_eval(&self.context) if self.context
         data = record.instance_eval(&self.data) if self.data
 
         BroadcastPolicy.notifier.send_notification(
@@ -53,7 +52,6 @@ module BroadcastPolicy
           self.dispatch,
           notification,
           to_list,
-          asset_context,
           data
         )
       end

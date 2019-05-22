@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,7 +34,7 @@ describe Quizzes::QuizStatistics do
   def csv(opts = {}, quiz = @quiz)
     stats = quiz.statistics_csv('student_analysis', opts)
     run_jobs
-    stats.csv_attachment(true).open.read
+    stats.reload_csv_attachment.open.read
   end
 
   it "should use the last completed submission, even if the current submission is in progress" do
@@ -58,7 +58,7 @@ describe Quizzes::QuizStatistics do
     @quiz.generate_submission(@student)
 
     stats = CSV.parse(csv(:include_all_versions => true))
-    expect(stats.first.length).to eq 12
+    expect(stats.first.length).to eq 10
   end
 
   it 'should not include previous versions by default' do
@@ -69,7 +69,7 @@ describe Quizzes::QuizStatistics do
     Quizzes::SubmissionGrader.new(qs).grade_submission
 
     stats = CSV.parse(csv)
-    expect(stats.first.length).to eq 12
+    expect(stats.first.length).to eq 10
   end
 
   it 'generates a new quiz_statistics if the quiz changed' do
@@ -117,14 +117,14 @@ describe Quizzes::QuizStatistics do
     stats.reload
     expect(stats.csv_attachment).to be_present
 
-    stats.expects(:build_csv_attachment).never
+    expect(stats).to receive(:build_csv_attachment).never
     expect(stats.generate_csv).to eq attachment
   end
 
   it 'could possibly tell whether CSV generation has gone bananas' do
     stats = @quiz.current_statistics_for 'student_analysis'
 
-    Quizzes::QuizStatistics::StudentAnalysis.any_instance.stubs(:to_csv) {
+    allow_any_instance_of(Quizzes::QuizStatistics::StudentAnalysis).to receive(:to_csv) {
       throw 'totally bananas'
     }
 
@@ -135,36 +135,53 @@ describe Quizzes::QuizStatistics do
     expect(stats.csv_generation_failed?).to be_truthy
   end
 
+  it "uses inst-fs to store attachment when enabled" do
+    allow(InstFS).to receive(:enabled?).and_return(true)
+    @uuid = "1234-abcd"
+    allow(InstFS).to receive(:direct_upload).and_return(@uuid)
+
+    stats = @quiz.current_statistics_for 'student_analysis'
+    attachment = stats.generate_csv
+    expect(attachment.instfs_uuid).to eq(@uuid)
+  end
+
+  it "doesn't use inst-fs if not enabled" do
+    allow(InstFS).to receive(:enabled?).and_return(false)
+    stats = @quiz.current_statistics_for 'student_analysis'
+    attachment = stats.generate_csv
+    expect(attachment.instfs_uuid).to eq(nil)
+  end
+
   describe 'self#large_quiz?' do
     let :active_quiz_questions do
-      Object.new.tap { |o| o.stubs(size: 50) }
+      double(size: 50)
     end
 
     let :quiz_submissions do
-      Object.new.tap { |o| o.stubs(size: 15) }
+      double(size: 15)
     end
 
     let :quiz do
       Quizzes::Quiz.new.tap do |quiz|
-        quiz.stubs(:active_quiz_questions).returns(active_quiz_questions)
-        quiz.stubs(:quiz_submissions).returns(quiz_submissions)
+        allow(quiz).to receive(:active_quiz_questions).and_return(active_quiz_questions)
+        allow(quiz).to receive(:quiz_submissions).and_return(quiz_submissions)
       end
     end
 
     context 'quiz_statistics_max_questions' do
       it 'should be true when there are too many questions' do
-        Setting.expects(:get).with('quiz_statistics_max_questions',
-          Quizzes::QuizStatistics::DefaultMaxQuestions).returns 25
+        expect(Setting).to receive(:get).with('quiz_statistics_max_questions',
+          Quizzes::QuizStatistics::DefaultMaxQuestions).and_return 25
 
         expect(Quizzes::QuizStatistics.large_quiz?(quiz)).to be_truthy
       end
 
       it 'should be false otherwise' do
-        Setting.expects(:get).with('quiz_statistics_max_questions',
-          Quizzes::QuizStatistics::DefaultMaxQuestions).returns 100
+        expect(Setting).to receive(:get).with('quiz_statistics_max_questions',
+          Quizzes::QuizStatistics::DefaultMaxQuestions).and_return 100
 
-        Setting.expects(:get).with('quiz_statistics_max_submissions',
-          Quizzes::QuizStatistics::DefaultMaxSubmissions).returns 25
+        expect(Setting).to receive(:get).with('quiz_statistics_max_submissions',
+          Quizzes::QuizStatistics::DefaultMaxSubmissions).and_return 25
 
         expect(Quizzes::QuizStatistics.large_quiz?(quiz)).to be_falsey
       end
@@ -172,19 +189,19 @@ describe Quizzes::QuizStatistics do
 
     context 'quiz_statistics_max_submissions' do
       it 'should be true when there are too many submissions' do
-        Setting.expects(:get).with('quiz_statistics_max_questions',
-          Quizzes::QuizStatistics::DefaultMaxQuestions).returns 100
-        Setting.expects(:get).with('quiz_statistics_max_submissions',
-          Quizzes::QuizStatistics::DefaultMaxSubmissions).returns 5
+        expect(Setting).to receive(:get).with('quiz_statistics_max_questions',
+          Quizzes::QuizStatistics::DefaultMaxQuestions).and_return 100
+        expect(Setting).to receive(:get).with('quiz_statistics_max_submissions',
+          Quizzes::QuizStatistics::DefaultMaxSubmissions).and_return 5
 
         expect(Quizzes::QuizStatistics.large_quiz?(quiz)).to be_truthy
       end
 
       it 'should be false otherwise' do
-        Setting.expects(:get).with('quiz_statistics_max_questions',
-          Quizzes::QuizStatistics::DefaultMaxQuestions).returns 100
-        Setting.expects(:get).with('quiz_statistics_max_submissions',
-          Quizzes::QuizStatistics::DefaultMaxSubmissions).returns 25
+        expect(Setting).to receive(:get).with('quiz_statistics_max_questions',
+          Quizzes::QuizStatistics::DefaultMaxQuestions).and_return 100
+        expect(Setting).to receive(:get).with('quiz_statistics_max_submissions',
+          Quizzes::QuizStatistics::DefaultMaxSubmissions).and_return 25
 
         expect(Quizzes::QuizStatistics.large_quiz?(quiz)).to be_falsey
       end

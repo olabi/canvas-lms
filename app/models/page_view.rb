@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -234,7 +234,10 @@ class PageView < ActiveRecord::Base
     result = case PageView.page_view_method
     when :log
       Rails.logger.info "PAGE VIEW: #{self.attributes.to_json}"
-    when :db, :cassandra
+    when :db
+      self.shard = user.shard if new_record?
+      self.save
+    when :cassandra
       self.save
     end
 
@@ -273,6 +276,7 @@ class PageView < ActiveRecord::Base
         self.id
       end
     end
+    changes_applied unless CANVAS_RAILS5_1 # no longer a callback in 5.2.2
   end
 
   def _update_record(*args)
@@ -283,47 +287,50 @@ class PageView < ActiveRecord::Base
         true
       end
     end
+    changes_applied unless CANVAS_RAILS5_1
   end
 
   scope :for_context, proc { |ctx| where(:context_type => ctx.class.name, :context_id => ctx) }
   scope :for_users, lambda { |users| where(:user_id => users) }
 
   def self.pv4_client
-    @pv4_client ||= begin
-      config = ConfigFile.load('pv4')
-      raise "Page Views v4 not configured!" unless config
+    ConfigFile.cache_object('pv4') do |config|
       Pv4Client.new(config['uri'], config['access_token'])
     end
-  end
-
-  def self.reset_pv4_client
-    @pv4_client = nil
-  end
-
-  Canvas::Reloader.on_reload do
-    reset_pv4_client
   end
 
   # returns a collection with very limited functionality
   # basically, it responds to #paginate and returns a
   # WillPaginate::Collection-like object
   def self.for_user(user, options={})
+    viewer = options.delete(:viewer)
+    viewer = nil if viewer == user
+    viewer = nil if viewer && Account.site_admin.grants_any_right?(viewer, :view_statistics, :manage_students)
     user.shard.activate do
       if PageView.pv4?
-        pv4_client.for_user(user.global_id, **options)
+        result = pv4_client.for_user(user.global_id, **options)
+        result = AccountFilter.filter(result, viewer) if viewer
+        result
       elsif PageView.cassandra?
-        PageView::EventStream.for_user(user, options)
+        result = PageView::EventStream.for_user(user, options)
+        result = AccountFilter.filter(result, viewer) if viewer
+        result
       else
         scope = self.where(:user_id => user).order('created_at desc')
         scope = scope.where("created_at >= ?", options[:oldest]) if options[:oldest]
         scope = scope.where("created_at <= ?", options[:newest]) if options[:newest]
+        if viewer
+          accounts = user.associated_accounts.shard(user).select { |a| a.grants_any_right?(viewer, :view_statistics, :manage_students) }
+          accounts << nil
+          scope = scope.where(account_id: accounts)
+        end
         scope
       end
     end
   end
 
   class << self
-    def transaction_with_cassandra_check(*args)
+    def transaction(*args)
       if PageView.cassandra?
         # Rails 3 autosave associations re-assign the attributes;
         # for sharding to work, the page view's shard has to be
@@ -338,10 +345,9 @@ class PageView < ActiveRecord::Base
           yield
         end
       else
-        self.transaction_without_cassandra_check(*args) { yield }
+        super
       end
     end
-    alias_method_chain :transaction, :cassandra_check
   end
 
   def add_to_transaction
@@ -446,7 +452,7 @@ class PageView < ActiveRecord::Base
       # this could run into problems if one account gets more than
       # batch_size page views created in the second on this boundary
       finder_sql = PageView.where("account_id = ? AND created_at >= ?", account_id, last_created_at).
-          order("created_at asc").limit(batch_size).to_sql
+          order(:created_at => :asc).limit(batch_size).to_sql
 
       # query just the raw attributes, don't instantiate AR objects
       rows = PageView.connection.select_all(finder_sql).to_a

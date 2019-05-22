@@ -1,4 +1,5 @@
-# Copyright (C) 2013 Instructure, Inc.
+#
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -73,7 +74,8 @@ class RequestThrottle
 
     if client_identifier(request) && !client_identifier(request).starts_with?('session')
       headers['X-Request-Cost'] = cost.to_s unless throttled
-      headers['X-Rate-Limit-Remaining'] = bucket.remaining.to_s if subject_to_throttling?(request)
+      headers['X-Rate-Limit-Remaining'] = bucket.remaining.to_s
+      headers['X-Rate-Limit-Remaining'] = 0.0.to_s if blacklisted?(request)
     end
 
     [status, headers, response]
@@ -100,11 +102,11 @@ class RequestThrottle
       return true
     elsif blacklisted?(request)
       Rails.logger.info("blocking request due to blacklist, client id: #{client_identifier(request)} ip: #{request.remote_ip}")
-      CanvasStatsd::Statsd.increment("request_throttling.blacklisted")
+      InstStatsd::Statsd.increment("request_throttling.blacklisted")
       return false
     else
       if bucket.full?
-        CanvasStatsd::Statsd.increment("request_throttling.throttled")
+        InstStatsd::Statsd.increment("request_throttling.throttled")
         if Setting.get("request_throttle.enabled", "true") == "true"
           Rails.logger.info("blocking request due to throttling, client id: #{client_identifier(request)} bucket: #{bucket.to_json}")
           return false
@@ -141,6 +143,8 @@ class RequestThrottle
         identifier = "user:#{identifier}"
       elsif identifier = session_id(request).presence
         identifier = "session:#{identifier}"
+      elsif ip = request.ip
+        identifier = "ip:#{ip}"
       end
       identifier
     end
@@ -160,6 +164,7 @@ class RequestThrottle
 
   def self.reload!
     @whitelist = @blacklist = nil
+    LeakyBucket.reload!
   end
 
   def self.enabled?
@@ -171,9 +176,9 @@ class RequestThrottle
   end
 
   def rate_limit_exceeded
-    [ 403,
-      { 'Content-Type' => 'text/plain; charset=utf-8' },
-      ["403 #{Rack::Utils::HTTP_STATUS_CODES[403]} (Rate Limit Exceeded)\n"]
+    [403,
+     {'Content-Type' => 'text/plain; charset=utf-8', 'X-Rate-Limit-Remaining' => '0.0'},
+     ["403 #{Rack::Utils::HTTP_STATUS_CODES[403]} (Rate Limit Exceeded)\n"]
     ]
   end
 
@@ -184,9 +189,13 @@ class RequestThrottle
     RequestContextGenerator.add_meta_header("y", "%.2f" % [system_cpu])
     RequestContextGenerator.add_meta_header("d", "%.2f" % [db_runtime])
 
-    if account && account.shard.respond_to?(:database_server)
-      CanvasStatsd::Statsd.timing("requests_system_cpu.cluster_#{account.shard.database_server.id}", system_cpu)
-      CanvasStatsd::Statsd.timing("requests_user_cpu.cluster_#{account.shard.database_server.id}", user_cpu)
+    if account&.shard&.database_server
+      InstStatsd::Statsd.timing("requests_system_cpu.cluster_#{account.shard.database_server.id}", system_cpu,
+                                short_stat: 'requests_system_cpu',
+                                tags: {cluster: account.shard.database_server.id})
+      InstStatsd::Statsd.timing("requests_user_cpu.cluster_#{account.shard.database_server.id}", user_cpu,
+                                short_stat: 'requests_user_cpu',
+                                tags: {cluster: account.shard.database_server.id})
     end
 
     mem_stat = if starting_mem == 0 || ending_mem == 0
@@ -208,7 +217,7 @@ class RequestThrottle
   # and hwm were equal, then the bucket would always leak at least a tiny bit
   # by the beginning of the next request, and thus would never be considered
   # full.
-  class LeakyBucket < Struct.new(:client_identifier, :count, :last_touched)
+  LeakyBucket = Struct.new(:client_identifier, :count, :last_touched) do
     def initialize(client_identifier, count = 0.0, last_touched = nil)
       super
     end
@@ -235,8 +244,23 @@ class RequestThrottle
 
     SETTING_DEFAULTS.each do |(setting, default)|
       define_method(setting) do
-        Setting.get("request_throttle.#{setting}", default).to_f
+        (self.class.custom_settings_hash[client_identifier]&.[](setting.to_s) ||
+          Setting.get("request_throttle.#{setting}", default)).to_f
       end
+    end
+
+    def self.custom_settings_hash
+      @custom_settings_hash ||= begin
+        JSON.parse(
+          Setting.get('request_throttle.custom_settings', '{}')
+        )
+      rescue JSON::JSONError
+        {}
+      end
+    end
+
+    def self.reload!
+      @custom_settings_hash = nil
     end
 
     # up_front_cost is a placeholder cost. Essentially it adds some cost to
@@ -248,15 +272,12 @@ class RequestThrottle
     # expecting the block to return the final cost. It then increments again,
     # subtracting the initial up_front_cost from the final cost to erase it.
     def reserve_capacity(up_front_cost = self.up_front_cost)
-      if Setting.get("request_throttle.skip", "false") == "true"
-        yield
-        return
-      end
+      return (self.count = yield) unless RequestThrottle.enabled?
 
       increment(0, up_front_cost)
       cost = yield
     ensure
-      increment(cost || 0, -up_front_cost)
+      increment(cost || 0, -up_front_cost) if RequestThrottle.enabled?
     end
 
     def full?

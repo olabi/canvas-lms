@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -138,11 +138,11 @@
 class FeatureFlagsController < ApplicationController
   include Api::V1::FeatureFlag
 
-  before_filter :get_context
+  before_action :get_context
 
   # @API List features
   #
-  # List all features that apply to a given Account, Course, or User.
+  # A paginated list of all features that apply to a given Account, Course, or User.
   #
   # @example_request
   #
@@ -164,7 +164,7 @@ class FeatureFlagsController < ApplicationController
 
   # @API List enabled features
   #
-  # List all features that are enabled on a given Account, Course, or User.
+  # A paginated list of all features that are enabled on a given Account, Course, or User.
   # Only the feature names are returned.
   #
   # @example_request
@@ -200,7 +200,9 @@ class FeatureFlagsController < ApplicationController
   def show
     if authorized_action(@context, @current_user, :read)
       return render json: { message: "missing feature parameter" }, status: :bad_request unless params[:feature].present?
-      flag = @context.lookup_feature_flag(params[:feature], Account.site_admin.grants_right?(@current_user, session, :read))
+      feature = params[:feature]
+      raise ActiveRecord::RecordNotFound unless Feature.definitions.has_key?(feature.to_s)
+      flag = @context.lookup_feature_flag(feature, Account.site_admin.grants_right?(@current_user, session, :read))
       raise ActiveRecord::RecordNotFound unless flag
       render json: feature_flag_json(flag, @context, @current_user, session)
     end
@@ -229,10 +231,10 @@ class FeatureFlagsController < ApplicationController
       return render json: { message: "must specify feature" }, status: :bad_request unless params[:feature].present?
 
       feature_def = Feature.definitions[params[:feature]]
-      return render json: { message: "invalid feature" }, status: :bad_request unless feature_def
+      return render json: { message: "invalid feature" }, status: :bad_request unless feature_def && feature_def.applies_to_object(@context)
 
       # check whether the feature is locked
-      MultiCache.delete(@context.feature_flag_cache_key(params[:feature]))
+      @context.feature_flag_cache.delete(@context.feature_flag_cache_key(params[:feature]))
       current_flag = @context.lookup_feature_flag(params[:feature])
       if current_flag
         return render json: { message: "higher account disallows setting feature flag" }, status: :forbidden if current_flag.locked?(@context)

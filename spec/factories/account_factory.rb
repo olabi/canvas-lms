@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,6 +20,32 @@ module Factories
     @account = factory_with_protected_attributes(Account, valid_account_attributes.merge(opts))
   end
 
+  def stub_rcs_config
+    # make sure this is loaded first
+    allow(Canvas::DynamicSettings).to receive(:find).with(any_args).and_call_original
+    allow(Canvas::DynamicSettings).to receive(:find).with("rich-content-service", default_ttl: 5.minutes).and_return(
+      ActiveSupport::HashWithIndifferentAccess.new({
+        "app-host":"http://localhost:3000",
+      })
+    )
+    allow(Canvas::DynamicSettings).to receive(:find).with("canvas").and_return(
+      {
+        "signing-secret" => "astringthatisactually32byteslong",
+        "encryption-secret" => "astringthatisactually32byteslong"
+      }
+    )
+  end
+
+  def account_rcs_model(opts={})
+    @account = factory_with_protected_attributes(Account, valid_account_attributes.merge(opts))
+  end
+
+  def provision_quizzes_next(account)
+    # quizzes_next feature is turned on only if a root account is provisioned
+    account.root_account.settings[:provision] = {'lti' => 'lti url'}
+    account.root_account.save!
+  end
+
   def valid_account_attributes
     {
       :name => "value for name"
@@ -29,7 +55,7 @@ module Factories
   def account_with_cas(opts={})
     @account = opts[:account]
     @account ||= Account.create!
-    config = AccountAuthorizationConfig::CAS.new
+    config = AuthenticationProvider::CAS.new
     cas_url = opts[:cas_url] || "https://localhost/cas"
     config.auth_type = "cas"
     config.auth_base = cas_url
@@ -42,7 +68,7 @@ module Factories
   def account_with_saml(opts={})
     @account = opts[:account]
     @account ||= Account.create!
-    config = AccountAuthorizationConfig::SAML.new
+    config = AuthenticationProvider::SAML.new
     config.idp_entity_id = "saml_entity"
     config.auth_type = "saml"
     config.log_in_url = opts[:saml_log_in_url] if opts[:saml_log_in_url]

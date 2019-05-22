@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path('../../../spec_helper', File.dirname(__FILE__))
 require_dependency "canvas/oauth/token"
 
@@ -10,12 +27,12 @@ module Canvas::Oauth
 
     def stub_out_cache(client_id = nil, scopes = nil)
       if client_id
-        token.stubs(:cached_code_entry =>
+        allow(token).to receive_messages(:cached_code_entry =>
                       '{"client_id": ' + client_id.to_s +
                         ', "user": ' + user.id.to_s +
                         (scopes ? ', "scopes": ' + scopes.to_json : '') + '}')
       else
-        token.stubs(:cached_code_entry => '{}')
+        allow(token).to receive_messages(:cached_code_entry => '{}')
       end
     end
 
@@ -68,7 +85,7 @@ module Canvas::Oauth
     end
 
     describe '#access_token' do
-      let(:scopes) {["#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"]}
+      let(:scopes) {["#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"]}
 
       it 'creates a new token if none exists' do
         expect(user.access_tokens).to be_empty
@@ -89,13 +106,13 @@ module Canvas::Oauth
       end
 
       it 'will not return the full token for a userinfo scope' do
-        scope = "#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"
+        scope = "#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"
         stub_out_cache key.id, [scope]
         expect(token.access_token.full_token).to be_nil
       end
 
       it 'finds an existing userinfo token if one exists' do
-        scope = "#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"
+        scope = "#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"
         stub_out_cache key.id, [scope]
         access_token = user.access_tokens.create!(:developer_key => key, :scopes => [scope], :remember_access => true)
         expect(token.access_token).to eq access_token
@@ -103,7 +120,7 @@ module Canvas::Oauth
       end
 
       it 'ignores existing token if user did not remember access' do
-        scope = "#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"
+        scope = "#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"
         stub_out_cache key.id, [scope]
         access_token = user.access_tokens.create!(:developer_key => key, :scopes => [scope])
         expect(token.access_token).not_to eq access_token
@@ -122,13 +139,13 @@ module Canvas::Oauth
       it 'deletes existing tokens for the same key when requested' do
         old_token = user.access_tokens.create! :developer_key => key
         token.create_access_token_if_needed(true)
-        expect(AccessToken.exists?(old_token.id)).to be(false)
+        expect(AccessToken.not_deleted.where(:id => old_token.id).exists?).to be(false)
       end
 
       it 'does not delete existing tokens for the same key when not requested' do
         old_token = user.access_tokens.create! :developer_key => key
         token.create_access_token_if_needed
-        expect(AccessToken.exists?(old_token.id)).to be(true)
+        expect(AccessToken.not_deleted.where(:id => old_token.id).exists?).to be(true)
       end
     end
 
@@ -154,13 +171,18 @@ module Canvas::Oauth
       end
 
       it 'grabs the user json as well' do
-        expect(json['user']).to eq user.as_json(:only => [:id, :name], :include_root => false)
+        expect(json['user']).to eq({
+          'id' => user.id,
+          'name' => user.name,
+          'global_id' => user.global_id.to_s,
+          'effective_locale' => 'en'
+        })
       end
 
       it 'returns the expires_in parameter' do
-        Time.stubs(:now).returns(DateTime.parse('2015-07-10T09:29:00+00:00').utc.to_time)
+        allow(Time).to receive(:now).and_return(DateTime.parse('2015-07-10T09:29:00Z').utc.to_time)
         access_token = token.access_token
-        access_token.expires_at = DateTime.parse('2015-07-10T10:29:00+00:00')
+        access_token.expires_at = DateTime.parse('2015-07-10T10:29:00Z')
         access_token.save!
         expect(json['expires_in']).to eq 3600
       end
@@ -168,6 +190,7 @@ module Canvas::Oauth
       it 'does not put anything else into the json' do
         expect(json.keys.sort).to match_array(['access_token', 'refresh_token', 'user', 'expires_in', 'token_type'])
       end
+
       it 'does not put expires_in in the json when auto_expire_tokens is false' do
         key = token.key
         key.auto_expire_tokens = false
@@ -175,41 +198,54 @@ module Canvas::Oauth
         expect(json.keys.sort).to match_array(['access_token', 'refresh_token', 'user', 'token_type'])
       end
 
+      it 'puts real_user in the json when masquerading' do
+        real_user = User.new
+        allow(token).to receive(:real_user).and_return(real_user)
+        expect(json['real_user']).to eq({
+          'id' => real_user.id,
+          'name' => real_user.name,
+          'global_id' => real_user.global_id.to_s
+        })
+      end
+
+      it 'does not put real_user in the json when not masquerading' do
+        expect(json['real_user']).to be_nil
+      end
     end
 
     describe '.generate_code_for' do
       let(:code) { "brand_new_code" }
-      before { SecureRandom.stubs(:hex => code) }
+      before { allow(SecureRandom).to receive_messages(:hex => code) }
 
       it 'returns the new code' do
-        Canvas.stubs(:redis => stub(:setex => true))
-        expect(Token.generate_code_for(1, 1)).to eq code
+        allow(Canvas).to receive_messages(:redis => double(:setex => true))
+        expect(Token.generate_code_for(1, 2, 3)).to eq code
       end
 
       it 'sets the new data hash into redis with 10 min ttl' do
         redis = Object.new
-        code_data = {user: 1, client_id: 1, scopes: nil, purpose: nil, remember_access: nil}
+        code_data = {user: 1, real_user: 2, client_id: 3, scopes: nil, purpose: nil, remember_access: nil}
         #should have 10 min (in seconds) ttl passed as second param
-        redis.expects(:setex).with('oauth2:brand_new_code', 600, code_data.to_json)
-        Canvas.stubs(:redis => redis)
-        Token.generate_code_for(1, 1)
+        expect(redis).to receive(:setex).with('oauth2:brand_new_code', 600, code_data.to_json)
+        allow(Canvas).to receive_messages(:redis => redis)
+        Token.generate_code_for(1, 2, 3)
       end
 
       it 'sets the new data hash into redis with 10 sec ttl' do
         redis = Object.new
-        code_data = {user: 1, client_id: 1, scopes: nil, purpose: nil, remember_access: nil}
+        code_data = {user: 1, real_user: 2, client_id: 3, scopes: nil, purpose: nil, remember_access: nil}
         #should have 10 sec ttl passed as second param with setting
         Setting.set('oath_token_request_timeout', '10')
-        redis.expects(:setex).with('oauth2:brand_new_code', 10, code_data.to_json)
-        Canvas.stubs(:redis => redis)
-        Token.generate_code_for(1, 1)
+        expect(redis).to receive(:setex).with('oauth2:brand_new_code', 10, code_data.to_json)
+        allow(Canvas).to receive_messages(:redis => redis)
+        Token.generate_code_for(1, 2, 3)
       end
     end
 
     context "token expiration" do
       it "starts expiring tokens in 1 hour" do
-        DateTime.stubs(:now).returns(DateTime.parse('2016-06-29T23:01:00+00:00'))
-        expect(token.access_token.expires_at.utc.iso8601).to eq('2016-06-30T00:01:00+00:00')
+        allow(DateTime).to receive(:now).and_return(DateTime.parse('2016-06-29T23:01:00Z'))
+        expect(token.access_token.expires_at.utc).to eq(DateTime.parse('2016-06-30T00:01:00Z'))
       end
 
       it 'doesn\'t set an expiration if the dev key has auto_expire_tokens set to false' do
@@ -220,7 +256,7 @@ module Canvas::Oauth
       end
 
       it 'Tokens wont expire if the dev key has auto_expire_tokens set to false' do
-        DateTime.stubs(:now).returns(Time.zone.parse('2015-06-29T23:01:00+00:00'))
+        allow(DateTime).to receive(:now).and_return(Time.zone.parse('2015-06-29T23:01:00Z'))
         key = token.key
         key.auto_expire_tokens = false
         key.save!

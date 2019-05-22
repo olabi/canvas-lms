@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,6 +22,7 @@ module CC::Importer::Canvas
     include WikiConverter
     include AssignmentConverter
     include TopicConverter
+    include ToolProfileConverter
     include WebcontentConverter
     include QuizConverter
     include MediaTrackConverter
@@ -43,7 +44,7 @@ module CC::Importer::Canvas
       unzip_archive
       set_progress(5)
 
-      @manifest = open_file(File.join(@unzipped_file_path, MANIFEST_FILE))
+      @manifest = open_file(@package_root.item_path(MANIFEST_FILE))
       get_all_resources(@manifest)
 
       convert_all_course_settings
@@ -58,6 +59,8 @@ module CC::Importer::Canvas
       res = lti.get_blti_resources(@manifest)
       @course[:external_tools] = lti.convert_blti_links(res, self)
       set_progress(50)
+      @course[:tool_profiles] = convert_tool_profiles
+      set_progress(52)
       @course[:file_map] = create_file_map
       set_progress(60)
       @course[:all_files_zip] = package_course_files
@@ -69,6 +72,9 @@ module CC::Importer::Canvas
 
       read_external_content
 
+      # for master course sync
+      @course[:deletions] = @settings[:deletions] if @settings[:deletions].present?
+
       #close up shop
       save_to_file
       set_progress(90)
@@ -77,7 +83,7 @@ module CC::Importer::Canvas
     end
 
     def read_external_content
-      folder = File.join(@unzipped_file_path, EXTERNAL_CONTENT_FOLDER)
+      folder = @package_root.item_path(EXTERNAL_CONTENT_FOLDER)
       return unless File.directory?(folder)
 
       external_content = {}
@@ -97,3 +103,4 @@ module CC::Importer::Canvas
     end
   end
 end
+SafeYAML.whitelist_class!(CC::Importer::Canvas::Converter)

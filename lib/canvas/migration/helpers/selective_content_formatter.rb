@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Migration::Helpers
   class SelectiveContentFormatter
     COURSE_SETTING_TYPE = -> { I18n.t('lib.canvas.migration.course_settings', 'Course Settings') }
@@ -8,8 +25,9 @@ module Canvas::Migration::Helpers
             ['quizzes', -> { I18n.t('lib.canvas.migration.quizzes', 'Quizzes') }],
             ['assessment_question_banks', -> { I18n.t('lib.canvas.migration.assessment_question_banks', 'Question Banks') }],
             ['discussion_topics', -> { I18n.t('lib.canvas.migration.discussion_topics', 'Discussion Topics') }],
-            ['wiki_pages', -> { I18n.t('lib.canvas.migration.wikis', 'Wiki Pages') }],
+            ['wiki_pages', -> { I18n.t('lib.canvas.migration.wikis', 'Pages') }],
             ['context_external_tools', -> { I18n.t('lib.canvas.migration.external_tools', 'External Tools') }],
+            ['tool_profiles', -> { I18n.t('lib.canvas.migration.tool_profiles', 'Tool Profiles') }],
             ['announcements', -> { I18n.t('lib.canvas.migration.announcements', 'Announcements') }],
             ['calendar_events', -> { I18n.t('lib.canvas.migration.calendar_events', 'Calendar Events') }],
             ['rubrics', -> { I18n.t('lib.canvas.migration.rubrics', 'Rubrics') }],
@@ -18,9 +36,10 @@ module Canvas::Migration::Helpers
             ['attachments', -> { I18n.t('lib.canvas.migration.attachments', 'Files') }],
     ]
 
-    def initialize(migration=nil, base_url=nil)
+    def initialize(migration=nil, base_url=nil, global_identifiers: )
       @migration = migration
       @base_url = base_url
+      @global_identifiers = global_identifiers
     end
 
     def valid_type?(type=nil)
@@ -166,7 +185,7 @@ module Canvas::Migration::Helpers
             hash[:title] = default_bank.title
           end
           hash[:title] ||= @migration.question_bank_name || AssessmentQuestionBank.default_imported_title
-          hash[:migration_id] ||= CC::CCHelper.create_key(hash[:title], 'assessment_question_bank')
+          hash[:migration_id] ||= CC::CCHelper.create_key(hash[:title], 'assessment_question_bank', global: @global_identifiers)
         end
       when 'context_modules'
         hash[:item_count] = item['item_count']
@@ -206,7 +225,7 @@ module Canvas::Migration::Helpers
             when 'attachments'
               course_attachments_data(content_list, source)
             when 'wiki_pages'
-              source.wiki.wiki_pages.not_deleted.select("id, title, assignment_id").each do |item|
+              source.wiki_pages.not_deleted.select("id, title, assignment_id").each do |item|
                 content_list << course_item_hash(type, item)
               end
             when 'discussion_topics'
@@ -215,6 +234,10 @@ module Canvas::Migration::Helpers
               end
             when 'learning_outcomes'
               source.linked_learning_outcomes.active.select('learning_outcomes.id,short_description').each do |item|
+                content_list << course_item_hash(type, item)
+              end
+            when 'tool_profiles'
+              source.tool_proxies.active.select("id, name").each do |item|
                 content_list << course_item_hash(type, item)
               end
             else
@@ -249,12 +272,12 @@ module Canvas::Migration::Helpers
             next if type == 'groups'
 
             count = 0
-            if type == 'wiki_pages'
-              count = source.wiki.wiki_pages.not_deleted.count
-            elsif type == 'discussion_topics'
+            if type == 'discussion_topics'
               count = source.discussion_topics.active.only_discussion_topics.count
             elsif type == 'learning_outcomes'
               count = source.linked_learning_outcomes.count
+            elsif type == 'tool_profiles'
+              count = source.tool_proxies.active.count
             elsif source.respond_to?(type) && source.send(type).respond_to?(:count)
               scope = source.send(type).except(:preload)
               if scope.klass.respond_to?(:not_deleted)
@@ -294,7 +317,7 @@ module Canvas::Migration::Helpers
 
       hash = {type: type, title: title}
       if @migration
-        mig_id = CC::CCHelper.create_key(item)
+        mig_id = CC::CCHelper.create_key(item, global: @global_identifiers)
         hash[:migration_id] = mig_id
         hash[:property] = "#{property_prefix}[#{type}][id_#{mig_id}]"
       else

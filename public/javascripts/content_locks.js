@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,17 +12,16 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'INST' /* INST */,
-  'i18n!content_locks',
-  'jquery' /* $ */,
-  'str/htmlEscape',
-  'jquery.instructure_date_and_time' /* datetimeString */,
-  'jqueryui/dialog'
-], function(INST, I18n, $, htmlEscape) {
+
+import INST from './INST'
+import I18n from 'i18n!content_locks'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import './jquery.instructure_date_and_time' /* datetimeString */
+import 'jqueryui/dialog'
 
   INST.lockExplanation = function(data, type) {
     // Any additions to this function should also be added to similar logic in ApplicationController.rb
@@ -62,22 +61,22 @@ define([
       var html = '';
       switch (type) {
         case "quiz":
-          html += I18n.t('messages.quiz_locked_module', "This quiz is part of the module *%{module}* and hasn't been unlocked yet.", {module: htmlEscape(data.context_module.name), wrapper: '<b>$1</b>'});
+          html += I18n.t('messages.quiz_locked_module', "This quiz is part of the module *%{module}* and hasn't been unlocked yet.", {module: data.context_module.name, wrapper: '<b>$1</b>'});
           break;
         case "assignment":
-          html += I18n.t('messages.assignment_locked_module', "This assignment is part of the module *%{module}* and hasn't been unlocked yet.", {module: htmlEscape(data.context_module.name), wrapper: '<b>$1</b>'});
+          html += I18n.t('messages.assignment_locked_module', "This assignment is part of the module *%{module}* and hasn't been unlocked yet.", {module: data.context_module.name, wrapper: '<b>$1</b>'});
           break;
         case "topic":
-          html += I18n.t('messages.topic_locked_module', "This topic is part of the module *%{module}* and hasn't been unlocked yet.", {module: htmlEscape(data.context_module.name), wrapper: '<b>$1</b>'});
+          html += I18n.t('messages.topic_locked_module', "This topic is part of the module *%{module}* and hasn't been unlocked yet.", {module: data.context_module.name, wrapper: '<b>$1</b>'});
           break;
         case "file":
-          html += I18n.t('messages.file_locked_module', "This file is part of the module *%{module}* and hasn't been unlocked yet.", {module: htmlEscape(data.context_module.name), wrapper: '<b>$1</b>'});
+          html += I18n.t('messages.file_locked_module', "This file is part of the module *%{module}* and hasn't been unlocked yet.", {module: data.context_module.name, wrapper: '<b>$1</b>'});
           break;
         case "page":
-          html += I18n.t('messages.page_locked_module', "This page is part of the module *%{module}* and hasn't been unlocked yet.", {module: htmlEscape(data.context_module.name), wrapper: '<b>$1</b>'});
+          html += I18n.t('messages.page_locked_module', "This page is part of the module *%{module}* and hasn't been unlocked yet.", {module: data.context_module.name, wrapper: '<b>$1</b>'});
           break;
         default:
-          html += I18n.t('messages.content_locked_module', "This content is part of the module *%{module}* and hasn't been unlocked yet.", {module: htmlEscape(data.context_module.name), wrapper: '<b>$1</b>'});
+          html += I18n.t('messages.content_locked_module', "This content is part of the module *%{module}* and hasn't been unlocked yet.", {module: data.context_module.name, wrapper: '<b>$1</b>'});
           break;
       }
       if ($("#context_modules_url").length > 0) {
@@ -132,4 +131,3 @@ define([
       }
     });
   });
-});

@@ -1,5 +1,23 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/groups_common')
+require_relative '../selenium/people/pages/course_groups_page'
 
 describe "new groups" do
   include_context "in-process server selenium tests"
@@ -14,7 +32,9 @@ describe "new groups" do
       get "/courses/#{@course.id}/groups"
       click_add_group_set
       f('#new_category_name').send_keys("Test Group Set")
+
       save_group_set
+      wait_for_ajaximations
       # Looks in the group tab list for the last item, which should be the group set
       expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match "Test Group Set"
     end
@@ -74,8 +94,9 @@ describe "new groups" do
       wait_for_ajaximations
       f('.edit-group-assignment').click
       wait_for_ajaximations
-      click_option('.single-select', "#{@testgroup[1].name}")
-      f('.set-group').click
+      click_option('.move-select .move-select__group select', "#{@testgroup[1].name}")
+      button = f('.move-select button[type="submit"]')
+      keep_trying_until { button.click; true }
       wait_for_ajaximations
 
       # Verifies the student count updates
@@ -103,6 +124,12 @@ describe "new groups" do
       expect(f('.group-summary')).to include_text("0 students")
     end
 
+    it "should not allow teachers to see sections specific dropdown on announcement page" do
+      group_test_setup
+      get "/groups/#{@testgroup.first.id}/discussion_topics/new?is_announcement=true"
+      expect(f('#sections_autocomplete_root').text).to eq ""
+    end
+
     it "should allow teachers to make a student a group leader", priority: "1", test_id: 96021 do
       group_test_setup
       add_user_to_group(@students.first,@testgroup[0])
@@ -119,12 +146,25 @@ describe "new groups" do
       wait_for_ajaximations
 
       # Looks for student to have a group leader icon
-      expect(f('.icon-user.group-leader')).to be_displayed
+      expect(f('.group-leader .icon-user')).to be_displayed
       # Verifies group leader silhouette and leader's name appear in the group header
       expect(f('.span3.ellipsis.group-leader')).to be_displayed
       expect(f('.span3.ellipsis.group-leader')).to include_text(@students.first.name)
 
       check_element_has_focus f(".group-user-actions[data-user-id='user_#{@students.first.id}']")
+    end
+
+    it "should allow teachers to message unassigned students" do
+      group_test_setup
+
+      get "/courses/#{@course.id}/groups"
+      f(".icon-more").click
+      wait_for_animations
+      f(".message-all-unassigned").click
+      replace_content(fj('textarea[name="body"]'), "blah blah blah students")
+      fj(".btn-primary[data-text-when-loaded='Sent!']").click
+
+      expect(@course).to eq Conversation.last.context
     end
 
     it "should allow a teacher to set up a group set with member limits", priority: "1", test_id: 94160 do
@@ -186,11 +226,12 @@ describe "new groups" do
       wait_for_ajaximations
       f(".ui-menu-item .edit-group-assignment").click
       wait_for_ajaximations
-      f("option").click
-      f(".set-group").click
+      sleep 0.1 # uses sleep because it has an animation that can't be waited on by wait_for_ajaximations
+      ff(".move-select .move-select__group option").last.click
+      f('.move-select button[type="submit"]').click
       wait_for_ajaximations
       f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
-      expect(f("#content")).not_to contain_css(".icon-user.group-leader")
+      expect(f("#content")).not_to contain_css(".group-leader .icon-user")
       expect(f(".group[data-id=\"#{@testgroup[1].id}\"] .group-user")).to include_text("Test Student 1")
     end
 
@@ -226,10 +267,12 @@ describe "new groups" do
       f('.ui-menu-item .edit-group-assignment').click
       wait_for_ajaximations
 
-      f('.single-select option').click
+      f('.move-select .move-select__group') # fixes flakiness since the ff below doesn't wait for the element to appear
+      ff('.move-select .move-select__group option').last.click
       wait_for_ajaximations
 
-      f('.set-group').click
+      button = f('.move-select button[type="submit"]')
+      keep_trying_until { button.click; true } # have to wait for instUI animations
       wait_for_ajaximations
 
       expect(f(".group[data-id=\"#{@testgroup[0].id}\"] span.show-group-full")).not_to be_displayed
@@ -276,20 +319,22 @@ describe "new groups" do
 
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
 
-      expect(f(".icon-user.group-leader")).to be_displayed
+      expect(f(".group-leader .icon-user")).to be_displayed
 
       f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
 
       f(".ui-menu-item .edit-group-assignment").click
 
-      f(".single-select option").click
+      option = ff(".move-select .move-select__group option").last
+      keep_trying_until { option.click; true } # have to wait for instUI animations
 
-      f(".set-group").click
+      button = f('.move-select button[type="submit"]')
+      keep_trying_until { button.click; true } # have to wait for instUI animations
       wait_for_ajaximations
 
       f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
 
-      expect(f("#content")).not_to contain_css(".icon-user.group-leader")
+      expect(f("#content")).not_to contain_css(".group-leader .icon-user")
       expect(f(".group[data-id=\"#{@testgroup[1].id}\"] .group-user")).to include_text("Test Student 1")
     end
 
@@ -306,15 +351,16 @@ describe "new groups" do
 
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
 
-      expect(f(".icon-user.group-leader")).to be_displayed
+      expect(f(".group-leader .icon-user")).to be_displayed
 
       f(".group-user-actions[data-user-id=\"user_#{@students[1].id}\"]").click
 
       f(".ui-menu-item .edit-group-assignment").click
       wait_for_ajaximations
 
-      click_option("#move_from_group_#{@testgroup[0].id}", @testgroup[1].id.to_s, :value)
-      f(".set-group").click
+      click_option(".move-select .move-select__group select", @testgroup[1].id.to_s, :value)
+      wait_for_ajaximations
+      f('.move-select button[type="submit"]').click
       wait_for_ajaximations
 
       f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
@@ -339,7 +385,7 @@ describe "new groups" do
       wait_for_ajaximations
 
       expect(f(".group[data-id=\"#{@testgroup[0].id}\"] .group-user")).to include_text('Test Student 1')
-      expect(f('.icon-user.group-leader')).to be_displayed
+      expect(f('.group-leader .icon-user')).to be_displayed
 
       f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
       f('.ui-menu-item .icon-trash').click
@@ -473,8 +519,12 @@ describe "new groups" do
       expect(f(".group[data-id=\"#{@testgroup[1].id}\"] .group-summary")).to include_text('1 student')
 
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
+      # click opens the group to display details, wait for it to complete
+      expect(fj('.group-user-name:contains("Test Student 1")')).to be_displayed
+
       f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
-      wait_for_ajaximations
+      # click opens the group to display details, wait for it to complete
+      expect(fj('.group-user-name:contains("Test Student 2")')).to be_displayed
 
       drag_and_drop_element(fj(drag_item1), fj(drop_target1))
       wait_for_ajaximations
@@ -548,15 +598,17 @@ describe "new groups" do
       drop_target1 = ".group[data-id=\"#{@testgroup[0].id}\"]"
 
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
-      f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
-      wait_for_ajaximations
+      # click opens the group to display details, wait for it to complete
+      expect(fj('.group-user-name:contains("Test Student 2")')).to be_displayed
 
-      expect(f('.icon-user.group-leader')).to be_displayed
+      f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
+      # click opens the second group, wait for it to complete
+      expect(f('.group-leader .icon-user')).to be_displayed
 
       drag_and_drop_element(fj(drag_item1), fj(drop_target1))
       wait_for_ajaximations
 
-      expect(f("#content")).not_to contain_css('.icon-user.group-leader')
+      expect(f("#content")).not_to contain_css('.group-leader .icon-user')
       expect(fj(drop_target1)).to include_text('Test Student 5')
     end
 
@@ -608,12 +660,12 @@ describe "new groups" do
         set_cloned_groupset_name('')
 
         # Verifies error text
-        expect(fj('.error_text > div:first-child').text).to match 'Name is required'
+        expect(f('.errorBox:not(#error_box_template)')).to include_text('Name is required')
 
         set_cloned_groupset_name(@group_category.first.name)
 
         # Verifies error text
-        expect(fj('.error_text > div:first-child').text).to match @group_category.first.name+' is already in use.'
+        expect(f('.errorBox:not(#error_box_template)')).to include_text(@group_category.first.name+' is already in use.')
       end
 
       it "should change group membership after an assignment has been deleted" do
@@ -646,146 +698,88 @@ describe "new groups" do
       context "choosing New Group Set option" do
         it "should clone group set when adding an unassigned student to a group with submission" do
           group_test_setup(2,1,1)
-          add_user_to_group(@students.last,@testgroup[0])
-
+          add_user_to_group(@students.last,@testgroup.first)
           create_and_submit_assignment_from_group(@students.last)
 
-          get "/courses/#{@course.id}/groups"
+          CourseGroups.visit_course_groups(@course.id)
+          CourseGroups.move_unassigned_user_to_group(@students.first.id, @testgroup.first.id)
+          CourseGroups.clone_category_confirm
 
-          move_unassigned_student_to_group
-
-          set_cloned_groupset_name(@group_category.first.name+' clone',true)
-
-          # Verifies student has not changed groups
-          expect(f('.unassigned-users-heading')).to include_text("Unassigned Students (1)")
-          expect(f('.group-user-name')).to include_text @students.first.name
-
-          expect(ff('.group-category-tab-link').last.text).to match @group_category.first.name+' clone'
+          # Verifies student has not changed groups and there is a new groupset tab
+          expect(CourseGroups.unassigned_students_header).to include_text("Unassigned Students (1)")
+          expect(CourseGroups.all_users_in_group.first.text).to eq @students.first.name
+          expect(CourseGroups.groupset_tabs.count).to eq 2
         end
 
         it "should clone group set when moving a student from a group to a group with submission" do
+          skip_if_chrome('fragile in chrome')
           group_test_setup(2,1,2)
-          add_user_to_group(@students.last,@testgroup[1])
-
+          # add second student to second test group
+          add_user_to_group(@students.last,@testgroup.last)
+          # make a submission for second student
           create_and_submit_assignment_from_group(@students.last)
 
-          get "/courses/#{@course.id}/groups"
+          CourseGroups.visit_course_groups(@course.id)
+          # move unassigned first-student to first test group
+          CourseGroups.move_unassigned_user_to_group(@students.first.id, @testgroup.first.id)
+          # Moves Student1 from first test group to second test group
+          CourseGroups.move_student_to_different_group(@students.first.id,@testgroup.first.name, @testgroup.last.name)
+          CourseGroups.clone_category_confirm
+          CourseGroups.toggle_group_detail_view(@testgroup.first.name)
 
-          cloned_group_set_name = @group_category.first.name + ' clone'
-
-          move_unassigned_student_to_group
-
-          toggle_group_collapse_arrow
-
-          # Moves student from Test Group 1 to Test Group 2
-          move_student_to_group(1)
-
-          set_cloned_groupset_name(cloned_group_set_name,true)
-
-          toggle_group_collapse_arrow
-
-          # Verifies student has not changed groups
-          expect(f('.group-user-name')).to include_text @students.first.name
-
-          expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+          # Verifies student has not changed groups and there is a new groupset tab
+          expect(CourseGroups.all_users_in_group.first.text).to eq @students.first.name
+          expect(CourseGroups.groupset_tabs.count).to eq 2
         end
 
         it "should clone group set when moving a student from a group with submission to a group" do
+          skip_if_chrome('fragile in chrome')
           group_test_setup(2,1,2)
-          add_user_to_group(@students.last,@testgroup[1])
-
+          add_user_to_group(@students.last,@testgroup.last)
           create_and_submit_assignment_from_group(@students.last)
 
-          get "/courses/#{@course.id}/groups"
-
-          cloned_group_set_name = @group_category.first.name + ' clone'
-
-          move_unassigned_student_to_group
-
-          # Toggles the second group collapse arrow to see the student
-          ff('.toggle-group .group-name').last.click
-          wait_for_ajaximations
-
+          CourseGroups.visit_course_groups(@course.id)
+          # move unassigned first-student to first test group
+          CourseGroups.move_unassigned_user_to_group(@students.first.id, @testgroup.first.id)
           # Moves student from Test Group 2 to Test Group 1
-          move_student_to_group(0)
-
-          set_cloned_groupset_name(cloned_group_set_name,true)
-
+          CourseGroups.move_student_to_different_group(@students.last.id,@testgroup.last.name, @testgroup.first.name)
+          CourseGroups.clone_category_confirm
           # Toggles the second group collapse arrow to see the student
-          ff('.toggle-group .group-name').last.click
-          wait_for_ajaximations
+          CourseGroups.toggle_group_detail_view(@testgroup.last.name)
 
-          # Verifies student has not changed groups
-          expect(f('.group-user-name')).to include_text @students.last.name
-
-          expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
-        end
-
-        it "should clone group set when removing a student from a group with submission" do
-          group_test_setup
-          add_user_to_group(@students.first,@testgroup[0])
-
-          create_and_submit_assignment_from_group(@students.first)
-
-          get "/courses/#{@course.id}/groups"
-
-          cloned_group_set_name = @group_category.first.name + ' clone'
-
-          toggle_group_collapse_arrow
-
-          remove_student_from_group
-
-          set_cloned_groupset_name(cloned_group_set_name,true)
-
-          toggle_group_collapse_arrow
-
-          # Verifies student has not changed groups
-          expect(f('.group-user-name')).to include_text @students.first.name
-
-          expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+          # Verifies student has not changed groups and there is a new groupset tab
+          expect(CourseGroups.all_users_in_group.first.text).to eq @students.last.name
+          expect(CourseGroups.groupset_tabs.count).to eq 2
         end
 
         it "should clone group set when deleting a group with submission" do
           group_test_setup
-          add_user_to_group(@students.first,@testgroup[0])
-
+          add_user_to_group(@students.first,@testgroup.first)
           create_and_submit_assignment_from_group(@students.first)
 
-          get "/courses/#{@course.id}/groups"
+          CourseGroups.visit_course_groups(@course.id)
+          CourseGroups.delete_group(@testgroup.first.id)
+          CourseGroups.clone_category_confirm
+          CourseGroups.toggle_group_detail_view(@testgroup.first.name)
 
-          cloned_group_set_name = @group_category.first.name + ' clone'
-
-          manually_delete_group
-
-          set_cloned_groupset_name(cloned_group_set_name,true)
-
-          toggle_group_collapse_arrow
-
-          # Verifies student has not changed groups
-          expect(f('.group-user-name')).to include_text @students.first.name
-
-          expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+          # Verifies student has not changed groups and there is a new groupset tab
+          expect(CourseGroups.all_users_in_group.first.text).to eq @students.first.name
+          expect(CourseGroups.groupset_tabs.count).to eq 2
         end
 
         it "should clone group set when using randomly assign students option when group has submission" do
           group_test_setup(2,1,1)
-          add_user_to_group(@students.last,@testgroup[0])
-
+          add_user_to_group(@students.last,@testgroup.first)
           create_and_submit_assignment_from_group(@students.last)
 
-          get "/courses/#{@course.id}/groups"
+          CourseGroups.visit_course_groups(@course.id)
+          CourseGroups.randomly_assign_students_for_set(@group_category.first.id)
+          CourseGroups.clone_category_confirm
 
-          cloned_group_set_name = @group_category.first.name + ' clone'
-
-          select_randomly_assign_students_option
-
-          set_cloned_groupset_name(cloned_group_set_name,true)
-
-          # Verifies student has not changed groups
-          expect(f('.group-user-name')).to include_text @students.first.name
-          expect(f('.unassigned-users-heading')).to include_text "Unassigned Students (1)"
-
-          expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+          # Verifies student has not changed groups and there is a new groupset tab
+          expect(CourseGroups.all_users_in_group.first.text).to eq @students.first.name
+          expect(CourseGroups.unassigned_students_header).to include_text("Unassigned Students (1)")
+          expect(CourseGroups.groupset_tabs.count).to eq 2
         end
 
         context "dragging and dropping a student" do
@@ -797,7 +791,7 @@ describe "new groups" do
 
             get "/courses/#{@course.id}/groups"
 
-            cloned_group_set_name = @group_category.first.name + ' clone'
+            @cloned_group_set_name = @group_category.first.name + ' clone'
 
             toggle_group_collapse_arrow
 
@@ -805,13 +799,13 @@ describe "new groups" do
             drag_and_drop_element(f('.unassigned-students .group-user'), f('.toggle-group'))
             wait_for_ajaximations
 
-            set_cloned_groupset_name(cloned_group_set_name,true)
+            set_cloned_groupset_name(@cloned_group_set_name,true)
 
             # Verifies student has not changed groups in group set
             expect(f('.unassigned-users-heading')).to include_text("Unassigned Students (1)")
             expect(f('.group-user-name')).to include_text @students.first.name
 
-            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match @cloned_group_set_name
           end
 
           it "should clone group set when moving a student from a group to a group with submission" do
@@ -822,7 +816,7 @@ describe "new groups" do
 
             get "/courses/#{@course.id}/groups"
 
-            cloned_group_set_name = @group_category.first.name + ' clone'
+            @cloned_group_set_name = @group_category.first.name + ' clone'
 
             move_unassigned_student_to_group
 
@@ -832,14 +826,14 @@ describe "new groups" do
             drag_and_drop_element(ff('.group-users .group-user').first, ff('.toggle-group .group-name').last)
             wait_for_ajaximations
 
-            set_cloned_groupset_name(cloned_group_set_name,true)
+            set_cloned_groupset_name(@cloned_group_set_name,true)
 
             toggle_group_collapse_arrow
 
             # Verifies student has not changed groups
             expect(f('.group-user-name')).to include_text @students.first.name
 
-            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match @cloned_group_set_name
           end
 
           it "should clone group set when moving a student from a group with submission to a group" do
@@ -850,7 +844,7 @@ describe "new groups" do
 
             get "/courses/#{@course.id}/groups"
 
-            cloned_group_set_name = @group_category.first.name + ' clone'
+            @cloned_group_set_name = @group_category.first.name + ' clone'
 
             toggle_group_collapse_arrow
 
@@ -860,14 +854,14 @@ describe "new groups" do
             drag_and_drop_element(ff('.group-users .group-user').first, ff('.toggle-group .group-name').last)
             wait_for_ajaximations
 
-            set_cloned_groupset_name(cloned_group_set_name,true)
+            set_cloned_groupset_name(@cloned_group_set_name,true)
 
             toggle_group_collapse_arrow
 
             # Verifies student has not changed groups
             expect(f('.group-user-name')).to include_text @students.last.name
 
-            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match @cloned_group_set_name
           end
 
           it "should clone group set when moving a student from a group to unassigned students" do
@@ -878,7 +872,7 @@ describe "new groups" do
 
             get "/courses/#{@course.id}/groups"
 
-            cloned_group_set_name = @group_category.first.name + ' clone'
+            @cloned_group_set_name = @group_category.first.name + ' clone'
 
             toggle_group_collapse_arrow
 
@@ -886,14 +880,14 @@ describe "new groups" do
             drag_and_drop_element(ff('.group-users .group-user').first, f('.ui-cnvs-scrollable'))
             wait_for_ajaximations
 
-            set_cloned_groupset_name(cloned_group_set_name,true)
+            set_cloned_groupset_name(@cloned_group_set_name,true)
 
             toggle_group_collapse_arrow
 
             # Verifies student has not changed groups
             expect(f('.group-user-name')).to include_text @students.first.name
 
-            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match cloned_group_set_name
+            expect(fj('.collectionViewItems[role=tablist]>li:last-child').text).to match @cloned_group_set_name
           end
         end
       end
@@ -942,8 +936,11 @@ describe "new groups" do
           wait_for_ajaximations
           ff('.edit-group-assignment').last.click
           wait_for_ajaximations
-          click_option('.ui-dialog select:last', "#{@testgroup.first.name}")
-          ff('.set-group').last.click
+          click_option('.move-select .move-select__group select', "#{@testgroup.first.name}")
+          
+          sleep 0.3 # have to wait for instUI animations
+          ff('.move-select button[type="submit"]').last.click
+
           wait_for_ajaximations
 
           select_change_groups_option
@@ -1000,7 +997,7 @@ describe "new groups" do
 
           select_change_groups_option
 
-          expect(f('.progressbar').displayed?)
+          expect(f('.progressbar')).to be_displayed
         end
 
         context "dragging and dropping a student" do

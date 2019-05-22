@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module ThemeEditorCommon
@@ -41,19 +58,19 @@ module ThemeEditorCommon
   end
 
   def click_global_branding
-    f('.ui-accordion--mini.Theme__editor-accordion.ui-accordion.ui-widget.ui-helper-reset > h3:first-child').click
+    fj('h2:contains("Global Branding")').click
   end
 
   def click_global_navigation
-    f('.ui-accordion--mini.Theme__editor-accordion.ui-accordion.ui-widget.ui-helper-reset > h3:nth-of-type(2)').click
+    fj('h2:contains("Global Navigation")').click
   end
 
   def click_watermarks_and_other_images
-    f('.ui-accordion--mini.Theme__editor-accordion.ui-accordion.ui-widget.ui-helper-reset > h3:nth-of-type(3)').click
+    fj('h2:contains("Watermarks & Other Images")').click
   end
-  
+
   def primary_color
-    f('#brand_config\\[variables\\]\\[ic-brand-primary\\]') 
+    f('#brand_config\\[variables\\]\\[ic-brand-primary\\]')
   end
 
   def primary_button
@@ -117,13 +134,13 @@ module ThemeEditorCommon
   end
 
   def all_global_navigation
-    [nav_background, 
-     nav_icon, 
-     nav_icon_active, 
-     nav_text, 
-     nav_text_active, 
-     nav_avatar_border, 
-     nav_badge, 
+    [nav_background,
+     nav_icon,
+     nav_icon_active,
+     nav_text,
+     nav_text_active,
+     nav_avatar_border,
+     nav_badge,
      logo_background]
   end
 

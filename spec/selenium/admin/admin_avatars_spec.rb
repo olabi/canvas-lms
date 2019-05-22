@@ -1,4 +1,23 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
+require_relative '../grades/pages/gradebook_page'
+require_relative 'pages/student_context_tray_page'
 
 describe "admin avatars" do
   include_context "in-process server selenium tests"
@@ -8,7 +27,6 @@ describe "admin avatars" do
     Account.default.enable_service(:avatars)
     Account.default.settings[:avatars] = 'enabled_pending'
     Account.default.save!
-
   end
 
   def create_avatar_state(avatar_state="submitted", avatar_image_url="http://www.example.com")
@@ -100,5 +118,25 @@ describe "admin avatars" do
     user.reload
     expect(user.avatar_state).to eq :none
     expect(user.avatar_image_url).to be_nil
+  end
+
+  context "student tray in original gradebook" do
+    include StudentContextTray
+
+    before(:each) do
+      preload_graphql_schema
+      @account = Account.default
+      @account.enable_feature!(:student_context_cards)
+      @student = student_in_course.user
+      @student.avatar_image_url = "http://www.example.com"
+      Gradebook.visit_gradebook(@course)
+      Gradebook.student_name_link(@student.id).click
+    end
+
+    it "should display student avatar in tray", priority: "1", test_id: 3299466 do
+      wait_for_student_tray
+
+      expect(student_avatar_link).to be_displayed
+    end
   end
 end

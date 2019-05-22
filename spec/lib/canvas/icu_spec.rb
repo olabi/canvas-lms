@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -81,7 +81,7 @@ describe Canvas::ICU do
     include_examples "Collator"
 
     before do
-      Canvas::ICU.stubs(:collator).returns(Canvas::ICU::NaiveCollator)
+      allow(Canvas::ICU).to receive(:collator).and_return(Canvas::ICU::NaiveCollator)
     end
   end
 
@@ -96,6 +96,38 @@ describe Canvas::ICU do
       else
         skip if Canvas::ICU.collator == Canvas::ICU::NaiveCollator
       end
+    end
+
+    it "sorts several examples correctly" do
+      # English sorts ñ as just an n, but after regular n's
+      expect(Canvas::ICU.collator.collate(["ana", "aña", "añb", "anb"])). to eq(
+        ["ana", "aña", "anb", "añb"])
+
+      # Spanish sorts it as a separate letter
+      expect(Canvas::ICU.collator(:es).collate(["ana", "aña", "añb", "anb"])). to eq(
+        ["ana", "anb", "aña", "añb"])
+
+      # Punctuation is not ignored (commas separating surnames)
+      expect(Canvas::ICU.collator.collate(["Wall, Ball", "Wallart, Shmallart"])).to eq(
+        ["Wall, Ball", "Wallart, Shmallart"])
+
+      # shorter words sort first
+      expect(Canvas::ICU.collator.collate(["hatch", "hat"])).to eq(
+        ["hat", "hatch"])
+
+      # capitalization is a secondary sort level
+      expect(Canvas::ICU.collator.collate(["aba", "aBb", "abb", "aBa"])).to eq(
+        ["aba", "aBa", "abb", "aBb"])
+
+      # numbers sort naturally
+      expect(Canvas::ICU.collator.collate(["10", "1", "2", "11"])).to eq(
+        ["1", "2", "10", "11"])
+
+      # hyphenated last name is not a word separator
+      # I can't get this to pass, without breaking the Wallart case above. Either you ignore
+      # punctuation, or you don't.
+      # expect(Canvas::ICU.collator.collate(["Hoover, Lorelei", "Hoover-Mertz, Joseph"])).to eq(
+      #   ["Hoover, Lorelei", "Hoover-Mertz, Joseph"])
     end
   end
 end

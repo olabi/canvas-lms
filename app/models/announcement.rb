@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,11 +22,13 @@ class Announcement < DiscussionTopic
 
   has_a_broadcast_policy
   include HasContentTags
+  include Plannable
 
   sanitize_field :message, CanvasSanitize::SANITIZE
 
   before_save :infer_content
   before_save :respect_context_lock_rules
+  after_save :create_alert
   validates_presence_of :context_id
   validates_presence_of :context_type
   validates_presence_of :message
@@ -44,7 +46,7 @@ class Announcement < DiscussionTopic
   protected :infer_content
 
   def respect_context_lock_rules
-    lock if !locked? &&
+    self.locked = true if !locked? &&
             context.is_a?(Course) &&
             context.lock_all_announcements?
   end
@@ -91,17 +93,17 @@ class Announcement < DiscussionTopic
     end
     can :read_replies
 
-    given { |user, session| self.context.grants_right?(user, session, :read_announcements) }
+    given { |user, session| self.context.grants_right?(user, session, :read_announcements) && self.visible_for?(user) }
     can :read
 
     given { |user, session| self.context.grants_right?(user, session, :post_to_forum) && !self.locked?}
     can :reply
 
-    given { |user, session| self.context.is_a?(Group) && self.context.grants_right?(user, session, :post_to_forum) }
+    given { |user, session| self.context.is_a?(Group) && self.context.grants_right?(user, session, :create_forum) }
     can :create
 
     given { |user, session| self.context.grants_all_rights?(user, session, :read_announcements, :moderate_forum) } #admins.include?(user) }
-    can :update and can :delete and can :reply and can :create and can :read and can :attach
+    can :update and can :read_as_admin and can :delete and can :reply and can :create and can :read and can :attach
 
     given do |user, session|
       self.allow_rating && (!self.only_graders_can_rate ||
@@ -131,5 +133,25 @@ class Announcement < DiscussionTopic
 
   def assignment
     nil
+  end
+
+  def create_alert
+    return if !saved_changes.keys.include?('workflow_state') || saved_changes['workflow_state'][1] != 'active'
+    return if self.context_type != 'Course'
+
+    observer_enrollments = self.course.enrollments.active.where(type: 'ObserverEnrollment')
+    observer_enrollments.each do |enrollment|
+      observer = enrollment.user
+      student = enrollment.associated_user
+      threshold = ObserverAlertThreshold.where(observer: observer, alert_type: 'course_announcement', student: student).first
+      next unless threshold
+
+      ObserverAlert.create!(observer: observer, student: student, observer_alert_threshold: threshold,
+                            context: self, alert_type: 'course_announcement', action_date: self.updated_at,
+                            title: I18n.t("Course announcement: \"%{title}\" in %{course_code}", {
+                              title: self.title,
+                              course_code: self.course.course_code
+                            }))
+    end
   end
 end

@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,18 +12,16 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 // xsslint jqueryObject.identifier tree
-define([
-  'jquery' /* $ */,
-  'underscore',
-  'str/htmlEscape',
-  'jqueryui/draggable' /* /\.draggable/ */,
-  'jqueryui/droppable' /* /\.droppable/ */
-], function($, _, htmlEscape) {
+import $ from 'jquery'
+import _ from 'underscore'
+import htmlEscape from './str/htmlEscape'
+import 'jqueryui/draggable'
+import 'jqueryui/droppable'
   $.fn.instTree = function(options) {
     return $(this).each(function() {
       var binded = false;
@@ -373,7 +371,7 @@ define([
             case 13: //enter this allows for an onEnter function
               e.preventDefault();
               e.stopPropagation();
-              node = $currentSelected;
+              var node = $currentSelected;
 
               if (typeof(it.opts.onEnter) == 'function'){
                 it.opts.onEnter.call(this, e, node);
@@ -586,4 +584,3 @@ define([
       }//if ($(this).is('ul'))
     });
   };
-});

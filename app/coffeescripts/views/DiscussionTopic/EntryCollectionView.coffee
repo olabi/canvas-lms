@@ -1,13 +1,31 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!discussions'
   'jquery'
-  'compiled/arr/walk'
+  '../../arr/walk'
   'Backbone'
+  'jsx/shared/helpers/rtlHelper'
   'jst/discussions/EntryCollectionView'
   'jst/discussions/entryStats'
-  'compiled/views/DiscussionTopic/EntryView',
-  'compiled/jquery/scrollIntoView'
-], (I18n, $, walk, {View}, template, entryStatsTemplate, EntryView) ->
+  '../DiscussionTopic/EntryView',
+  '../../jquery/scrollIntoView'
+], (I18n, $, walk, {View}, {isRTL}, template, entryStatsTemplate, EntryView) ->
 
   class EntryCollectionView extends View
 
@@ -76,7 +94,8 @@ define [
         $el    = $(this)
         level = $el.parents('li.entry').length
         offset = (level - 1) * 30
-        $el.css('padding-left', offset).removeAttr('data-should-position')
+        directionToPad = if isRTL(this) then 'right' else 'left'
+        $el.css("padding-#{directionToPad}", offset).removeAttr('data-should-position')
         $el.find('.discussion-title').attr
           'role': 'heading'
           'aria-level': level + 1

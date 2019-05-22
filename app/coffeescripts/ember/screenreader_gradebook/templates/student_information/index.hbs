@@ -30,13 +30,16 @@
 
           <h4>{{#t 'grades'}}Grades{{/t}}</h4>
 
-          {{partial "student_information/assignment_groups"}}
+          {{partial "student_information/assignment_subtotals"}}
 
           {{
             final-grade
             student=selectedStudent
-            weighted_groups=groupsAreWeighted
+            hide_points_possible=hidePointsPossibleForFinalGrade
+            finalGradeOverride=selectedStudentFinalGradeOverride
             gradingStandard=ENV.GRADEBOOK_OPTIONS.grading_standard
+            allowFinalGradeOverride=allowFinalGradeOverride
+            onEditFinalGradeOverride='onEditFinalGradeOverride'
           }}
 
           {{#if showInvalidGroupWarning}}

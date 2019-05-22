@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -59,10 +59,10 @@ class NotificationPolicy < ActiveRecord::Base
         bool_val = (value == 'true')
         # save the preference as a symbol (convert from string)
         case key.to_sym
-          when :send_scores_in_emails
+          when :send_scores_in_emails, :send_observed_names_in_notifications
             # Only set if a root account and the root account allows the setting.
             if params[:root_account].settings[:allow_sending_scores_in_emails] != false
-              user.preferences[:send_scores_in_emails] = bool_val
+              user.preferences[key.to_sym] = bool_val
             end
           when :no_submission_comments_inbox
             user.preferences[:no_submission_comments_inbox] = bool_val
@@ -114,7 +114,7 @@ class NotificationPolicy < ActiveRecord::Base
     end
     # Load and return user's policies after defaults may or may not have been set.
     # TODO: Don't load policies for retired channels
-    NotificationPolicy.preload(:notification).for(user)
+    user.shard.activate { NotificationPolicy.preload(:notification).for(user) }
   end
 
   # Updates notification policies for a given category in a given communication channel

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -49,7 +49,7 @@ module Factories
 
   def valid_attachment_attributes(opts={})
     @context = opts[:context] || @context || @course || course_model(:reusable => true)
-    if opts[:folder]
+    if opts.has_key?(:folder)
       folder = opts[:folder]
     else
       if @context.respond_to?(:folders)
@@ -71,8 +71,8 @@ module Factories
     $stub_file_counter ||= 0
     data ||= "ohai#{$stub_file_counter += 1}"
     sio = StringIO.new(data)
-    sio.stubs(:original_filename).returns(filename)
-    sio.stubs(:content_type).returns(content_type)
+    allow(sio).to receive(:original_filename).and_return(filename)
+    allow(sio).to receive(:content_type).and_return(content_type)
     sio
   end
 
@@ -109,10 +109,12 @@ module Factories
   end
 
   def create_attachment_for_file_upload_submission!(submission, opts={})
-    submission.attachments.create! opts.merge({
+    defaults = {
       :filename => "doc.doc",
-      :display_name => "doc.doc", :user => @user,
-      :uploaded_data => dummy_io
-    })
+      :display_name => "doc.doc",
+      :user => @user,
+      :uploaded_data => dummy_io,
+    }
+    submission.attachments.create! defaults.merge(opts)
   end
 end

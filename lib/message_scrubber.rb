@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -96,7 +96,7 @@ class MessageScrubber
   #
   # Returns class object.
   def klass
-    Message
+    raise "regular MessageScrubber is deprecated in favor of dropping partitions"
   end
 
   # Internal: The name of the Canvas setting this class' limit is stored in.

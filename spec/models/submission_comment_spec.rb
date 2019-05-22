@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,30 +16,48 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require_relative '../spec_helper'
 
-describe SubmissionComment do
+RSpec.describe SubmissionComment do
   before(:once) do
-    course_with_teacher(:active_all => true)
-    student_in_course(:active_all => true)
-    @assignment = @course.assignments.new(:title => "some assignment")
-    @assignment.workflow_state = "published"
+    course_with_teacher(active_all: true)
+    course_with_observer(active_all: true)
+    student_in_course(active_all: true)
+    @assignment = @course.assignments.build
+    @assignment.workflow_state = :published
     @assignment.save!
     @submission = @assignment.submit_homework(@user)
-    @valid_attributes = {
-      :submission => @submission,
-      :comment => "some comment"
-    }
   end
 
-  it "should create a new instance given valid attributes" do
-    SubmissionComment.create!(@valid_attributes)
+  let(:valid_attributes) {{ comment: "some comment" }}
+
+  it "creates a new instance given valid attributes" do
+    expect(@submission.submission_comments.create!(valid_attributes)).to be_persisted
+  end
+
+  describe '#body' do
+    it 'aliases comment' do
+      submission_comment = SubmissionComment.new(comment: 'a body')
+      expect(submission_comment.body).to eq submission_comment.comment
+    end
+  end
+
+  describe '#body=' do
+    it 'aliases comment=' do
+      text = 'a body'
+      submission_comment = SubmissionComment.new
+      submission_comment.body = text
+      expect(submission_comment.comment).to eq text
+    end
   end
 
   describe 'notifications' do
     before(:once) do
-      Notification.create(:name => 'Submission Comment', category: 'TestImmediately')
-      Notification.create(:name => 'Submission Comment For Teacher')
+      @student_ended = user_model
+      @section_ended = @course.course_sections.create!(end_at: Time.zone.now - 1.day)
+
+      Notification.create!(:name => 'Submission Comment', category: 'TestImmediately')
+      Notification.create!(:name => 'Submission Comment For Teacher')
     end
 
     it "dispatches notifications on create for published assignment" do
@@ -54,6 +72,12 @@ describe SubmissionComment do
       course_with_observer(active_all: true, active_cc: true, course: @course, associated_user_id: @student.id)
       @submission.add_comment(:author => @teacher, :comment => "some comment")
       expect(@observer.email_channel.messages.length).to eq 1
+    end
+
+    it "should not send notifications to users in concluded sections" do
+      @submission_ended = @assignment.submit_homework(@student_ended)
+      @comment = @submission_ended.add_comment(:author => @teacher, :comment => "some comment")
+      expect(@comment.messages_sent.keys).not_to be_include('Submission Comment')
     end
 
     it "should not dispatch notification on create if course is unpublished" do
@@ -103,7 +127,7 @@ describe SubmissionComment do
 
   it "should allow valid attachments" do
     a = Attachment.create!(:context => @assignment, :uploaded_data => default_uploaded_data)
-    @comment = SubmissionComment.create!(@valid_attributes)
+    @comment = @submission.submission_comments.create!(valid_attributes)
     expect(a.recently_created).to eql(true)
     @comment.reload
     @comment.update_attributes(:attachments => [a])
@@ -113,13 +137,13 @@ describe SubmissionComment do
   it "should reject invalid attachments" do
     a = Attachment.create!(:context => @assignment, :uploaded_data => default_uploaded_data)
     a.recently_created = false
-    @comment = SubmissionComment.create!(@valid_attributes)
+    @comment = @submission.submission_comments.create!(valid_attributes)
     @comment.update_attributes(:attachments => [a])
     expect(@comment.attachment_ids).to eql("")
   end
 
   it "should render formatted_body correctly" do
-    @comment = SubmissionComment.create!(@valid_attributes)
+    @comment = @submission.submission_comments.create!(valid_attributes)
     @comment.comment = %{
 This text has a http://www.google.com link in it...
 
@@ -157,6 +181,24 @@ This text has a http://www.google.com link in it...
     expect(@item.stream_item_instances.first.read?).to be_truthy
   end
 
+  it "should mark last_comment_at on the submission" do
+    prepare_test_submission
+    student_comment = @submission.add_comment(:author => @submission.user, :comment => "some comment")
+    expect(@submission.reload.last_comment_at).to be_nil
+
+    draft_comment = @submission.add_comment(:author => @teacher, :comment => "some comment", :draft_comment => true)
+    expect(@submission.reload.last_comment_at).to be_nil
+
+    frd_comment = @submission.add_comment(:author => @teacher, :comment => "some comment")
+    expect(@submission.reload.last_comment_at.to_i).to eq frd_comment.created_at.to_i
+
+    draft_comment.update_attributes(:draft => false, :created_at => 2.days.from_now) # should re-run after update
+    expect(@submission.reload.last_comment_at.to_i).to eq draft_comment.created_at.to_i
+
+    draft_comment.destroy # should re-run after destroy
+    expect(@submission.reload.last_comment_at.to_i).to eq frd_comment.created_at.to_i
+  end
+
   it "should not create a stream item for a provisional comment" do
     prepare_test_submission
     expect {
@@ -168,7 +210,7 @@ This text has a http://www.google.com link in it...
     assignment_model
     se = @course.enroll_student(user_factory)
     @submission = @assignment.submit_homework(se.user, :body => 'some message')
-    MediaObject.expects(:ensure_media_object).with("fake", { :context => se.user, :user => se.user })
+    expect(MediaObject).to receive(:ensure_media_object).with("fake", { :context => se.user, :user => se.user })
     @comment = @submission.add_comment(:author => se.user, :media_comment_type => 'audio', :media_comment_id => 'fake')
   end
 
@@ -246,6 +288,13 @@ This text has a http://www.google.com link in it...
       expect(reply.provisional_grade).to be_nil
     end
 
+    it "should not create reply for observers" do
+      comment = @submission.add_comment(:user => @teacher, :comment => "blah")
+      expect {
+        comment.reply_from(:user => @observer, :text => "some reply")
+      }.to raise_error("Only comment participants may reply to messages")
+    end
+
     it "should create reply in the same provisional grade" do
       comment = @submission.add_comment(:user => @teacher, :comment => "blah", :provisional => true)
       reply = comment.reply_from(:user => @teacher, :text => "oops I meant blah")
@@ -257,7 +306,7 @@ This text has a http://www.google.com link in it...
   describe "read/unread state" do
     it "should be unread after submission is commented on by teacher" do
       expect {
-        @comment = SubmissionComment.create!(@valid_attributes.merge({:author => @teacher}))
+        @comment = @submission.submission_comments.create!(valid_attributes.merge({author: @teacher}))
       }.to change(ContentParticipation, :count).by(1)
       expect(ContentParticipation.where(user_id: @student).first).to be_unread
       expect(@submission.unread?(@student)).to be_truthy
@@ -265,7 +314,7 @@ This text has a http://www.google.com link in it...
 
     it "should be read after submission is commented on by self" do
       expect {
-        @comment = SubmissionComment.create!(@valid_attributes.merge({:author => @student}))
+        @comment = @submission.submission_comments.create!(valid_attributes.merge({author: @student}))
       }.to change(ContentParticipation, :count).by(0)
       expect(@submission.read?(@student)).to be_truthy
     end
@@ -282,8 +331,8 @@ This text has a http://www.google.com link in it...
     context 'given a submission with several group comments' do
       let!(:assignment) { @course.assignments.create! }
       let!(:unrelated_assignment) { @course.assignments.create! }
-      let!(:submission) { assignment.submissions.create!(user: @user) }
-      let!(:unrelated_submission) { unrelated_assignment.submissions.create!(user: @user) }
+      let!(:submission) { assignment.submissions.find_by!(user: @user) }
+      let!(:unrelated_submission) { unrelated_assignment.submissions.find_by!(user: @user) }
       let!(:first_comment) do
         submission.submission_comments.create!(
           group_comment_id: 'uuid',
@@ -327,8 +376,8 @@ This text has a http://www.google.com link in it...
     context 'given a submission with several group comments' do
       let!(:assignment) { @course.assignments.create! }
       let!(:unrelated_assignment) { @course.assignments.create! }
-      let!(:submission) { assignment.submissions.create!(user: @user) }
-      let!(:unrelated_submission) { unrelated_assignment.submissions.create!(user: @user) }
+      let!(:submission) { assignment.submissions.find_by!(user: @user) }
+      let!(:unrelated_submission) { unrelated_assignment.submissions.find_by!(user: @user) }
       let!(:first_comment) do
         submission.submission_comments.create!(
           group_comment_id: 'uuid',
@@ -373,11 +422,32 @@ This text has a http://www.google.com link in it...
     end
   end
 
+  context "given group and nongroup comments" do
+    before(:once) do
+      @group_comment = @submission.submission_comments.create!(group_comment_id: 'foo')
+      @nongroup_comment = @submission.submission_comments.create!
+    end
+
+    describe 'scope: for_groups' do
+      subject { SubmissionComment.for_groups }
+
+      it { is_expected.to include(@group_comment) }
+      it { is_expected.not_to include(@nongroup_comment) }
+    end
+
+    describe 'scope: not_for_groups' do
+      subject { SubmissionComment.not_for_groups }
+
+      it { is_expected.not_to include(@group_comment) }
+      it { is_expected.to include(@nongroup_comment) }
+    end
+  end
+
   describe 'scope: draft' do
     before(:once) do
-      @standard_comment = SubmissionComment.create!(@valid_attributes)
-      @published_comment = SubmissionComment.create!(@valid_attributes.merge({ draft: false }))
-      @draft_comment = SubmissionComment.create!(@valid_attributes.merge({ draft: true }))
+      @standard_comment = @submission.submission_comments.create!(valid_attributes)
+      @published_comment = @submission.submission_comments.create!(valid_attributes.merge({ draft: false }))
+      @draft_comment = @submission.submission_comments.create!(valid_attributes.merge({ draft: true }))
     end
 
     it 'returns the draft comment' do
@@ -395,19 +465,12 @@ This text has a http://www.google.com link in it...
 
   describe 'scope: published' do
     before(:once) do
-      @standard_comment = SubmissionComment.create!(@valid_attributes)
-      @published_comment = SubmissionComment.create!(@valid_attributes.merge({ draft: false }))
-      @draft_comment = SubmissionComment.create!(@valid_attributes.merge({ draft: true }))
-
-      @standard_comment.update_attribute(:draft, nil)
+      @published_comment = @submission.submission_comments.create!(valid_attributes.merge({draft: false}))
+      @draft_comment = @submission.submission_comments.create!(valid_attributes.merge({draft: true}))
     end
 
     it 'does not return the draft comment' do
       expect(SubmissionComment.published.pluck(:id)).not_to include(@draft_comment.id)
-    end
-
-    it 'returns the standard comment' do
-      expect(SubmissionComment.published.pluck(:id)).to include(@standard_comment.id)
     end
 
     it 'returns the published comment' do
@@ -421,7 +484,10 @@ This text has a http://www.google.com link in it...
         course_with_user('TeacherEnrollment', course: @course)
         @second_teacher = @user
 
-        @submission_comment = SubmissionComment.create!(@valid_attributes.merge({ draft: true, author: @teacher }))
+        @submission_comment = @submission.submission_comments.create!(valid_attributes.merge({
+          draft: true,
+          author: @teacher
+        }))
       end
 
       it 'can be updated by the teacher who created it' do
@@ -438,13 +504,39 @@ This text has a http://www.google.com link in it...
         expect(@submission_comment.grants_any_right?(@student, {}, :read)).to be_falsey
       end
     end
+
+    describe "viewing comments" do
+      context "when the assignment is not moderated" do
+        let(:course) { Course.create! }
+        let(:assignment) { course.assignments.create!(title: "hi") }
+        let(:ta) { course.enroll_ta(User.create!, active_all: true).user }
+        let(:student) { course.enroll_student(User.create!, active_all: true).user }
+        let(:submission) { assignment.submission_for_student(student) }
+        let(:comment) do
+          assignment.update_submission(student, commenter: student, comment: 'ok')
+          submission.submission_comments.first
+        end
+
+        it "submitter comments can be read by an instructor with default permissions" do
+          expect(comment.grants_right?(ta, :read)).to be true
+        end
+
+        it "submitter comments can be read by an instructor who cannot manage assignments but can view the submitter's grades" do
+          RoleOverride.create!(context: course.account, permission: :manage_assignments, role: ta_role, enabled: false)
+          expect(comment.grants_right?(ta, :read)).to be true
+        end
+      end
+    end
   end
 
   describe '#update_submission' do
     context 'draft comment' do
       before(:once) do
-        SubmissionComment.create!(@valid_attributes)
-        @submission_comment = SubmissionComment.create!(@valid_attributes.merge({ draft: true, author: @teacher }))
+        @submission.submission_comments.create!(valid_attributes)
+        @submission_comment = @submission.submission_comments.create!(valid_attributes.merge({
+          draft: true,
+          author: @teacher
+        }))
       end
 
       it "is not reflected in the submission's submission_comments_count" do
@@ -459,6 +551,125 @@ This text has a http://www.google.com link in it...
             from(1).to(2)
         )
       end
+    end
+  end
+
+  describe "#auditable?" do
+    it "is auditable if it is not a draft and the assignment is auditable" do
+      @assignment.update!(anonymous_grading: true)
+      comment = @submission.submission_comments.create!(valid_attributes)
+      expect(comment).to be_auditable
+    end
+
+    it "is not auditable if it is a draft and the assignment is auditable" do
+      @assignment.update!(anonymous_grading: true)
+      comment = @submission.submission_comments.create!(valid_attributes.merge(draft: true))
+      expect(comment).not_to be_auditable
+    end
+
+    it "is not auditable if it is not a draft and the assignment is not auditable" do
+      @assignment.update!(anonymous_grading: false, moderated_grading: false)
+      comment = @submission.submission_comments.create!(valid_attributes)
+      expect(comment).not_to be_auditable
+    end
+
+    it "is not auditable if posting grades" do
+      @assignment.update!(anonymous_grading: true)
+      comment = @submission.submission_comments.create!(valid_attributes)
+      comment.grade_posting_in_progress = true
+      expect(comment).not_to be_auditable
+    end
+  end
+
+  describe "#edited_at" do
+    before(:once) do
+      @comment = @submission.submission_comments.create!(valid_attributes)
+    end
+
+    it "is nil for newly-created submission comments" do
+      expect(@comment.edited_at).to be_nil
+    end
+
+    it "remains nil if the submission comment is updated but the 'comment' attribute is unchanged" do
+      @comment.update!(draft: true, hidden: true)
+      expect(@comment.edited_at).to be_nil
+    end
+
+    it "is set if the 'comment' attribute is updated on the submission comment" do
+      now = Time.zone.now
+      Timecop.freeze(now) { @comment.update!(comment: "changing the comment!") }
+      expect(@comment.edited_at).to eql now
+    end
+
+    it "is updated on subsequent changes to the 'comment' attribute" do
+      now = Time.zone.now
+      Timecop.freeze(now) { @comment.update!(comment: "changing the comment!") }
+
+      later = 2.minutes.from_now(now)
+      Timecop.freeze(later) do
+        expect { @comment.update!(comment: "and again, changing it!") }.to change {
+          @comment.edited_at
+        }.from(now).to(later)
+      end
+    end
+  end
+
+  describe 'audit event logging' do
+    before(:once) { @assignment.update!(anonymous_grading: true, grader_count: 2) }
+    it 'creates exactly one AnonymousOrModerationEvent on creation' do
+      expect { @submission.submission_comments.create!(author: @student, anonymous: false) }.
+        to change { AnonymousOrModerationEvent.count }.by(1)
+    end
+
+    it 'on creation of the comment, the payload of the event includes boolean values that were set to false' do
+      @submission.submission_comments.create!(author: @student, anonymous: false)
+      payload = AnonymousOrModerationEvent.where(assignment: @assignment).last.payload
+      expect(payload).to include('anonymous' => false)
+    end
+
+    it "does not create an event on creation when no author present" do
+      expect {
+        @submission.submission_comments.create!(comment: "a comment")
+      }.not_to change { AnonymousOrModerationEvent.count }
+    end
+
+    it "does not create an event when no updating_user present" do
+      comment = @submission.submission_comments.create!(author: @student)
+      expect{ comment.update!(comment: "changing the comment!") }.not_to change{ AnonymousOrModerationEvent.count }
+    end
+  end
+
+  describe '#attempt' do
+    before(:once) do
+      @submission.update!(attempt: 4)
+      @comment1 = @submission.submission_comments.create!(valid_attributes.merge(attempt: 1))
+      @comment2 = @submission.submission_comments.create!(valid_attributes.merge(attempt: 2))
+      @comment3 = @submission.submission_comments.create!(valid_attributes.merge(attempt: 2))
+      @comment4 = @submission.submission_comments.create!(valid_attributes.merge(attempt: nil))
+    end
+
+    it 'can limit comments to the specific attempt' do
+      expect(@submission.submission_comments.where(attempt: 1)).to eq [@comment1]
+    end
+
+    it 'can have multiple comments' do
+      expect(@submission.submission_comments.where(attempt: 2).sort).to eq [@comment2, @comment3]
+    end
+
+    it 'can limit the comments to attempts that are nil' do
+      expect(@submission.submission_comments.where(attempt: nil)).to eq [@comment4]
+    end
+
+    it 'cannot be present? if submisssion#attempt is nil' do
+      @submission.update_column(:attempt, nil) # bypass infer_values callback
+      @comment1.reload
+      @comment1.attempt = 2
+      expect(@comment1).not_to be_valid
+    end
+
+    it 'cannot be larger then submisssion#attempt' do
+      @comment1.attempt = @submission.attempt + 1
+      expect(@comment1).not_to be_valid
     end
   end
 end

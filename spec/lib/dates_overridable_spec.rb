@@ -1,6 +1,5 @@
-
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,6 +24,17 @@ shared_examples_for "an object whose dates are overridable" do
 
   let(:course) { overridable.context }
   let(:override) { assignment_override_model(overridable_type => overridable) }
+
+  describe "#teacher_due_date_for_display" do
+    it "returns nil when differentiated with no due dates" do
+      student_in_course(course: course)
+      overridable.update!(due_at: nil, only_visible_to_overrides: true)
+      override.update!(set_type: "ADHOC")
+      override.assignment_override_students.create(user: @student)
+
+      expect(overridable.teacher_due_date_for_display(@student)).to be_nil
+    end
+  end
 
   describe "overridden_for" do
     before do
@@ -206,6 +216,11 @@ shared_examples_for "an object whose dates are overridable" do
       it { is_expected.to be_truthy }
     end
 
+    context "when it does but it's deleted" do
+      before { override.destroy }
+      it { is_expected.to be_falsey }
+    end
+
     context "when it doesn't" do
       it { is_expected.to be_falsey }
     end
@@ -384,13 +399,13 @@ shared_examples_for "an object whose dates are overridable" do
     it "returns a list of overridden due date hashes" do
       a = assignment_model(:course => @course)
       u = User.new
-      student1, student2 = [mock, mock]
+      student1, student2 = [double, double]
 
       { student1 => '1', student2 => '2' }.each do |student, value|
-        a.expects(:all_dates_visible_to).with(student).returns({ :student => value })
+        expect(a).to receive(:all_dates_visible_to).with(student).and_return({ :student => value })
       end
 
-      ObserverEnrollment.expects(:observed_students).returns({student1 => [], student2 => []})
+      expect(ObserverEnrollment).to receive(:observed_students).and_return({student1 => [], student2 => []})
 
       override_hashes = a.observed_student_due_dates(u)
       expect(override_hashes).to match_array [ { :student => '1' }, { :student => '2' } ]

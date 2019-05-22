@@ -1,4 +1,21 @@
-﻿require File.expand_path(File.dirname(__FILE__) + '/../common')
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 
 describe "calendar2" do
@@ -17,16 +34,6 @@ describe "calendar2" do
       @student = course_with_student_logged_in(:active_all => true).user
     end
 
-    describe "contexts list" do
-      it "should not allow a student to create an assignment through the context list" do
-        get "/calendar2"
-
-        # first context is the user's calendar
-        driver.execute_script(%{$(".context_list_context:nth-child(2)").addClass('hovering')})
-        expect(f("ul#context-list > li:nth-child(2)")).not_to contain_css('button') # no button, can't add events
-      end
-    end
-
     describe "main calendar" do
       it "should validate appointment group popup link functionality" do
         create_appointment_group
@@ -36,6 +43,8 @@ describe "calendar2" do
         @user = @me
         get "/calendar2"
 
+        # navigate to the next month for end of month
+        f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
         fj('.fc-event:visible').click
         expect(fj("#popover-0")).to be_displayed
         expect_new_page_load { driver.execute_script("$('#popover-0 .view_event_link').hover().click()") }
@@ -43,6 +52,50 @@ describe "calendar2" do
 
         expect(f('#scheduler')).to have_class('active')
         expect(f('#appointment-group-list')).to include_text(ag.title)
+      end
+
+      context "the event modal" do
+        it "should allow other users to see attendees after reservation" do
+          create_appointment_group(
+            :contexts => [@course],
+            :title => "eh",
+            :max_appointments_per_participant => 1,
+            :min_appointments_per_participant => 1,
+            :participants_per_appointment => 2,
+            :participant_visibility => "protected"
+          )
+          ag1 = AppointmentGroup.first
+          # create and reserver two participants into appointmentgroup
+          ag1.appointments.first.reserve_for @student, @student
+          student2 = student_in_course(course: @course, active_all: true).user
+          ag1.appointments.first.reserve_for student2, student2
+          get "/calendar2"
+          # navigate to the next month for end of month
+          f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
+          fj('.fc-event:visible').click
+          wait_for_ajaximations
+          expect(f("#reservations li")).to include_text "nobody@example.com"
+        end
+
+        it "should not display attendees for reservation with no participants" do
+          create_appointment_group(
+            :contexts => [@course],
+            :title => "eh",
+            :max_appointments_per_participant => 1,
+            :min_appointments_per_participant => 1,
+            :participants_per_appointment => 2,
+            :participant_visibility => "protected"
+          )
+          ag1 = AppointmentGroup.first
+          # create an appointment and cancel appointment to make no participants
+          ag1.appointments.first.reserve_for @student, @student
+          ag1.appointments.first.reserve_for @student, @student, cancel_existing: true
+          get "/calendar2"
+          # navigate to the next month for end of month
+          f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
+          fj('.fc-event:visible').click
+          expect(f("#reservations")).not_to contain_css("#attendees_header_text")
+        end
       end
 
       it "should show section-level events for the student's section" do

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012-2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,6 +34,7 @@ define [
         blank:        I18n.t("errors.required", "Required")
         invalid:      I18n.t("errors.invalid_code", "Invalid code")
         already_enrolled: I18n.t("errors.already_enrolled", "You are already enrolled in this course")
+        concluded:    I18n.t("This course has concluded")
         full:         I18n.t("errors.course_full", "This course is full")
       terms_of_use:
         accepted:     I18n.t("errors.terms", "You must agree to the terms")

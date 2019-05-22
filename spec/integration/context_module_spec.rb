@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -84,16 +84,16 @@ describe ContextModule do
       @discussion = @course.discussion_topics.create!(:title => "talk")
       @tag = @module.add_item(:type => 'discussion_topic', :id => @discussion.id)
       before_after do
-        post "/courses/#{@course.id}/discussion_entries", :discussion_entry => { :message => 'ohai', :discussion_topic_id => @discussion.id }
+        post "/courses/#{@course.id}/discussion_entries", params: {:discussion_entry => { :message => 'ohai', :discussion_topic_id => @discussion.id }}
         expect(response).to be_redirect
       end
     end
 
     it "should progress for wiki pages" do
-      @page = @course.wiki.wiki_pages.create!(:title => "talk page", :body => 'ohai', :editing_roles => 'teachers,students')
+      @page = @course.wiki_pages.create!(:title => "talk page", :body => 'ohai', :editing_roles => 'teachers,students')
       @tag = @module.add_item(:type => 'wiki_page', :id => @page.id)
       before_after do
-        put "/api/v1/courses/#{@course.id}/pages/#{@page.url}", :wiki_page => { :body => 'i agree', :title => 'talk page' }
+        put "/api/v1/courses/#{@course.id}/pages/#{@page.url}", params: {:wiki_page => { :body => 'i agree', :title => 'talk page' }}
       end
     end
 
@@ -101,7 +101,7 @@ describe ContextModule do
       @assignment = @course.assignments.create!(:title => 'talk assn', :submission_types => 'discussion_topic')
       @tag = @module.add_item(:type => 'assignment', :id => @assignment.id)
       before_after do
-        post "/courses/#{@course.id}/discussion_entries", :discussion_entry => { :message => 'ohai', :discussion_topic_id => @assignment.discussion_topic.id }
+        post "/courses/#{@course.id}/discussion_entries", params: {:discussion_entry => { :message => 'ohai', :discussion_topic_id => @assignment.discussion_topic.id }}
         expect(response).to be_redirect
       end
     end
@@ -142,7 +142,11 @@ describe ContextModule do
 
         # verify the second item is locked (doesn't display)
         get @test_url
-        expect(response).to be_success
+        if @test_url.match?('files')
+          expect(response.status).to eq(403)
+        else
+          expect(response).to be_successful
+        end
         html = Nokogiri::HTML(response.body)
         expect(html.css('#test_content').length).to eq(@test_content_length || 0)
 
@@ -163,14 +167,14 @@ describe ContextModule do
           "/courses/#{@course.id}/modules/#{@mod2.id}/items/first"
         get next_link
         expect(response).to be_redirect
-        expect(response.location.ends_with?(@test_url + "?module_item_id=#{@tag2.id}")).to be_truthy
+        expect(response.location.ends_with?("module_item_id=#{@tag2.id}")).to be_truthy
 
         # verify the second item is accessible
         get @test_url
-        expect(response).to be_success
+        expect(response).to be_successful
         html = Nokogiri::HTML(response.body)
         if @is_attachment
-          expect(html.at_css('#file_content')['src']).to match %r{#{@test_url}}
+          expect(html.at_css('#file_content')['src']).to match %r{#{@test_url.split("?").first}}
         elsif @is_wiki_page
           expect(html.css('#wiki_page_show').length).to eq 1
         else
@@ -216,7 +220,7 @@ describe ContextModule do
     it "should progress to a wiki page" do
       [true, false].each do |progress_type|
         progression_testing(progress_type) do |content|
-          page = @course.wiki.wiki_pages.create!(:title => "wiki", :body => content)
+          page = @course.wiki_pages.create!(:title => "wiki", :body => content)
           @test_url = "/courses/#{@course.id}/pages/#{page.url}"
           @tag2 = @mod2.add_item(:type => 'wiki_page', :id => page.id)
           expect(@tag2).to be_published
@@ -230,7 +234,7 @@ describe ContextModule do
         progression_testing(progress_type) do |content|
           @is_attachment = true
           att = Attachment.create!(:filename => 'test.html', :display_name => "test.html", :uploaded_data => StringIO.new(content), :folder => Folder.unfiled_folder(@course), :context => @course)
-          @test_url = "/courses/#{@course.id}/files/#{att.id}"
+          @test_url = "/courses/#{@course.id}/files/#{att.id}?fd_cookie_set=1"
           @tag2 = @mod2.add_item(:type => 'attachment', :id => att.id)
           expect(@tag2).to be_published
         end
@@ -257,54 +261,17 @@ describe ContextModule do
 
         user_session teacher1
         get "/courses/#{@course.id}/modules"
-        expect(response).to be_success
+        expect(response).to be_successful
         body1 = Nokogiri::HTML(response.body)
 
         user_session teacher2
         get "/courses/#{@course.id}/modules"
-        expect(response).to be_success
+        expect(response).to be_successful
         body2 = Nokogiri::HTML(response.body)
 
         expect(body1.at_css("#context_module_content_#{mod.id} .unlock_details").text).to match /4am/
         expect(body2.at_css("#context_module_content_#{mod.id} .unlock_details").text).to match /7am/
       end
-    end
-  end
-
-  describe "cache_visibilities_for_students" do
-    it "should load visibilities for each model" do
-      AssignmentStudentVisibility.expects(:visible_assignment_ids_in_course_by_user).returns({}).once
-      DiscussionTopic.expects(:visible_ids_by_user).returns({}).once
-      WikiPage.expects(:visible_ids_by_user).returns({}).once
-      Quizzes::QuizStudentVisibility.expects(:visible_quiz_ids_in_course_by_user).returns({}).once
-      course_module
-      @module.assignment_visibilities_for_users([2])
-      @module.discussion_visibilities_for_users([2])
-      @module.page_visibilities_for_users([2])
-      @module.quiz_visibilities_for_users([2])
-    end
-  end
-
-  describe "object_visibilities_for_user" do
-    it "should load visibilities for each model" do
-      course_module
-      assignment_model(course: @course, submission_types: "online_url", workflow_state: "published", only_visible_to_overrides: false)
-
-      @module = ContextModule.find(@module.id) #clear cache of visibilities
-
-      user_visibilites = @module.assignment_visibilities_for_users([@user.id])
-      expect(user_visibilites).to eq [@assignment.id]
-    end
-
-    it "should load visibilities for each model with cache" do
-      course_module
-      assignment_model(course: @course, submission_types: "online_url", workflow_state: "published", only_visible_to_overrides: false)
-
-      @module = ContextModule.find(@module.id) #clear old cache of visibilities
-      @module.cache_visibilities_for_students([@user.id]) #make updated cache
-
-      user_visibilites = @module.assignment_visibilities_for_users([@user.id])
-      expect(user_visibilites).to eq [@assignment.id]
     end
   end
 end

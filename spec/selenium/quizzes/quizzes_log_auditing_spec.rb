@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 require_relative '../helpers/groups_common'
@@ -8,9 +25,13 @@ describe "quizzes log auditing" do
   include GroupsCommon
 
   context 'as a teacher' do
-    before do
-      course_with_teacher_logged_in
+    before :once do
+      course_with_teacher(active_user: true, active_enrollment: true, active_course: true)
       Account.default.enable_feature!(:quiz_log_auditing)
+    end
+
+    before :each do
+      user_session(@teacher)
     end
 
     context 'attempt numbers' do
@@ -24,7 +45,7 @@ describe "quizzes log auditing" do
       end
 
       context 'multiple attempts' do
-        before do
+        before :each do
           student = student_in_course(course: @course, name: 'student', active_all: true).user
           quiz_create
           @quiz.allowed_attempts = 2
@@ -52,7 +73,7 @@ describe "quizzes log auditing" do
     end
 
     context 'should list the attempt count for multiple attempts' do
-      before do
+      before :each do
         @quiz = @course.quizzes.create!(title: 'new quiz')
         @quiz.quiz_questions.create!(
             question_data: {
@@ -78,6 +99,7 @@ describe "quizzes log auditing" do
       end
 
       it 'should show that a session had started and that it is has been read', priority: "2", test_id:605108 do
+        skip_if_safari(:alert)
         scroll_page_to_bottom # the question viewed event is triggered by page scroll
         wait_for_ajax_requests
         submit_quiz

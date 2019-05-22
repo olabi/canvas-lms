@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -53,10 +53,6 @@ module BroadcastPolicy
 
     def whenever(&block)
       self.current_notification.whenever = block
-    end
-
-    def context(&block)
-      self.current_notification.context = block
     end
 
     def data(&block)

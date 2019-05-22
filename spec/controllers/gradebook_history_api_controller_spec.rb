@@ -1,3 +1,19 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
@@ -51,7 +67,7 @@ describe GradebookHistoryApiController do
 
     describe 'default params' do
 
-      before { get 'days', :course_id => @course.id, :format => 'json' }
+      before { get 'days', params: {:course_id => @course.id}, :format => 'json' }
 
       it 'provides an array of the dates where there are submissions' do
         expect(json_body.map{ |d| d['date'] }.sort).to eq [date_key(@submission1), date_key(@submission3)].sort
@@ -69,13 +85,13 @@ describe GradebookHistoryApiController do
     end
 
     it 'paginates' do
-      get 'days', :course_id => @course.id, :format => 'json', :page => 2, :per_page => 2
+      get 'days', params: {:course_id => @course.id, :page => 2, :per_page => 2}, :format => 'json'
       expect(json_body.map{|d| d['date'] }).to eq [@submission3.graded_at.to_date.as_json]
     end
   end
 
   describe 'GET day_details' do
-    before { get 'day_details', :course_id => @course.id, :format => 'json', :date => @submission1.graded_at.strftime('%Y-%m-%d') }
+    before { get 'day_details', params: {:course_id => @course.id, :date => @submission1.graded_at.strftime('%Y-%m-%d')}, format: 'json' }
 
     it 'has the graders as the top level piece of data' do
       expect(json_body.map{|g| g['id'] }.sort).to eq [@grader.id, @super_grader.id].sort
@@ -90,7 +106,7 @@ describe GradebookHistoryApiController do
     let(:date) { @submission1.graded_at.strftime('%Y-%m-%d') }
     let(:params) { { :course_id => @course.id, :date => date, :grader_id => @grader.id, :assignment_id => @assignment1.id } }
 
-    before { get( 'submissions', { :format => 'json' }.merge(params) ) }
+    before { get( 'submissions', params: params, format: 'json' ) }
 
     it 'lists submissions' do
       expect(json_body.first['submission_id']).to eq @submission1.id
@@ -102,7 +118,7 @@ describe GradebookHistoryApiController do
     context 'deleted submissions' do
       before :each do
         @submission1.destroy
-        get 'feed', course_id: @course.id, format: 'json'
+        get 'feed', params: {course_id: @course.id}, format: 'json'
       end
 
       it 'does not return an error' do

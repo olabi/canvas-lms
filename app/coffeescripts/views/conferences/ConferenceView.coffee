@@ -1,11 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!conferences'
   'jquery'
   'Backbone'
   'jst/conferences/newConference'
+  'str/htmlEscape'
   'jquery.google-analytics'
-  'compiled/jquery.rails_flash_notifications'
-], (I18n, $, {View}, template) ->
+  '../../jquery.rails_flash_notifications'
+], (I18n, $, {View}, template, htmlEscape) ->
 
   class ConferenceView extends View
 
@@ -21,6 +39,7 @@ define [
       'click .close_conference_link': 'close'
       'click .start-button': 'start'
       'click .external_url': 'external'
+      'click .delete_recording_link': 'deleteRecording'
 
     initialize: ->
       super
@@ -109,3 +128,44 @@ define [
         else
           window.open(data[0].url)
       )
+
+    deleteRecording: (e) ->
+      e.preventDefault()
+      if confirm I18n.t("Are you sure you want to delete this recording?")
+        $button = $(e.currentTarget).parents('div.ig-button')
+        $.ajaxJSON($button.data('url') + "/recording", "DELETE", {
+            recording_id: $button.data("id"),
+          }
+        ).done( (data, status) =>
+          if data.deleted
+            return @removeRecordingRow($button)
+          $.flashError(I18n.t("Sorry, the action performed on this recording failed. Try again later"))
+        ).fail( (xhr, status) =>
+          $.flashError(I18n.t("Sorry, the action performed on this recording failed. Try again later"))
+        )
+
+    removeRecordingRow: ($button) =>
+      $row = $('.ig-row[data-id="' + $button.data("id") + '"]')
+      $conferenceId = $($row.parents('div.ig-sublist')).data('id')
+      $row.parents('li.recording').remove()
+      @updateConferenceDetails($conferenceId)
+      $.screenReaderFlashMessage(I18n.t('Recording was deleted'))
+
+    updateConferenceDetails: (id) =>
+      $info = $('div.ig-row#conf_' + id).find('div.ig-info')
+      $detailRecordings = $info.find('div.ig-details__item-recordings')
+      $recordings = $('.ig-sublist#conference-' + id)
+      recordings = $recordings.find('li.recording').length
+      if recordings > 1
+        $detailRecordings.text(I18n.t("%{count} Recordings", {count: recordings}))
+        return
+      if recordings == 1
+        $detailRecordings.text(I18n.t("%{count} Recording", {count: 1}))
+        return
+      $detailRecordings.remove()
+      $recordings.remove()
+      # Shift the link to text
+      $link = $info.children('a.ig-title')
+      $text = $('<span />').addClass('ig-title').html($link.text())
+      $info.prepend($text)
+      $link.remove()

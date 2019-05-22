@@ -1,3 +1,21 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "users" do
@@ -168,7 +186,7 @@ describe "users" do
       f('#manual_user_id').send_keys(@student_1.id)
       expect_new_page_load { f('button[type="submit"]').click }
       wait_for_ajaximations
-      expect_flash_message :error, /You can't merge an account with itself./
+      expect_flash_message :error, "You can't merge an account with itself."
     end
 
     it "should show an error if invalid text is entered in the id box" do
@@ -177,7 +195,7 @@ describe "users" do
       f('#manual_user_id').send_keys("azxcvbytre34567uijmm23456yhj")
       expect_new_page_load { f('button[type="submit"]').click }
       wait_for_ajaximations
-      expect_flash_message :error, /No active user with that ID was found./
+      expect_flash_message :error, "No active user with that ID was found."
     end
 
     it "should show an error if the user id doesnt exist" do
@@ -185,7 +203,7 @@ describe "users" do
       expect_no_flash_message :error
       f('#manual_user_id').send_keys(1234567809)
       expect_new_page_load { f('button[type="submit"]').click }
-      expect_flash_message :error, /No active user with that ID was found./
+      expect_flash_message :error, "No active user with that ID was found."
     end
   end
 
@@ -223,6 +241,10 @@ describe "users" do
     end
 
     it "should require terms if configured to do so" do
+      if terms = Account.default.terms_of_service
+        terms.update(passive: false)
+      end
+
       get "/register"
 
       %w{teacher student parent}.each do |type|
@@ -238,6 +260,10 @@ describe "users" do
     end
 
     it "should register a student with a join code" do
+      if terms = Account.default.terms_of_service
+        terms.update(passive: false)
+      end
+
       Account.default.allow_self_enrollment!
       course_factory(active_all: true)
       @course.update_attribute(:self_enrollment, true)
@@ -260,6 +286,10 @@ describe "users" do
     end
 
     it "should register a teacher" do
+      if terms = Account.default.terms_of_service
+        terms.update(passive: false)
+      end
+
       get '/register'
       f('#signup_teacher').click
 
@@ -284,12 +314,17 @@ describe "users" do
       # close the "check your email to confirm your account" dialog
       f('.ui-dialog-titlebar-close').click
       expect(displayed_username).to eq('teacher!')
-      expect_logout_link_present
+      expect(fj('form[action="/logout"] button:contains("Logout")')).to be_present
       expect(User.last.initial_enrollment_type).to eq 'teacher'
     end
 
     it "should register an observer" do
-      user_with_pseudonym(:active_all => true, :password => 'lolwut12')
+      if terms = Account.default.terms_of_service
+        terms.update(passive: false)
+      end
+
+      user = user_with_pseudonym(:active_all => true, :password => 'lolwut12')
+      pairing_code = user.generate_observer_pairing_code
 
       get '/register'
       f('#signup_parent').click
@@ -297,15 +332,14 @@ describe "users" do
       form = fj('.ui-dialog:visible form')
       f('#parent_name').send_keys('parent!')
       f('#parent_email').send_keys('parent@example.com')
-      f('#parent_child_username').send_keys(@pseudonym.unique_id)
-      f('#parent_child_password').send_keys('lolwut12')
+      f('#password').send_keys('password')
+      f('#confirm_password').send_keys('password')
+      f('#pairing_code').send_keys(pairing_code.code)
       f('input[name="user[terms_of_use]"]', form).click
 
       expect_new_page_load { form.submit }
       # confirm the user is authenticated into the dashboard
 
-      # close the "check your email to confirm your account" dialog
-      f('.ui-dialog-titlebar-close').click
       expect_logout_link_present
 
       expect(User.last.initial_enrollment_type).to eq 'observer'
@@ -317,12 +351,13 @@ describe "users" do
       site_admin_logged_in(:name => 'The Admin')
       user_with_pseudonym(:active_user => true, :name => 'The Student')
 
-      get "/users/#{@user.id}/masquerade"
-      f('.masquerade_button').click
+      masquerade_url = "/users/#{@user.id}/masquerade"
+      get masquerade_url
+      f('a[href="' + masquerade_url + '"]').click
       expect(displayed_username).to include('The Student')
 
       bar = f('#masquerade_bar')
-      expect(bar).to include_text 'You are currently masquerading'
+      expect(bar).to include_text 'You are currently acting as'
       bar.find_element(:css, '.stop_masquerading').click
       expect(displayed_username).to eq('The Admin')
     end

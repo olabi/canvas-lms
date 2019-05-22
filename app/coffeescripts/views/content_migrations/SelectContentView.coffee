@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'Backbone'
   'jquery'
@@ -6,14 +23,14 @@ define [
   'jst/content_migrations/SelectContent'
   'jst/EmptyDialogFormWrapper'
   'jst/content_migrations/ContentCheckboxCollection'
-  'compiled/views/DialogFormView'
-  'compiled/views/CollectionView'
-  'compiled/collections/content_migrations/ContentCheckboxCollection'
-  'compiled/views/content_migrations/ContentCheckboxView'
-  'compiled/views/content_migrations/NavigationForTree'
-  'compiled/views/content_migrations/ExpandCollapseContentSelectTreeItems'
-  'compiled/views/content_migrations/CheckingCheckboxesForTree'
-  'compiled/views/content_migrations/ScrollPositionForTree'
+  '../DialogFormView'
+  '../CollectionView'
+  '../../collections/content_migrations/ContentCheckboxCollection'
+  './ContentCheckboxView'
+  './NavigationForTree'
+  './ExpandCollapseContentSelectTreeItems'
+  './CheckingCheckboxesForTree'
+  './ScrollPositionForTree'
 ], (Backbone, $, _, I18n, template, wrapperTemplate, checkboxCollectionTemplate, DialogFormView, CollectionView , CheckboxCollection, CheckboxView, NavigationForTree, ExpandCollapseContentSelectTreeItems, CheckingCheckboxesForTree, ScrollPositionForTree) ->
   class SelectContentView extends DialogFormView
 

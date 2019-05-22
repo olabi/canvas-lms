@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -47,6 +47,26 @@
 #         },
 #         "final_score": {
 #           "description": "The user's final score for the class. Only included if user has permissions to view this score.",
+#           "example": "",
+#           "type": "string"
+#         },
+#         "unposted_current_grade": {
+#           "description": "The user's current grade in the class including muted/unposted assignments. Only included if user has permissions to view this grade, typically teachers, TAs, and admins.",
+#           "example": "",
+#           "type": "string"
+#         },
+#         "unposted_final_grade": {
+#           "description": "The user's final grade for the class including muted/unposted assignments. Only included if user has permissions to view this grade, typically teachers, TAs, and admins..",
+#           "example": "",
+#           "type": "string"
+#         },
+#         "unposted_current_score": {
+#           "description": "The user's current score in the class including muted/unposted assignments. Only included if user has permissions to view this score, typically teachers, TAs, and admins..",
+#           "example": "",
+#           "type": "string"
+#         },
+#         "unposted_final_score": {
+#           "description": "The user's final score for the class including muted/unposted assignments. Only included if user has permissions to view this score, typically teachers, TAs, and admins..",
 #           "example": "",
 #           "type": "string"
 #         }
@@ -109,7 +129,7 @@
 #             "type": "string"
 #           },
 #           "limit_privileges_to_course_section": {
-#             "description": "User can only access his or her own course section. Applies to Teacher and TA enrollments.",
+#             "description": "User can only access his or her own course section.",
 #             "example": true,
 #             "type": "boolean"
 #           },
@@ -143,6 +163,16 @@
 #             "example": "StudentEnrollment",
 #             "type": "string"
 #           },
+#           "role_id": {
+#             "description": "The id of the enrollment role.",
+#             "example": 1,
+#             "type": "integer"
+#           },
+#           "created_at": {
+#             "description": "The created time of the enrollment, in ISO8601 format.",
+#             "example": "2012-04-18T23:08:51Z",
+#             "type": "datetime"
+#           },
 #           "updated_at": {
 #             "description": "The updated time of the enrollment, in ISO8601 format.",
 #             "example": "2012-04-18T23:08:51Z",
@@ -163,6 +193,11 @@
 #             "example": "2012-04-18T23:08:51Z",
 #             "type": "datetime"
 #           },
+#           "last_attended_at": {
+#             "description": "The last attended date of the user for the enrollment in a course, in ISO8601 format.",
+#             "example": "2012-04-18T23:08:51Z",
+#             "type": "datetime"
+#           },
 #           "total_activity_time": {
 #             "description": "The total activity time of the user for the enrollment, in seconds.",
 #             "example": 260,
@@ -175,30 +210,57 @@
 #           },
 #           "grades": {
 #             "description": "The URL to the Canvas web UI page containing the grades associated with this enrollment.",
+#             "example": {
+#               "html_url": "https://...",
+#               "current_score": 35,
+#               "current_grade": null,
+#               "final_score": 6.67,
+#               "final_grade": null
+#             },
 #             "$ref": "Grade"
 #           },
-#           "computed_current_score": {
-#             "description": "optional: The student's score in the course, ignoring ungraded assignments. (applies only to student enrollments, and only available in course endpoints)",
-#             "example": 90.25,
-#             "type": "number"
+#           "user": {
+#             "description": "A description of the user.",
+#             "example": {
+#               "id": 3,
+#               "name": "Student 1",
+#               "sortable_name": "1, Student",
+#               "short_name": "Stud 1"
+#             },
+#             "$ref": "User"
 #           },
-#           "computed_final_score": {
-#             "description": "optional: The student's score in the course including ungraded assignments with a score of 0. (applies only to student enrollments, and only available in course endpoints)",
-#             "example": 80.67,
-#             "type": "number"
-#           },
-#           "computed_current_grade": {
-#             "description": "optional: The letter grade equivalent of computed_current_score, if available. (applies only to student enrollments, and only available in course endpoints)",
-#             "example": "A-",
+#           "override_grade": {
+#             "description": "The user's override grade for the course.",
+#             "example": "A",
 #             "type": "string"
 #           },
-#           "computed_final_grade": {
-#             "description": "optional: The letter grade equivalent of computed_final_score, if available. (applies only to student enrollments, and only available in course endpoints)",
-#             "example": "B-",
+#           "override_score": {
+#             "description": "The user's override score for the course.",
+#             "example": 99.99,
+#             "type": "number"
+#           },
+#           "unposted_current_grade": {
+#             "description": "The user's current grade in the class including muted/unposted assignments. Only included if user has permissions to view this grade, typically teachers, TAs, and admins.",
+#             "example": "",
 #             "type": "string"
 #           },
-#           "multiple_grading_periods_enabled": {
-#             "description": "optional: Indicates whether the course the enrollment belongs to has the Multiple Grading Periods feature enabled. (applies only to student enrollments, and only available in course endpoints)",
+#           "unposted_final_grade": {
+#             "description": "The user's final grade for the class including muted/unposted assignments. Only included if user has permissions to view this grade, typically teachers, TAs, and admins..",
+#             "example": "",
+#             "type": "string"
+#           },
+#           "unposted_current_score": {
+#             "description": "The user's current score in the class including muted/unposted assignments. Only included if user has permissions to view this score, typically teachers, TAs, and admins..",
+#             "example": "",
+#             "type": "string"
+#           },
+#           "unposted_final_score": {
+#             "description": "The user's final score for the class including muted/unposted assignments. Only included if user has permissions to view this score, typically teachers, TAs, and admins..",
+#             "example": "",
+#             "type": "string"
+#           },
+#           "has_grading_periods": {
+#             "description": "optional: Indicates whether the course the enrollment belongs to has grading periods set up. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": true,
 #             "type": "boolean"
 #           },
@@ -208,32 +270,42 @@
 #             "type": "boolean"
 #           },
 #           "current_grading_period_title": {
-#             "description": "optional: The name of the currently active grading period, if one exists. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The name of the currently active grading period, if one exists. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": "Fall Grading Period",
 #             "type": "string"
 #           },
 #           "current_grading_period_id": {
-#             "description": "optional: The id of the currently active grading period, if one exists. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The id of the currently active grading period, if one exists. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": 5,
 #             "type": "integer"
 #           },
-#           "current_period_computed_current_score": {
-#             "description": "optional: The student's score in the course for the current grading period, ignoring ungraded assignments. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
-#             "example": 95.80,
-#             "type": "number"
-#           },
-#           "current_period_computed_final_score": {
-#             "description": "optional: The student's score in the course for the current grading period, including ungraded assignments with a score of 0. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
-#             "example": 85.25,
-#             "type": "number"
-#           },
-#           "current_period_computed_current_grade": {
-#             "description": "optional: The letter grade equivalent of current_period_computed_current_score, if available. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#           "current_period_override_grade": {
+#             "description": "The user's override grade for the current grading period.",
 #             "example": "A",
 #             "type": "string"
 #           },
-#           "current_period_computed_final_grade": {
-#             "description": "optional: The letter grade equivalent of current_period_computed_final_score, if available. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#           "current_period_override_score": {
+#             "description": "The user's override score for the current grading period.",
+#             "example": 99.99,
+#             "type": "number"
+#           },
+#           "current_period_unposted_current_score": {
+#             "description": "optional: The student's score in the course for the current grading period, including muted/unposted assignments. Only included if user has permission to view this score, typically teachers, TAs, and admins. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "example": 95.80,
+#             "type": "number"
+#           },
+#           "current_period_unposted_final_score": {
+#             "description": "optional: The student's score in the course for the current grading period, including muted/unposted assignments and including ungraded assignments with a score of 0. Only included if user has permission to view this score, typically teachers, TAs, and admins. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "example": 85.25,
+#             "type": "number"
+#           },
+#           "current_period_unposted_current_grade": {
+#             "description": "optional: The letter grade equivalent of current_period_unposted_current_score, if available. Only included if user has permission to view this grade, typically teachers, TAs, and admins. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "example": "A",
+#             "type": "string"
+#           },
+#           "current_period_unposted_final_grade": {
+#             "description": "optional: The letter grade equivalent of current_period_unposted_final_score, if available. Only included if user has permission to view this grade, typically teachers, TAs, and admins. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": "B",
 #             "type": "string"
 #           }
@@ -241,8 +313,8 @@
 #       }
 #
 class EnrollmentsApiController < ApplicationController
-  before_filter :get_course_from_section, :require_context
-  before_filter :require_user
+  before_action :get_course_from_section, :require_context
+  before_action :require_user
 
   @@errors = {
     :missing_parameters                => 'No parameters given',
@@ -252,21 +324,21 @@ class EnrollmentsApiController < ApplicationController
     :inactive_role                     => 'Cannot create an enrollment with this role because it is inactive.',
     :base_type_mismatch                => 'The specified type must match the base type for the role',
     :concluded_course                  => 'Can\'t add an enrollment to a concluded course.',
-    :multiple_grading_periods_disabled => 'Multiple Grading Periods feature is disabled. Cannot filter by grading_period_id with this feature disabled',
     :insufficient_sis_permissions      => 'Insufficient permissions to filter by SIS fields'
   }
 
   include Api::V1::User
   # @API List enrollments
-  # Depending on the URL given, return either (1) all of the enrollments in
-  # a course, (2) all of the enrollments in a section or (3) all of a user's
-  # enrollments. This includes student, teacher, TA, and observer enrollments.
+  # Depending on the URL given, return a paginated list of either (1) all of
+  # the enrollments in a course, (2) all of the enrollments in a section or (3)
+  # all of a user's enrollments. This includes student, teacher, TA, and
+  # observer enrollments.
   #
   # If a user has multiple enrollments in a context (e.g. as a teacher
   # and a student or in multiple course sections), each enrollment will be
   # listed separately.
   #
-  # note: Currently, only an admin user can return other users' enrollments. A
+  # note: Currently, only a root level admin user can return other users' enrollments. A
   # user can, however, return his/her own enrollments.
   #
   # @argument type[] [String]
@@ -301,9 +373,14 @@ class EnrollmentsApiController < ApplicationController
   #   Return grades for the given grading_period.  If this parameter is not
   #   specified, the returned grades will be for the whole course.
   #
+  # @argument enrollment_term_id [Integer]
+  #   Returns only enrollments for the specified enrollment term. This parameter
+  #   only applies to the user enrollments path. May pass the ID from the
+  #   enrollment terms api or the SIS id prepended with 'sis_term_id:'.
+  #
   # @argument sis_account_id[] [String]
   #   Returns only enrollments for the specified SIS account ID(s). Does not
-  #   look into subaccounts. May pass in array or string.
+  #   look into sub_accounts. May pass in array or string.
   #
   # @argument sis_course_id[] [String]
   #   Returns only enrollments matching the specified SIS course ID(s).
@@ -317,87 +394,91 @@ class EnrollmentsApiController < ApplicationController
   #   Returns only enrollments for the specified SIS user ID(s). May pass in
   #   array or string.
   #
+  # @argument created_for_sis_id[] [Boolean]
+  #   If sis_user_id is present and created_for_sis_id is true, Returns only
+  #   enrollments for the specified SIS ID(s).
+  #   If a user has two sis_id's, one enrollment may be created using one of the
+  #   two ids. This would limit the enrollments returned from the endpoint to
+  #   enrollments that were created from a sis_import with that sis_user_id
+  #
   # @returns [Enrollment]
   def index
-    endpoint_scope = (@context.is_a?(Course) ? (@section.present? ? "section" : "course") : "user")
+    Shackles.activate(:slave) do
+      endpoint_scope = (@context.is_a?(Course) ? (@section.present? ? "section" : "course") : "user")
 
-    return unless enrollments = @context.is_a?(Course) ?
-      course_index_enrollments :
-      user_index_enrollments
+      return unless enrollments = @context.is_a?(Course) ?
+                                    course_index_enrollments :
+                                    user_index_enrollments
 
-    enrollments = enrollments.joins(:user).select("enrollments.*").
-      order("enrollments.type, #{User.sortable_name_order_by_clause("users")}, enrollments.id")
+      enrollments = enrollments.joins(:user).select("enrollments.*").
+        order(:type, User.sortable_name_order_by_clause("users"), :id)
 
-    has_courses = enrollments.where_values.any? { |cond| cond.is_a?(String) && cond =~ /courses\./ }
-    enrollments = enrollments.joins(:course) if has_courses
-    enrollments = enrollments.shard(@shard_scope) if @shard_scope
+      has_courses = enrollments.where_clause.instance_variable_get(:@predicates).
+        any? { |cond| cond.is_a?(String) && cond =~ /courses\./ }
+      enrollments = enrollments.joins(:course) if has_courses
+      enrollments = enrollments.shard(@shard_scope) if @shard_scope
 
-    sis_context = @context.is_a?(Course) ? @context : @domain_root_account
-    unless check_sis_permissions(sis_context)
-      render_create_errors([@@errors[:insufficient_sis_permissions]])
-      return false
-    end
-
-    if params[:sis_user_id].present?
-      pseudonyms = @domain_root_account.pseudonyms.where(sis_user_id: params[:sis_user_id])
-      enrollments = enrollments.where(user_id: pseudonyms.pluck(:user_id))
-    end
-
-    if params[:sis_section_id].present?
-      sections = @domain_root_account.course_sections.where(sis_source_id: params[:sis_section_id])
-      enrollments = enrollments.where(course_section_id: sections.pluck(:id))
-    end
-
-    if params[:sis_account_id].present?
-      accounts = @domain_root_account.all_accounts.where(sis_source_id: params[:sis_account_id])
-      courses = @domain_root_account.all_courses.where(account_id: accounts.pluck(:id))
-      enrollments = enrollments.where(course_id: courses.pluck(:id))
-    end
-
-    if params[:sis_course_id].present?
-      courses = @domain_root_account.all_courses.where(sis_source_id: params[:sis_course_id])
-      enrollments = enrollments.where(course_id: courses.pluck(:id))
-    end
-
-    if params[:grading_period_id].present?
-      if @context.is_a? User
-        unless @context.account.feature_enabled?(:multiple_grading_periods)
-          render_create_errors([@@errors[:multiple_grading_periods_disabled]])
-          return false
-        end
-
-        grading_period = @context.courses.lazy.map do |course|
-          GradingPeriod.for(course).find_by(id: params[:grading_period_id])
-        end.detect(&:present?)
-      else
-        unless multiple_grading_periods?
-          render_create_errors([@@errors[:multiple_grading_periods_disabled]])
-          return false
-        end
-
-        grading_period = GradingPeriod.for(@context).find_by(id: params[:grading_period_id])
+      sis_context = @context.is_a?(Course) ? @context : @domain_root_account
+      unless check_sis_permissions(sis_context)
+        render_create_errors([@@errors[:insufficient_sis_permissions]])
+        return false
       end
 
-      unless grading_period
-        render(:json => {error: "invalid grading_period_id"}, :status => :bad_request)
-        return
+      if params[:sis_user_id].present?
+        pseudonyms = @domain_root_account.pseudonyms.where(sis_user_id: params[:sis_user_id])
+        if value_to_boolean(params[:created_for_sis_id])
+          enrollments = enrollments.where(sis_pseudonym: pseudonyms)
+        else
+          enrollments = enrollments.where(user_id: pseudonyms.pluck(:user_id))
+        end
       end
+
+      if params[:sis_section_id].present?
+        sections = @domain_root_account.course_sections.where(sis_source_id: params[:sis_section_id])
+        enrollments = enrollments.where(course_section_id: sections.pluck(:id))
+      end
+
+      if params[:sis_account_id].present?
+        accounts = @domain_root_account.all_accounts.where(sis_source_id: params[:sis_account_id])
+        courses = @domain_root_account.all_courses.where(account_id: accounts.pluck(:id))
+        enrollments = enrollments.where(course_id: courses.pluck(:id))
+      end
+
+      if params[:sis_course_id].present?
+        courses = @domain_root_account.all_courses.where(sis_source_id: params[:sis_course_id])
+        enrollments = enrollments.where(course_id: courses.pluck(:id))
+      end
+
+      if params[:grading_period_id].present?
+        if @context.is_a? User
+          grading_period = @context.courses.lazy.map do |course|
+            GradingPeriod.for(course).find_by(id: params[:grading_period_id])
+          end.detect(&:present?)
+        else
+          grading_period = GradingPeriod.for(@context).find_by(id: params[:grading_period_id])
+        end
+
+        unless grading_period
+          render(:json => {error: "invalid grading_period_id"}, :status => :bad_request)
+          return
+        end
+      end
+
+      enrollments = Api.paginate(
+        enrollments,
+        self, send("api_v1_#{endpoint_scope}_enrollments_url"))
+
+      ActiveRecord::Associations::Preloader.new.preload(enrollments, [:user, :course, :course_section, :root_account, :sis_pseudonym])
+
+      include_group_ids = Array(params[:include]).include?("group_ids")
+      includes = [:user] + Array(params[:include])
+      user_json_preloads(enrollments.map(&:user), false, {group_memberships: include_group_ids})
+
+      render :json => enrollments.map { |e|
+        enrollment_json(e, @current_user, session, includes,
+                        grading_period: grading_period)
+      }
     end
-
-    enrollments = Api.paginate(
-      enrollments,
-      self, send("api_v1_#{endpoint_scope}_enrollments_url"))
-
-    ActiveRecord::Associations::Preloader.new.preload(enrollments, [:user, :course, :course_section])
-
-    include_group_ids = Array(params[:include]).include?("group_ids")
-    includes = [:user] + Array(params[:include])
-    user_json_preloads(enrollments.map(&:user), false, {group_memberships: include_group_ids})
-
-    render :json => enrollments.map { |e|
-      enrollment_json(e, @current_user, session, includes,
-                      grading_period: grading_period)
-    }
   end
 
   # @API Enrollment by ID
@@ -407,9 +488,11 @@ class EnrollmentsApiController < ApplicationController
   #  The ID of the enrollment object
   # @returns Enrollment
   def show
-    enrollment = @context.all_enrollments.find(params[:id])
-    if enrollment.user_id == @current_user.id || authorized_action(@context, @current_user, :read_roster)
-      render :json => enrollment_json(enrollment, @current_user, session)
+    Shackles.activate(:slave) do
+      enrollment = @context.all_enrollments.find(params[:id])
+      if enrollment.user_id == @current_user.id || authorized_action(@context, @current_user, :read_roster)
+        render :json => enrollment_json(enrollment, @current_user, session)
+      end
     end
   end
 
@@ -541,7 +624,7 @@ class EnrollmentsApiController < ApplicationController
     end
     params[:enrollment][:course_section_id] = @section.id if @section.present?
     if params[:enrollment][:course_section_id].present?
-      @section = @context.course_sections.active.find params[:enrollment].delete(:course_section_id)
+      @section = api_find(@context.course_sections.active, params[:enrollment].delete(:course_section_id))
       params[:enrollment][:section] = @section
     end
     api_user_id = params[:enrollment].delete(:user_id)
@@ -550,7 +633,7 @@ class EnrollmentsApiController < ApplicationController
 
     if @context.concluded?
       # allow moving users already in the course to open sections
-      unless @section && user.enrollments.where(course_id: @context).exists? && !@section.concluded?
+      unless @section && user.enrollments.shard(@context.shard).where(course_id: @context).exists? && !@section.concluded?
         return render_create_errors([@@errors[:concluded_course]])
       end
     end
@@ -558,7 +641,10 @@ class EnrollmentsApiController < ApplicationController
     params[:enrollment][:limit_privileges_to_course_section] = value_to_boolean(params[:enrollment][:limit_privileges_to_course_section]) if params[:enrollment].has_key?(:limit_privileges_to_course_section)
     params[:enrollment].slice!(:enrollment_state, :section, :limit_privileges_to_course_section, :associated_user_id, :role, :start_at, :end_at, :self_enrolled, :no_notify)
 
-    @enrollment = @context.enroll_user(user, type, params[:enrollment].merge(:allow_multiple_enrollments => true))
+    DueDateCacher.with_executing_user(@current_user) do
+      @enrollment = @context.enroll_user(user, type, params[:enrollment].merge(:allow_multiple_enrollments => true))
+    end
+
     @enrollment.valid? ?
       render(:json => enrollment_json(@enrollment, @current_user, session)) :
       render(:json => @enrollment.errors, :status => :bad_request)
@@ -582,10 +668,13 @@ class EnrollmentsApiController < ApplicationController
     @current_user.validation_root_account = @domain_root_account
     @current_user.require_self_enrollment_code = true
     @current_user.self_enrollment_code = code
-    if @current_user.save
-      render(json: enrollment_json(@current_user.self_enrollment, @current_user, session))
-    else
-      render(json: {user: @current_user.errors}, status: :bad_request)
+
+    DueDateCacher.with_executing_user(@current_user) do
+      if @current_user.save
+        render(json: enrollment_json(@current_user.self_enrollment, @current_user, session))
+      else
+        render(json: {user: @current_user.errors}, status: :bad_request)
+      end
     end
   end
 
@@ -639,6 +728,57 @@ class EnrollmentsApiController < ApplicationController
     end
   end
 
+  # @API Accept Course Invitation
+  # accepts a pending course invitation for the current user
+  #
+  # @example_request
+  #   curl https://<canvas>/api/v1/courses/<course_id>/enrollments/:id/accept \
+  #     -X POST \
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @example_response
+  #   {
+  #     "success": true
+  #   }
+  def accept
+    @enrollment = @context.enrollments.find(params[:id])
+    return render_unauthorized_action unless @current_user && @enrollment.user == @current_user
+    return render(json: {success: true}) if @enrollment.active?
+    return render(json: {error: 'membership not activated'}, status: :bad_request) if @enrollment.inactive?
+    if @enrollment.rejected?
+      @enrollment.workflow_state = 'invited'
+      @enrollment.save_without_broadcasting
+    end
+    return render(json: {error: 'self enroll'}, status: :bad_request) if @enrollment.self_enrolled?
+    return render(json: {error: 'no current invitation'}, status: :bad_request) unless @enrollment.invited?
+    @enrollment.accept!
+    render json: {success: true}
+  end
+
+  # @API Reject Course Invitation
+  # rejects a pending course invitation for the current user
+  #
+  # @example_request
+  #   curl https://<canvas>/api/v1/courses/<course_id>/enrollments/:id/reject \
+  #     -X POST \
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @example_response
+  #   {
+  #     "success": true
+  #   }
+  def reject
+    @enrollment = @context.enrollments.find(params[:id])
+    return render_unauthorized_action unless @current_user && @enrollment.user == @current_user
+    return render(json: {success: true}) if @enrollment.rejected?
+    return render(json: {error: 'membership not activated'}, status: :bad_request) if @enrollment.inactive?
+    return render(json: {error: 'self enroll'}, status: :bad_request) if @enrollment.self_enrolled?
+    return render(json: {error: 'no current invitation'}, status: :bad_request) unless @enrollment.invited?
+    @enrollment.reject!
+    render json: {success: true}
+  end
+
+
   # @API Re-activate an enrollment
   # Activates an inactive enrollment
   #
@@ -663,6 +803,26 @@ class EnrollmentsApiController < ApplicationController
       render :json => enrollment_json(@enrollment, @current_user, session)
     else
       render :json => @enrollment.errors, :status => :bad_request
+    end
+  end
+
+  # @API Adds last attended date to student enrollment in course
+  #
+  # @example_request
+  #   curl https://<canvas>/api/v1/courses/:course_id/user/:user_id/last_attended"
+  #     -X PUT => date="Thu%20Dec%2021%202017%2000:00:00%20GMT-0700%20(MST)
+  #
+  #
+  # @returns Enrollment
+  def last_attended
+    return unless authorized_action(@context, @current_user, [:view_all_grades, :manage_grades])
+    date = Time.zone.parse(params[:date])
+    if date
+      enrollments = Enrollment.where(:course_id => params[:course_id], :user_id => params[:user_id])
+      enrollments.update_all(last_attended_at: date)
+      render :json => {:date => date}
+    else
+      render :json => { :message => 'Invalid date time input' }, :status => :bad_request
     end
   end
 
@@ -705,13 +865,14 @@ class EnrollmentsApiController < ApplicationController
       if params[:state].present?
         enrollments = user.enrollments.where(enrollment_index_conditions(true))
       else
-        enrollments = user.enrollments.current_and_invited.where(enrollment_index_conditions)
+        enrollments = user.enrollments.current_and_invited.where(enrollment_index_conditions).
+            joins(:enrollment_state).where("enrollment_states.state<>'completed'")
       end
     else
       is_approved_parent = user.grants_right?(@current_user, :read_as_parent)
       # otherwise check for read_roster rights on all of the requested
       # user's accounts
-      approved_accounts = user.associated_root_accounts.inject([]) do |accounts, ra|
+      approved_accounts = user.associated_root_accounts.shard(user).inject([]) do |accounts, ra|
         accounts << ra.id if is_approved_parent || ra.grants_right?(@current_user, session, :read_roster)
         accounts
       end
@@ -726,7 +887,13 @@ class EnrollmentsApiController < ApplicationController
       # by default, return active and invited courses. don't use the existing
       # current_and_invited_enrollments scope because it won't return enrollments
       # on unpublished courses.
-      enrollments = enrollments.where(workflow_state: %w{active invited}) unless params[:state].present?
+      enrollments = enrollments.where(workflow_state: %w{active invited}) if params[:state].blank?
+    end
+
+    terms = @domain_root_account.enrollment_terms.active
+    if params[:enrollment_term_id]
+      term = api_find(terms, params[:enrollment_term_id])
+      enrollments = enrollments.joins(:course).where(courses: {enrollment_term_id: term})
     end
 
     @shard_scope = user
@@ -794,6 +961,6 @@ class EnrollmentsApiController < ApplicationController
   end
 
   def render_create_errors(errors)
-    render json: {message: errors.join(', ')}, status: 403
+    render json: {message: errors.join(', ')}, status: :bad_request
   end
 end

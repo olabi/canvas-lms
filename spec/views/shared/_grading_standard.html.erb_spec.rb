@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../spec_helper'
 require_relative '../views_helper'
 
@@ -95,5 +112,34 @@ describe '/shared/_grading_standard' do
 
     expect(doc.css('.grading_standard_row:not(.blank)').length).to eq len
   end
-end
 
+  it 'screenreader text contains contextual label for editing the grading standard' do
+    render partial: 'shared/grading_standard', object: grading_standard, locals: {read_only: false}
+    label = doc.css('.edit_grading_standard_link')[0]['aria-label']
+    expect(label).to eq 'Edit Grading Scheme My Grading Standard'
+  end
+
+  it 'screenreader text contains contextual label for removing the grading standard' do
+    render partial: 'shared/grading_standard', object: grading_standard, locals: {read_only: false}
+    label = doc.css('.remove_grading_standard_link')[0]['aria-label']
+    expect(label).to eq 'Remove Grading Scheme My Grading Standard'
+  end
+
+  it 'screenreader text contains contextual label for inserting a grading standard row at the top' do
+    render partial: 'shared/grading_standard', object: grading_standard, locals: {read_only: false}
+    label = doc.css('.insert_grading_standard_link')[0]['aria-label']
+    expect(label).to eq 'insert above A'
+  end
+
+  it 'screenreader text contains contextual label for inserting a grading standard row' do
+    render partial: 'shared/grading_standard', object: grading_standard, locals: {read_only: false}
+    label = doc.css('.insert_grading_standard_link')[1]['aria-label']
+    expect(label).to eq 'insert below A'
+  end
+
+  it 'screenreader text contains contextual label for removing a grading standard row' do
+    render partial: 'shared/grading_standard', object: grading_standard, locals: {read_only: false}
+    label = doc.css('.delete_row_link')[0]['aria-label']
+    expect(label).to eq 'Remove row A'
+  end
+end

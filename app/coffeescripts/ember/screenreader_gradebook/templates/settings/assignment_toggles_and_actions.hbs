@@ -51,7 +51,21 @@
       {{#t "show_notes"}}Show Notes in Student Info{{/t}}
       </label>
     </div>
-    {{#unless groupsAreWeighted}}
+    {{#if finalGradeOverrideEnabled}}
+      <div class="checkbox">
+        <label class="checkbox">
+        {{
+          input
+          type="checkbox"
+          id="allow_final_grade_override"
+          name="allow_final_grade_override"
+          checked=allowFinalGradeOverride
+        }}
+        {{#t}}Allow Final Grade Override{{/t}}
+        </label>
+      </div>
+    {{/if}}
+    {{#unless gradesAreWeighted}}
       <div class="checkbox">
         <label class="checkbox">
         {{
@@ -98,13 +112,13 @@
       <div>
         {{#if publishToSisEnabled}}
           <a href="{{ unbound publishToSisURL }}">
-            {{#t "sis_export"}}Publish grades to SIS{{/t}}
+            {{#t}}Sync grades to SIS{{/t}}
           </a>
         {{/if}}
       </div>
       <div>
         <a href="{{ unbound gradingHistoryUrl }}">
-          {{#t 'grading_history'}}View Grading History{{/t}}
+          {{#t 'grading_history'}}View Gradebook History{{/t}}
         </a>
       </div>
     </div>

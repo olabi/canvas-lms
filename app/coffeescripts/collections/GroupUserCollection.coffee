@@ -1,8 +1,25 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!GroupUserCollection'
   'jquery'
-  'compiled/collections/PaginatedCollection'
-  'compiled/models/GroupUser'
+  '../collections/PaginatedCollection'
+  '../models/GroupUser'
   'str/htmlEscape'
 ], (I18n, $, PaginatedCollection, GroupUser, h) ->
 
@@ -12,9 +29,20 @@ define [
 
     @optionProperty 'group'
     @optionProperty 'category'
+    @optionProperty 'markInactiveStudents'
 
     url: ->
-      @url = "/api/v1/groups/#{@group.id}/users?per_page=50&include[]=sections&exclude[]=pseudonym"
+      url_base = "/api/v1/groups/#{@group.id}/users?"
+      params = {
+        per_page: 50
+        include: ['sections', 'group_submissions']
+        exclude: ['pseudonym']
+      }
+
+      if @markInactiveStudents
+        params.include.push('active_status')
+
+      url_base + $.param(params)
 
     initialize: (models) ->
       super

@@ -1,4 +1,20 @@
 # encoding: utf-8
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/outcome_common')
@@ -47,6 +63,7 @@ describe "account admin outcomes" do
     end
 
     it "should import state standards to course groups and all nested outcomes", priority: "2", test_id: 56584 do
+      skip_if_safari(:alert)
       import_state_standards_to_account(state_outcome)
       el1 = fj(".outcome-level:first .outcome-group .ellipsis")
       el2 = fj(".outcome-level:last .outcome-link .ellipsis")
@@ -55,6 +72,7 @@ describe "account admin outcomes" do
     end
 
     it "should import a state standard into account level", priority: "2", test_id: 56017 do
+      skip_if_safari(:alert)
       outcome = ['NGA Center/CCSSO']
       import_state_standards_to_account(outcome)
       el = fj('.outcome-level:first .outcome-group .ellipsis')
@@ -62,6 +80,7 @@ describe "account admin outcomes" do
     end
 
     it "should import account outcomes into course", priority: "1", test_id: 56585 do
+      skip_if_safari(:alert)
       import_state_standards_to_account(state_outcome)
       outcome = ['Default Account', 'Something else']
       goto_state_outcomes("/courses/#{@course.id}/outcomes")
@@ -70,6 +89,7 @@ describe "account admin outcomes" do
     end
 
     it "should delete state standards outcome groups from course listing", priority: "2", test_id: 250009 do
+      skip_if_safari(:alert)
       import_state_standards_to_account(state_outcome)
       f(".ellipsis[title='Something else']").click
       wait_for_ajaximations

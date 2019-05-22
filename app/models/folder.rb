@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,6 +19,8 @@
 require 'set'
 
 class Folder < ActiveRecord::Base
+  self.ignored_columns = %i[last_lock_at last_unlock_at]
+
   def self.name_order_by_clause(table = nil)
     col = table ? "#{table}.name" : 'name'
     best_unicode_collation_key(col)
@@ -42,7 +44,6 @@ class Folder < ActiveRecord::Base
   acts_as_list :scope => :parent_folder
 
   before_save :infer_full_name
-  before_save :default_values
   after_save :update_sub_folders
   after_destroy :clean_up_children
   after_save :touch_context
@@ -132,11 +133,6 @@ class Folder < ActiveRecord::Base
       names << folder.name if folder
     end
     names.reverse.join("/")
-  end
-
-  def default_values
-    self.last_unlock_at = self.unlock_at if self.unlock_at
-    self.last_lock_at = self.lock_at if self.lock_at
   end
 
   def infer_hidden_state
@@ -308,7 +304,7 @@ class Folder < ActiveRecord::Base
     context.shard.activate do
       Folder.unique_constraint_retry do
         root_folder = context.folders.active.where(parent_folder_id: nil, name: name).first
-        root_folder ||= context.folders.create!(:name => name, :full_name => name, :workflow_state => "visible")
+        root_folder ||= Shackles.activate(:master) {context.folders.create!(:name => name, :full_name => name, :workflow_state => "visible")}
         root_folders = [root_folder]
       end
     end
@@ -368,20 +364,6 @@ class Folder < ActiveRecord::Base
     folder
   end
 
-  def self.find_folder(context, folder_id)
-    if folder_id
-      current_folder = context.folders.active.find(folder_id)
-    else
-      # TODO i18n
-      if context.is_a? Course
-        t :course_content_folder_name, 'course content'
-        current_folder = context.folders.active.where(full_name: "course content").first
-      elsif @context.is_a? User
-        current_folder = context.folders.active.where(full_name: MY_FILES_FOLDER_NAME).first
-      end
-    end
-  end
-
   def self.find_attachment_in_context_with_path(context, path)
     components = path.split('/')
     component = components.shift
@@ -398,7 +380,8 @@ class Folder < ActiveRecord::Base
     component = components.shift
     if components.empty?
       # find the attachment
-      return visible_file_attachments.to_a.find {|a| a.matches_filename?(component) }
+      atts = visible_file_attachments.to_a
+      return atts.detect {|a| Attachment.matches_name?(a.display_name, component) } || atts.detect {|a| Attachment.matches_name?(a.filename, component) }
     else
       # find a subfolder and recurse (yes, we can have multiple sub-folders w/ the same name)
       active_sub_folders.where(name: component).each do |folder|

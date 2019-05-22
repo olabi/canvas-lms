@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -72,18 +72,20 @@ class ContentParticipationCount < ActiveRecord::Base
           assignments.context_type = ? AND
           assignments.context_id = ? AND
           assignments.workflow_state NOT IN ('deleted', 'unpublished') AND
+          assignments.submission_types != 'not_graded' AND
           (assignments.muted IS NULL OR NOT assignments.muted)
         SQL
-        subs_with_grades = Submission.graded.
+        subs_with_grades = Submission.active.graded.
             joins(:assignment).
             where(submission_conditions).
             where("submissions.score IS NOT NULL").
             pluck(:id)
-        subs_with_comments = Submission.
+        subs_with_comments = Submission.active.
             joins(:assignment, :submission_comments).
             where(submission_conditions).
             where(<<-SQL, user).pluck(:id)
               (submission_comments.hidden IS NULL OR NOT submission_comments.hidden)
+              AND NOT submission_comments.draft
               AND submission_comments.provisional_grade_id IS NULL
               AND submission_comments.author_id <> ?
             SQL
@@ -108,7 +110,7 @@ class ContentParticipationCount < ActiveRecord::Base
   def refresh_unread_count
     transaction do
       self.unread_count = ContentParticipationCount.unread_count_for(content_type, context, user)
-      self.save if self.changed?
+      Shackles.activate(:master) {self.save} if self.changed?
     end
   end
 
@@ -117,6 +119,7 @@ class ContentParticipationCount < ActiveRecord::Base
   # - unlocking discussions/announcements from a module
   # - unmuting an assignment with submissions
   # - deleting a discussion/announcement/assignment/submission
+  # - marking a previously graded assignment as not_graded
   def ttl
     Setting.get('content_participation_count_ttl', 30.minutes).to_i
   end

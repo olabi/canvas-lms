@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -15,10 +15,9 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-require 'dynamic_form'
 
 class PluginsController < ApplicationController
-  before_filter :require_setting_site_admin, :set_site_admin_context, :set_navigation
+  before_action :require_setting_site_admin, :set_site_admin_context, :set_navigation
 
   def index
     @plugins = Canvas::Plugin.all
@@ -39,10 +38,10 @@ class PluginsController < ApplicationController
   def update
     if find_plugin_setting
       @plugin_setting.disabled = value_to_boolean(params[:plugin_setting][:disabled]) if params[:plugin_setting] && !params[:plugin_setting][:disabled].nil?
-      @plugin_setting.posted_settings = params[:settings] || {} unless @plugin_setting.disabled
+      @plugin_setting.posted_settings = params[:settings]&.to_unsafe_h || {} unless @plugin_setting.disabled
       if @plugin_setting.save
         flash[:notice] = t('notices.settings_updated', "Plugin settings successfully updated.")
-        redirect_to plugin_path(@plugin.id, :all => params[:all])
+        redirect_to plugin_path(@plugin.id)
       else
         @settings = @plugin.settings
         flash[:error] = t('errors.setting_update_failed', "There was an error saving the plugin settings.")

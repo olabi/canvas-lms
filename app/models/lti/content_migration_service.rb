@@ -1,4 +1,5 @@
-# Copyright (C) 2016 Instructure, Inc.
+#
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,9 +35,13 @@ module Lti
       exports = {}
 
       configured_tools.each do |tool|
-        migrator = Lti::ContentMigrationService::Exporter.new(course, tool, options)
-        migrator.start!
-        exports["lti_#{tool.id}"] = migrator if migrator.successfully_started?
+        begin
+          migrator = Lti::ContentMigrationService::Exporter.new(course, tool, options)
+          migrator.start!
+          exports["lti_#{tool.id}"] = migrator if migrator.successfully_started?
+        rescue => e
+          Canvas::Errors.capture_exception(:external_content_migration, e)
+        end
       end
 
       exports

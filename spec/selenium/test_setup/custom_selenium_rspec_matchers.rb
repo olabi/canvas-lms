@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # assert the presence (or absence) of a css class on an element.
 # will return as soon as the expectation is met, e.g.
 #
@@ -77,30 +94,61 @@ RSpec::Matchers.define :have_value do |value_attribute|
   end
 end
 
-# assert the presence (or absence) of a value within an element's
-# attribute. will return as soon as the expectation is met, e.g.
+# assert the presence (or absence) of an attribute, optionally asserting
+# its exact value or against a regex. will return as soon as the
+# expectation is met, e.g.
 #
+#   # must have something set
+#   expect(f('.fc-event .fc-time')).to have_attribute('data-start')
+#
+#   # must have a particular value set
 #   expect(f('.fc-event .fc-time')).to have_attribute('data-start', '11:45')
 #
-RSpec::Matchers.define :have_attribute do |attribute, attribute_value|
+#   # must match a regex
+#   expect(f('.fc-event .fc-time')).to have_attribute('data-start', /\A\d\d?:\d\d\z/)
+#
+#   # must not have anything set
+#   expect(f('.fc-event .fc-time')).not_to have_attribute('data-start')
+#
+#   # must not have this particular value set (can be a different value, or no value)
+#   expect(f('.fc-event .fc-time')).not_to have_attribute('data-start', '11:45')
+#
+#   # must not match a regex
+#   expect(f('.fc-event .fc-time')).not_to have_attribute('data-start', /\A\d\d?:\d\d\z/)
+#
+RSpec::Matchers.define :have_attribute do |*args|
+  attribute = args.first
+  expected_specified = args.size > 1
+  expected = args[1]
+
+  attribute_matcher = -> (actual) do
+    if expected_specified
+      actual.respond_to?(:match) ? actual.match(expected) : actual == expected
+    else
+      !actual.nil?
+    end
+  end
+
   match do |element|
     wait_for(method: :have_attribute) do
-      element.attribute(attribute).match(attribute_value)
+      attribute_matcher.call(element.attribute(attribute))
     end
   end
 
   match_when_negated do |element|
     wait_for(method: :have_attribute) do
-      !element.attribute(attribute).match(attribute_value)
+      !attribute_matcher.call(element.attribute(attribute))
     end
   end
 
   failure_message do |element|
-    "expected #{element.inspect}'s #{attribute} attribute to have value of #{attribute_value}, actual #{attribute} attribute value: #{element.attribute("#{attribute.to_s}")}"
+    "expected #{element.inspect}'s #{attribute} attribute to have value of #{expected || 'not nil'}, "\
+      "actual #{attribute} attribute value: #{element.attribute(attribute.to_s)}"
   end
 
   failure_message_when_negated do |element|
-    "expected #{element.inspect}'s #{attribute} attribute to NOT have value of #{attribute_value}, actual #{attribute} attribute type: #{element.attribute("#{attribute.to_s}")}"
+    "expected #{element.inspect}'s #{attribute} attribute to NOT have value of #{expected || 'not nil'}, "\
+      "actual #{attribute} attribute type: #{element.attribute(attribute.to_s)}"
   end
 end
 
@@ -195,8 +243,56 @@ RSpec::Matchers.define :contain_link do |text|
   end
 end
 
+# assert the presence (or absence) of a link with certain partial text inside the
+# element. will return as soon as the expectation is met, e.g.
+#
+# given <a href="...">Click Here/a>
+#   expect(f('#weird-ui')).to contain_link_partial_text("Here")
+#   f('#hide-things').click
+#   expect(f('#weird-ui')).not_to contain_link_partial_text("Here")
+#
+RSpec::Matchers.define :contain_link_partial_text do |text|
+  match do |element|
+    begin
+      # rely on implicit_wait
+      flnpt(text, element)
+      true
+    rescue Selenium::WebDriver::Error::NoSuchElementError
+      false
+    end
+  end
+
+  match_when_negated do |element|
+    wait_for_no_such_element(method: :contain_link) { flnpt(text, element) }
+  end
+end
+
+# assert whether or not an element meets the desired contrast ratio.
+# will wait up to TIMEOUTS[:finder] seconds
+require_relative '../helpers/color_common'
+RSpec::Matchers.define :meet_contrast_ratio do |ratio = 3.5|
+  match do |element|
+    wait_for(method: :be_displayed) do
+      LuminosityContrast.ratio(
+        ColorCommon.rgba_to_hex(element.style('background-color')),
+        ColorCommon.rgba_to_hex(element.style('color'))
+      ) >= ratio
+    end
+  end
+
+  match_when_negated do |element|
+    wait_for(method: :be_displayed) do
+      LuminosityContrast.ratio(
+        ColorCommon.rgba_to_hex(element.style('background-color')),
+        ColorCommon.rgba_to_hex(element.style('color'))
+      ) < ratio
+    end
+  end
+end
+
+
 # assert whether or not an element is displayed. will wait up to
-# IMPLICIT_WAIT_TIMEOUT seconds
+# TIMEOUTS[:finder] seconds
 RSpec::Matchers.define :be_displayed do
   match do |element|
     wait_for(method: :be_displayed) { element.displayed? }
@@ -207,7 +303,7 @@ RSpec::Matchers.define :be_displayed do
   end
 end
 
-# assert the size of the collection. will wait up to IMPLICIT_WAIT_TIMEOUT
+# assert the size of the collection. will wait up to TIMEOUTS[:finder]
 # seconds, and will reload the collection if it can (i.e. if it's the
 # result of a ff/ffj call)
 RSpec::Matchers.define :have_size do |size|
@@ -240,6 +336,19 @@ RSpec::Matchers.define :become do |size|
     raise "The `become` matcher expects a block, e.g. `expect { actual }.to become(value)`, NOT `expect(actual).to become(value)`" unless actual.is_a? Proc
     wait_for(method: :become) do
       disable_implicit_wait { actual.call == expected }
+    end
+  end
+end
+
+RSpec::Matchers.define :become_between do |min, max|
+  def supports_block_expectations?
+    true
+  end
+
+  match do |actual|
+    raise "The `become` matcher expects a block, e.g. `expect { actual }.to become(value)`, NOT `expect(actual).to become(value)`" unless actual.is_a? Proc
+    wait_for(method: :become) do
+      disable_implicit_wait { a = actual.call; min < a && a < max }
     end
   end
 end

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module LocaleSelection
   def infer_locale(options = {})
     context = options[:context]
@@ -5,6 +22,7 @@ module LocaleSelection
     root_account = options[:root_account]
     accept_language = options[:accept_language]
     session_locale = options[:session_locale]
+    ignore_browser_locale = options[:ignore_browser_locale]
 
     # groups cheat and set the context to be the group after get_context runs
     # but before set_locale runs, but we want to do locale lookup based on the
@@ -21,12 +39,14 @@ module LocaleSelection
       -> { context.default_locale(true) if context.try(:is_a?, Account) },
       -> { root_account.try(:default_locale) },
       -> {
-        if accept_language && locale = infer_browser_locale(accept_language, I18n.available_locales)
-          user.update_attribute(:browser_locale, locale) if user && user.browser_locale != locale
+        if accept_language && locale = infer_browser_locale(accept_language, LocaleSelection.locales_with_aliases)
+          Shackles.activate(:master) do
+            user.update_attribute(:browser_locale, locale) if user && user.browser_locale != locale
+          end
           locale
         end
          },
-      -> { user.try(:browser_locale) },
+      -> { !ignore_browser_locale && user.try(:browser_locale) },
       -> { I18n.default_locale.to_s }
           ]
 
@@ -43,9 +63,9 @@ module LocaleSelection
   SEPARATOR = /\s*,\s*/
   ACCEPT_LANGUAGE = /\A#{LANGUAGE_RANGE}(#{SEPARATOR}#{LANGUAGE_RANGE})*\z/
 
-  def infer_browser_locale(accept_language, supported_locales)
+  def infer_browser_locale(accept_language, locales_with_aliases)
     return nil unless accept_language =~ ACCEPT_LANGUAGE
-    supported_locales = supported_locales.map(&:to_s)
+    supported_locales = locales_with_aliases.keys
 
     ranges = accept_language.downcase.split(SEPARATOR).map{ |range|
       quality = (range =~ QUALITY_VALUE) ? $1.to_f : 1
@@ -79,7 +99,11 @@ module LocaleSelection
     #     and canvas is localized in 'en-US', 'en-GB-oy' and 'en-CA-eh'
     #   then i should get 'en-US'
 
-    best_locales.first && best_locales.first.first
+    result = best_locales.first&.first
+
+    # translate back to an actual locale, if it happened to be an alias
+    result = locales_with_aliases[result] if locales_with_aliases[result]
+    result
   end
 
   # gives you a hash of localized locales, e.g. {"en" => "English", "es" => "Español" }
@@ -105,5 +129,17 @@ module LocaleSelection
   def crowdsourced_locales
     @crowdsourced_locales ||= I18n.available_locales.select{ |locale| I18n.send(:t, :crowdsourced, :locale => locale) == true }
   end
-end
 
+  def self.locales_with_aliases
+    @locales_with_aliases ||= begin
+      locales = I18n.available_locales.map { |l| [l.to_s, nil] }.to_h
+      locales.keys.each do |locale|
+        aliases = Array.wrap(I18n.send(:t, :aliases, locale: locale, default: nil))
+        aliases.each do |a|
+          locales[a] = locale
+        end
+      end
+      locales
+    end
+  end
+end

@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 //============================
@@ -5,18 +23,13 @@
 //============================
 $ic-wizard-color-dark-neutral: $ic-color-dark;
 
-.ReactModal__Overlay.CourseWizard__modalOverlay {
-  transition: none;
-  background: transparent;
-}
-
 .ic-wizard-box {
   transition: all 1s $ic-transition;
   width: 100%;
   height: 100%;
   background: $ic-wizard-color-dark-neutral;
   position: fixed;
-  bottom: 0; left: 0;
+  bottom: 0; #{direction(left)}: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -26,7 +39,7 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   opacity: 0;
   @include breakpoint(desktop) { flex-direction: row; }
 
-  .ReactModal__Overlay.ReactModal__Overlay--after-open & {
+  &.ic-wizard-box--is-open {
     transform: translate3d(0,0,0);
     opacity: 1;
   }
@@ -55,11 +68,11 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
 .ic-wizard-box__logo-link {
   background: url("/images/canvas-logo.svg") no-repeat $ic-sp+4 50%;
   background-size: 114px 27px;
-  border-left: 4px solid transparent;
+  border-#{direction(left)}: 4px solid transparent;
   flex: 0 0 36px;
 
   &:hover, &:focus {
-    border-color: $ic-brand-primary;
+    border-color: var(--ic-brand-primary);
     background-color: rgba($ic-color-light, 0.1);
   }
   @include breakpoint(mini-tablet) {
@@ -104,15 +117,15 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   display: flex;
   align-items: center;
   user-select: none;
-  padding: 0 $ic-sp 0 $ic-sp*4;
-  border-left: 4px solid transparent;
+  padding: direction-sides(0 $ic-sp 0 $ic-sp*4);
+  border-#{direction(left)}: 4px solid transparent;
   background: url("/images/wizard-todo-unchecked.svg") no-repeat $ic-sp 50%;
   background-size: 18px 18px;
 
   @if $use_high_contrast {
     color: $ic-color-light;
     &:hover, &:focus, &.ic-wizard-box__content-trigger--active {
-      background-color: $ic-brand-primary;
+      background-color: var(--ic-brand-primary);
       color: canvas-light;
     }
   }
@@ -127,7 +140,7 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   @include breakpoint(desktop) { @include fontSize(15px); }
 
   &:hover, &:focus, &.ic-wizard-box__content-trigger--active {
-    border-left-color: $ic-brand-primary;
+    border-#{direction(left)}-color: var(--ic-brand-primary);
     text-decoration: none;
     color: $ic-color-light;
   }
@@ -154,7 +167,7 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
 }
 
 .ic-wizard-box__close {
-  text-align: right;
+  text-align: direction(right);
 }
 
 .ic-wizard-box__headline {
@@ -213,9 +226,9 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
     width: 72px; height: 72px;
     border-radius: 100%;
     position: absolute;
-    left: 50%; top: -36px;
+    #{direction(left)}: 50%; top: -36px;
     z-index: 1;
-    margin-left: -36px;
+    margin-#{direction(left)}: -36px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -245,8 +258,8 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
 
   @include breakpoint(desktop) {
     width: 120px; height: 120px;
-    top: -60px; left: 50%;
-    margin-left: -60px;
+    top: -60px; #{direction(left)}: 50%;
+    margin-#{direction(left)}: -60px;
     i[class*=icon-], i[class^=icon-] {
       &:before { font-size: $ic-sp*5; }
     }
@@ -259,7 +272,7 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   opacity: 0;
   transform: translate3d(0,50%,0);
   background: rgba($ic-color-light, 0.9);
-  padding: $ic-sp*4 $ic-sp*2 $ic-sp*2 $ic-sp*2;
+  padding: direction-sides($ic-sp*4 $ic-sp*2 $ic-sp*2 $ic-sp*2);
   box-shadow: 0 1px 4px 1px rgba(black, 0.3);
   text-align: center;
 
@@ -274,7 +287,7 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   @include breakpoint(mini-tablet) {
     border-radius: $baseBorderRadius;
   }
-  @include breakpoint(desktop) { padding: $ic-sp*7 $ic-sp*2 $ic-sp*2 $ic-sp*2; }
+  @include breakpoint(desktop) { padding: direction-sides($ic-sp*7 $ic-sp*2 $ic-sp*2 $ic-sp*2); }
 
 }
 

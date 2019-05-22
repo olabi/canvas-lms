@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'canvas_partman/partition_manager/by_date'
 require 'canvas_partman/partition_manager/by_id'
 
@@ -35,6 +52,14 @@ See CanvasPartman::Concerns::Partitioned.
       raise NotImplementedError
     end
 
+    # Check that the current partition, and n future partitions exist
+    #
+    # @param [Integer] advance
+    #   The number of partitions to check in advance
+    def partitions_created?(_advance = 1)
+      raise NotImplementedError
+    end
+
     # Prune old partitions
     #
     # @param [Integer] number_to_keep
@@ -58,12 +83,19 @@ See CanvasPartman::Concerns::Partitioned.
 
       constraint_check = generate_check_constraint(value)
 
-      execute(<<SQL)
-      CREATE TABLE #{base_class.connection.quote_table_name(partition_table)} (
-        LIKE #{base_class.quoted_table_name} INCLUDING ALL,
-        CHECK (#{constraint_check})
-      ) INHERITS (#{base_class.quoted_table_name})
+      base_class.transaction do
+        execute(<<SQL)
+        CREATE TABLE #{base_class.connection.quote_table_name(partition_table)} (
+          LIKE #{base_class.quoted_table_name} INCLUDING ALL,
+          CHECK (#{constraint_check})
+        ) INHERITS (#{base_class.quoted_table_name})
 SQL
+
+        # copy foreign keys, since INCLUDING ALL won't bring them along
+        base_class.connection.foreign_keys(base_class.table_name).each do |foreign_key|
+          base_class.connection.add_foreign_key partition_table, foreign_key.to_table, foreign_key.options.except(:name)
+        end
+      end
 
       partition_table
     end
@@ -79,7 +111,9 @@ SQL
     def drop_partition(value)
       partition_table = generate_name_for_partition(value)
 
-      base_class.connection.drop_table(partition_table)
+      base_class.transaction do
+        base_class.connection.drop_table(partition_table)
+      end
     end
 
     protected

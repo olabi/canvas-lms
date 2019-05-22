@@ -1,9 +1,28 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% cache([
-  'submission_sidebar_render',
+  'submission_sidebar_render2',
+  @current_user.id,
   @current_user_submission,
   Time.zone.utc_offset,
-  @current_user_submission.assigned_assessments.count,
-  @current_user_submission.assigned_assessments.incomplete.count
+  @assigned_assessments.count,
+  @assigned_assessments.count(&:incomplete?)
 ].cache_key) do %>
 <div class="details">
   <h3><%= t 'titles.submission', "Submission" %></h3>
@@ -15,10 +34,10 @@
     <div class="header">
       <% if @current_user_submission.has_submission? %>
         <i class="icon-check" aria-hidden="true"></i>
-        <%= t 'titles.submission_turned_in', "Turned In!" %>
+        <%= t 'titles.submission_turned_in', "Submitted!" %>
       <% else %>
         <i class="icon-x" aria-hidden="true"></i>
-        <%= t 'titles.submission_not_turned_in', "Not Turned In!" %>
+        <%= t 'titles.submission_not_turned_in', "Not Submitted!" %>
       <% end %>
     </div>
   <% end %>
@@ -52,6 +71,9 @@
             } %>
           </a>
         </div>
+        <% js_bundle 'progress_pill' %>
+        <span class="assignment_presenter_for_submission" style="display: none;"><%= AttachmentUploadStatus.upload_status(attachment) %></span>
+        <span class="react_pill_container"></span>
       <% end %>
     <% elsif @current_user_submission.submission_type == "online_quiz" %>
       <a href="<%= context_url(@assignment.context, :context_quiz_url, @assignment.quiz.id) %>" target="_new">
@@ -67,8 +89,8 @@
           <span><%= t "This assignment has been excused." %></span>
         <% else %>
           <div><%= t 'labels.grade', "Grade: %{grade} *(%{points_possible} pts possible)*", {
-            :grade => @current_user_submission.grade,
-            :points_possible => round_if_whole(@assignment.points_possible),
+            :grade => i18n_grade(@current_user_submission.grade, @assignment.grading_type),
+            :points_possible => n(round_if_whole(@assignment.points_possible)),
             :wrapper => '<span style="font-size: 0.8em;">\1</span>'
           } %></div>
           <div><%= t 'labels.graded_anonymously', "Graded Anonymously: %{value}", {
@@ -89,8 +111,8 @@
       <h4><%= t 'titles.assigned_peer_reviews', "Assigned Peer Reviews" %></h4>
 
       <ul class="unstyled_list Submission__List">
-        <li style="<%= hidden unless @current_user_submission.assigned_assessments.empty? %>"><%= t 'labels.none_assigned', "None Assigned" %></li>
-        <% @current_user_submission.assigned_assessments.each do |assessment| %>
+        <li style="<%= hidden unless @assigned_assessments.empty? %>"><%= t 'labels.none_assigned', "None Assigned" %></li>
+        <% @assigned_assessments.each do |assessment| %>
           <li><%= student_peer_review_link_for @context, @assignment, assessment %></li>
         <% end %>
       </ul>
@@ -114,7 +136,7 @@
                 </div>
               <% end %>
             </div>
-            <div class="signature" style="font-size: 0.8em; text-align: right; color: #888;">
+            <div class="signature" style="font-size: 0.8em; text-align: <%= direction('right') %>; color: #888;">
               <%= t :comment_signature, "%{author}, %{created_at}", {
                 :author => comment_author_name_for(comment),
                 :created_at => datetime_string(comment.created_at)

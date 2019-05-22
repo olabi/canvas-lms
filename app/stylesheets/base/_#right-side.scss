@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #right-side-wrapper {
   display: none;
   position: relative;
@@ -16,11 +34,19 @@
   h2, .h2 {
     @include fontSize($ic-font-size--small);
     overflow: hidden;
-    line-height: 1.2em;
     border-bottom: 1px solid $ic-border-light;
-    padding-bottom: $ic-sp / 3;
+    padding-bottom: $ic-sp / 2;
     margin: 0 0 $ic-sp / 2;
     font-weight: bold;
+  }
+  .shared-space {
+    padding-bottom: 0;
+    h2 {
+      display: inline-block;
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom-style: none;
+    }
   }
 }
 
@@ -32,34 +58,28 @@
   @include reset-list;
   margin: -($ic-sp / 2) 0 $ic-sp;
   li {
-    a{
+    a {
       @include fontSize($ic-font-size--xsmall);
-      padding-top: $ic-sp * 0.75;
-      padding-bottom: $ic-sp * 0.75;
+      padding-top: $ic-sp;
+      padding-bottom: $ic-sp;
       display: flex;
-      border-bottom: 1px solid #d6d6d6;
+
       @if $use_high_contrast {
-        text-decoration: none;
-      }
-      &:hover, &:focus {
-        b, &.more_link {
-          text-decoration: underline;
-        }
-        em, p {
-          color: #666;
-        }
-      }
-      // Not underlining on hover due to ugliness with accompanying icons
-      &:hover {
-        text-decoration: none;
-      }
+        text-decoration: underline;
+
+      &:hover,
       &:focus {
         text-decoration: underline;
+
+        @if $use_high_contrast {
+          text-decoration: none;
+        }
       }
+    }
       // this is to give todo and event icons some breathing room
       > i {
           min-width: $ic-sp * 2;
-          padding-right: $ic-sp;
+          padding-#{direction(right)}: $ic-sp;
           box-sizing: border-box;
           color: lighten( $grayDark, 15% );
       }
@@ -71,7 +91,6 @@
     // this is for things like "nothing for the next week"
     small {
       display: block;
-      font-style: italic;
       @include fontSize(13px);
     }
     b, em, p {
@@ -89,11 +108,9 @@
       }
       @else {
         color: #777;
-        text-decoration: none;
       }
     }
     .more_link {
-      font-style: italic;
       padding-top: 6px;
     }
   }
@@ -111,7 +128,7 @@
   }
   .tooltip {
     .tooltip_wrap {
-      left: -185px;
+      #{direction(left)}: -185px;
       width: 185px;
       height: 70px;
       top: 0;
@@ -119,16 +136,16 @@
       background-image: none;
     }
     .tooltip_text {
-      margin-right: 15px;
+      margin-#{direction(right)}: 15px;
       min-height: 30px;
     }
     .tooltip-carat {
       border-bottom: 7px solid transparent;
-      border-left: 14px solid #444444;
+      border-#{direction(left)}: 14px solid #444444;
       border-top: 7px solid transparent;
       display: block;
       margin-top: 12px;
-      float: right;
+      float: direction(right);
       width: 1px;
       height: 1px;
     }
@@ -145,23 +162,25 @@
 }
 
 #right-side .todo-list-header {
-  margin-top: 29px; // magic number to align with header bottom border
+  margin-top: 1.0625rem; // magic number to align with header bottom border
 }
 #right-side .right-side-list .todo-badge-wrapper {
   display: inline-block;
   vertical-align: top;
   min-width: 40px;
-  text-align: right;
-  padding-right: $ic-sp;
+  text-align: direction(right);
+  padding-#{direction(right)}: $ic-sp;
   box-sizing: border-box;
 }
 // this is the ignore x-icon on todo list
 #right-side .right-side-list .disable_item_link {
   position: absolute;
-  right: 0;
-  top: $ic-sp / 2;
+  #{direction(right)}: 0;
+  top: 0.5rem;
   z-index: 2;
   padding: 0;
+
+  @include overwrite-default-icon-size(0.75rem);
 }
 
 @mixin sidebar-logo {display: block;}

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../cc_spec_helper')
 
 require 'nokogiri'
@@ -62,7 +79,7 @@ describe "Canvas Cartridge importing" do
 
     @migration.migration_ids_to_import = {
       :copy => {
-        'assignments' => {42 => true},
+        'assignments' => {42 => true, CC::CCHelper.create_key(a) => true},
         'assignment_groups' => {
           CC::CCHelper.create_key(ag1) => true,
           CC::CCHelper.create_key(ag2) => true,
@@ -96,8 +113,8 @@ describe "Canvas Cartridge importing" do
     #import assignment
     hash = {:migration_id=>CC::CCHelper.create_key(a),
             :title=>a.title,
-            :assignment_group_migration_id=>CC::CCHelper.create_key(ag2)}
-    Importers::AssignmentImporter.import_from_migration(hash, @copy_to, @migration)
+            :assignment_group_migration_id=>CC::CCHelper.create_key(ag2)}.with_indifferent_access
+    Importers::AssignmentImporter.process_migration({'assignments' => [hash]}, @migration)
 
     ag2_2.reload
     expect(ag2_2.assignments.count).to eq 1
@@ -456,7 +473,7 @@ describe "Canvas Cartridge importing" do
     tag = mod1.add_item({:id => asmnt1.id, :type => 'assignment', :indent => 1})
     c_reqs = []
     c_reqs << {:type => 'min_score', :min_score => 5, :id => tag.id}
-    page = @copy_from.wiki.wiki_pages.create!(:title => "some page")
+    page = @copy_from.wiki_pages.create!(:title => "some page")
     tag = mod1.add_item({:id => page.id, :type => 'wiki_page'})
     c_reqs << {:type => 'must_view', :id => tag.id}
     mod1.completion_requirements = c_reqs
@@ -466,7 +483,7 @@ describe "Canvas Cartridge importing" do
     asmnt2 = @copy_to.assignments.create(:title => "some assignment")
     asmnt2.migration_id = CC::CCHelper.create_key(asmnt1)
     asmnt2.save!
-    page2 = @copy_to.wiki.wiki_pages.create(:title => "some page")
+    page2 = @copy_to.wiki_pages.create(:title => "some page")
     page2.migration_id = CC::CCHelper.create_key(page)
     page2.save!
 
@@ -557,7 +574,7 @@ describe "Canvas Cartridge importing" do
       <a href="/courses/%s/files/%s/download?wrap=1">Download (wrap) File</a>
       <a href="/courses/%s/files/%s/bogus?someattr=1">Download (wrap) File</a>
       </p>}
-    page = @copy_from.wiki.wiki_pages.create!(:title => "some page", :body => body_with_link % ([ @copy_from.id, attachment.id ] * 4))
+    page = @copy_from.wiki_pages.create!(:title => "some page", :body => body_with_link % ([ @copy_from.id, attachment.id ] * 4))
     @copy_from.save!
 
     #export to html file
@@ -572,7 +589,7 @@ describe "Canvas Cartridge importing" do
     Importers::WikiPageImporter.import_from_migration(hash, @copy_to, @migration)
     @migration.resolve_content_links!
 
-    page_2 = @copy_to.wiki.wiki_pages.where(migration_id: migration_id).first
+    page_2 = @copy_to.wiki_pages.where(migration_id: migration_id).first
     expect(page_2.title).to eq page.title
     expect(page_2.url).to eq page.url
     expect(page_2.body).to eq body_with_link % ([ @copy_to.id, attachment_import.id ] * 4)
@@ -588,7 +605,7 @@ describe "Canvas Cartridge importing" do
     att.save!
 
     media_id = "m_mystiry"
-    Attachment.any_instance.stubs(:media_object).returns(stub(:media_id => media_id))
+    allow_any_instance_of(Attachment).to receive(:media_object).and_return(double(:media_id => media_id))
 
     path = CGI.escape(att.full_path)
     body_with_links = %{<p>Watup? <strong>eh?</strong>
@@ -606,7 +623,7 @@ describe "Canvas Cartridge importing" do
     Importers::WikiPageImporter.import_from_migration(hash, @copy_to, @migration)
     @migration.resolve_content_links!
 
-    page_2 = @copy_to.wiki.wiki_pages.where(migration_id: hash[:migration_id]).first
+    page_2 = @copy_to.wiki_pages.where(migration_id: hash[:migration_id]).first
     links = Nokogiri::HTML::DocumentFragment.parse(page_2.body).css("a")
     expect(links.count).to eq 2
     expect(links.first['href']).to eq "/media_objects/#{media_id}"
@@ -615,8 +632,8 @@ describe "Canvas Cartridge importing" do
 
   it "should import wiki pages" do
     # make sure that the wiki page we're linking to in the test below exists
-    @copy_from.wiki.wiki_pages.create!(:title => "assignments", :body => "ohai")
-    @copy_to.wiki.wiki_pages.create!(:title => "assignments", :body => "ohai")
+    @copy_from.wiki_pages.create!(:title => "assignments", :body => "ohai")
+    @copy_to.wiki_pages.create!(:title => "assignments", :body => "ohai")
     mod = @copy_from.context_modules.create!(:name => "some module")
     mod2 = @copy_to.context_modules.create(:name => "some module")
     mod2.migration_id = CC::CCHelper.create_key(mod)
@@ -645,7 +662,7 @@ describe "Canvas Cartridge importing" do
         <div><img src="http://www.instructure.com/images/header-logo.png"></div>
         <div><img src="http://www.instructure.com/images/header-logo.png"></div>
       </div>}
-    page = @copy_from.wiki.wiki_pages.create!(:title => "some page", :body => body_with_link % [ @copy_from.id, @copy_from.id, @copy_from.id, @copy_from.id, @copy_from.id, mod.id, @copy_from.id, from_att.id ], :editing_roles => "teachers", :notify_of_update => true)
+    page = @copy_from.wiki_pages.create!(:title => "some page", :body => body_with_link % [ @copy_from.id, @copy_from.id, @copy_from.id, @copy_from.id, @copy_from.id, mod.id, @copy_from.id, from_att.id ], :editing_roles => "teachers", :notify_of_update => true)
     page.workflow_state = 'unpublished'
     @copy_from.save!
 
@@ -666,7 +683,7 @@ describe "Canvas Cartridge importing" do
 
     expect(ErrorReport.last.message).to match /nil wiki/
 
-    page_2 = @copy_to.wiki.wiki_pages.where(migration_id: migration_id).first
+    page_2 = @copy_to.wiki_pages.where(migration_id: migration_id).first
     expect(page_2.title).to eq page.title
     expect(page_2.url).to eq page.url
     expect(page_2.editing_roles).to eq page.editing_roles
@@ -677,7 +694,7 @@ describe "Canvas Cartridge importing" do
 
   it "should import migrate inline external tool URLs in wiki pages" do
     # make sure that the wiki page we're linking to in the test below exists
-    page = @copy_from.wiki.wiki_pages.create!(:title => "blti-link", :body => "<a href='/courses/#{@copy_from.id}/external_tools/retrieve?url=#{CGI.escape('http://www.example.com')}'>link</a>")
+    page = @copy_from.wiki_pages.create!(:title => "blti-link", :body => "<a href='/courses/#{@copy_from.id}/external_tools/retrieve?url=#{CGI.escape('http://www.example.com')}'>link</a>")
     @copy_from.save!
 
     #export to html file
@@ -690,14 +707,14 @@ describe "Canvas Cartridge importing" do
     #import into new course
     Importers::WikiPageImporter.import_from_migration(hash, @copy_to, @migration)
 
-    page_2 = @copy_to.wiki.wiki_pages.where(migration_id: migration_id).first
+    page_2 = @copy_to.wiki_pages.where(migration_id: migration_id).first
     expect(page_2.title).to eq page.title
     expect(page_2.url).to eq page.url
     expect(page_2.body).to match(/\/courses\/#{@copy_to.id}\/external_tools\/retrieve/)
   end
 
   it "should import assignments" do
-     PluginSetting.stubs(:settings_for_plugin).returns({"lock_at" => "yes",
+     allow(PluginSetting).to receive(:settings_for_plugin).and_return({"lock_at" => "yes",
                   "assignment_group" => "yes",
                   "title" => "yes",
                   "assignment_group_id" => "yes",
@@ -742,6 +759,8 @@ describe "Canvas Cartridge importing" do
     hash = @converter.parse_canvas_assignment_data(meta_doc, html_doc)
     hash = hash.with_indifferent_access
     #import
+    expect(@copy_to).to receive(:turnitin_enabled?).at_least(1).and_return(true)
+    expect(@copy_to).to receive(:vericite_enabled?).at_least(1).and_return(true)
     Importers::AssignmentImporter.import_from_migration(hash, @copy_to, @migration)
 
     asmnt_2 = @copy_to.assignments.where(migration_id: migration_id).first
@@ -849,7 +868,6 @@ XML
     expect(dt_2.title).to eq dt.title
     expect(dt_2.message).to eq body_with_link % @copy_to.id
     expect(dt_2.delayed_post_at.to_i).to eq dt.delayed_post_at.to_i
-    expect(dt_2.posted_at.to_i).to eq orig_posted_at.to_i
     expect(dt_2.type).to eq dt.type
   end
 
@@ -1107,7 +1125,7 @@ XML
     }.with_indifferent_access
 
     migration = ContentMigration.create(context: @copy_to)
-    migration.stubs(:canvas_import?).returns(true)
+    allow(migration).to receive(:canvas_import?).and_return(true)
     migration.migration_settings[:migration_ids_to_import] = {copy: {'everything' => 1}}
     Importers::CourseContentImporter.import_content(@copy_to, data, nil, migration)
 
@@ -1390,7 +1408,7 @@ XML
       migration.migration_settings[:migration_ids_to_import] = {:copy => {"everything" => 1}}
       Importers::CourseContentImporter.import_content(@copy_to, data, nil, migration)
 
-      wiki = @copy_to.wiki.wiki_pages.where(migration_id: "i642b8969dbfa332fd96ec9029e96156a").first
+      wiki = @copy_to.wiki_pages.where(migration_id: "i642b8969dbfa332fd96ec9029e96156a").first
       expect(migration.migration_issues.count).to eq 1
       warning = migration.migration_issues.first
       expect(warning.issue_type).to eq "warning"
@@ -1413,9 +1431,7 @@ describe "cc assignment extensions" do
     @migration = ContentMigration.create(:context => @course)
     @migration.migration_type = "canvas_cartridge_importer"
     @migration.migration_settings[:migration_ids_to_import] = {:copy => {}}
-    enable_cache do
-      Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
-    end
+    Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
   end
 
   it "should parse canvas data from cc extension" do
@@ -1458,9 +1474,7 @@ describe "matching question reordering" do
     @migration = ContentMigration.create(:context => @course)
     @migration.migration_type = "common_cartridge_importer"
     @migration.migration_settings[:migration_ids_to_import] = {:copy => {}}
-    enable_cache do
-      Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
-    end
+    Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
   end
 
   it "should reorder matching question answers with images if possible (and warn otherwise)" do

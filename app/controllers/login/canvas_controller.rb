@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,9 +19,10 @@
 class Login::CanvasController < ApplicationController
   include Login::Shared
 
-  before_filter :forbid_on_files_domain
-  before_filter :run_login_hooks, only: [:new, :create]
-  before_filter :fix_ms_office_redirects, only: :new
+  before_action :validate_auth_type
+  before_action :forbid_on_files_domain
+  before_action :run_login_hooks, only: [:new, :create]
+  before_action :fix_ms_office_redirects, only: :new
 
   protect_from_forgery except: :create, with: :exception
 
@@ -29,6 +30,7 @@ class Login::CanvasController < ApplicationController
     @pseudonym_session = PseudonymSession.new
     @headers = false
     flash.now[:error] = params[:message] if params[:message]
+    flash.now[:notice] = t('Your password has been changed.') if params[:password_changed] == '1'
 
     maybe_render_mobile_login
   end
@@ -59,7 +61,7 @@ class Login::CanvasController < ApplicationController
     params[:pseudonym_session][:unique_id].try(:strip!)
 
     # Try to use authlogic's built-in login approach first
-    @pseudonym_session = @domain_root_account.pseudonym_sessions.new(params[:pseudonym_session].permit(:unique_id, :password, :remember_me))
+    @pseudonym_session = @domain_root_account.pseudonym_sessions.new(params[:pseudonym_session].permit(:unique_id, :password, :remember_me).to_h)
     @pseudonym_session.remote_ip = request.remote_ip
     found = @pseudonym_session.save
 
@@ -77,13 +79,14 @@ class Login::CanvasController < ApplicationController
                     end
         next unless unique_id
 
-        pseudonym = @domain_root_account.pseudonyms.active.by_unique_id(unique_id).first
+        pseudonym = @domain_root_account.pseudonyms.for_auth_configuration(unique_id, aac)
         pseudonym ||= aac.provision_user(unique_id) if aac.jit_provisioning?
         next unless pseudonym
 
         pseudonym.instance_variable_set(:@ldap_result, res.first)
         @pseudonym_session = PseudonymSession.new(pseudonym, params[:pseudonym_session][:remember_me] == "1")
         @pseudonym_session.save
+        session[:login_aac] = aac.id
       end
     end
 
@@ -113,6 +116,9 @@ class Login::CanvasController < ApplicationController
     if found
       # Call for some cleanups that should be run when a user logs in
       user = pseudonym.login_assertions_for_user
+      session[:login_aac] ||= pseudonym.authentication_provider_id ||
+        @domain_root_account.canvas_authentication_provider&.id ||
+        @domain_root_account.authentication_providers.active.where(auth_type: 'ldap').first&.id
       successful_login(user, pseudonym)
     else
       unsuccessful_login t("Invalid username or password")
@@ -120,6 +126,10 @@ class Login::CanvasController < ApplicationController
   end
 
   protected
+
+  def validate_auth_type
+    @domain_root_account.authentication_providers.where(auth_type: params[:controller].sub(%r{^login/}, '')).active.take!
+  end
 
   def unsuccessful_login(message)
     if request.format.json?
@@ -134,7 +144,7 @@ class Login::CanvasController < ApplicationController
   def maybe_render_mobile_login(status = nil)
     if mobile_device?
       @login_handle_name = @domain_root_account.login_handle_name_with_inference
-      @login_handle_is_email = @login_handle_name == AccountAuthorizationConfig.default_login_handle_name
+      @login_handle_is_email = @login_handle_name == AuthenticationProvider.default_login_handle_name
       js_env(
         GOOGLE_ANALYTICS_KEY: Setting.get('google_analytics_key', nil),
       )

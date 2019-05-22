@@ -23,7 +23,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../../cassandra_spec_helper'
 describe "AuthenticationAudit API", type: :request do
   context "not configured" do
     before do
-      Canvas::Cassandra::DatabaseBuilder.stubs(:configured?).with('auditors').returns(false)
+      allow(Canvas::Cassandra::DatabaseBuilder).to receive(:configured?).with('auditors').and_return(false)
       site_admin_user(user: user_with_pseudonym(account: Account.site_admin))
     end
 
@@ -39,7 +39,7 @@ describe "AuthenticationAudit API", type: :request do
     before do
       Setting.set('enable_page_views', 'cassandra')
       @request_id = SecureRandom.uuid
-      RequestContextGenerator.stubs( :request_id => @request_id )
+      allow(RequestContextGenerator).to receive_messages( :request_id => @request_id )
 
       @viewing_user = site_admin_user(user: user_with_pseudonym(account: Account.site_admin))
       @account = Account.default
@@ -156,6 +156,7 @@ describe "AuthenticationAudit API", type: :request do
         it "should be formatted as an array of Pseudonym objects" do
           expect(@json).to eq [{
             "id" => @pseudonym.id,
+            "created_at" => @pseudonym.created_at.iso8601,
             "account_id" => @account.id,
             "user_id" => @user.id,
             "unique_id" => @pseudonym.unique_id,
@@ -174,6 +175,7 @@ describe "AuthenticationAudit API", type: :request do
         it "should be formatted as an array of Account objects" do
           expect(@json).to eq [{
             "id" => @account.id,
+            "uuid" => @account.uuid,
             "name" => @account.name,
             "parent_account_id" => nil,
             "root_account_id" => nil,
@@ -194,9 +196,13 @@ describe "AuthenticationAudit API", type: :request do
         it "should be formatted as an array of User objects" do
           expect(@json).to eq [{
             "id" => @user.id,
+            "created_at" => @user.created_at.iso8601,
             "name" => @user.name,
             "sortable_name" => @user.sortable_name,
             "short_name" => @user.short_name,
+            "sis_user_id"=>nil,
+            "integration_id"=>nil,
+            "sis_import_id"=>nil,
             "login_id" => @pseudonym.unique_id
           }]
         end
@@ -333,7 +339,7 @@ describe "AuthenticationAudit API", type: :request do
 
       it "should not allow other account models" do
         new_root_account = Account.create!(name: 'New Account')
-        LoadAccount.stubs(:default_domain_root_account).returns(new_root_account)
+        allow(LoadAccount).to receive(:default_domain_root_account).and_return(new_root_account)
         @user, @pseudonym, @viewing_user = @user, @pseudonym, user_with_pseudonym(account: new_root_account)
 
         fetch_for_context(@pseudonym, expected_status: 401, type: 'login')

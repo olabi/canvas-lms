@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015-2016 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,10 @@ class GradingPeriod < ActiveRecord::Base
 
   belongs_to :grading_period_group, inverse_of: :grading_periods
   has_many :scores, -> { active }
+  has_many :submissions, -> { active }
 
   validates :title, :start_date, :end_date, :close_date, :grading_period_group_id, presence: true
+  validates :weight, numericality: true, allow_nil: true
   validate :start_date_is_before_end_date
   validate :close_date_is_on_or_after_end_date
   validate :not_overlapping, unless: :skip_not_overlapping_validator?
@@ -30,15 +32,20 @@ class GradingPeriod < ActiveRecord::Base
   before_validation :adjust_close_date_for_course_period
   before_validation :ensure_close_date
 
-  after_save :recompute_scores, if: :dates_changed?
+  after_save :recompute_scores, if: :dates_or_weight_or_workflow_state_changed?
+  after_destroy :destroy_grading_period_set, if: :last_remaining_legacy_period?
   after_destroy :destroy_scores
-
   scope :current, -> do
-    period_table = GradingPeriod.arel_table
-    now = Time.zone.now
-    where(period_table[:start_date].lt(now)).
-      where(period_table[:end_date].gteq(now))
+    now = Time.zone.now.change(sec: 0)
+    where(
+      "date_trunc('minute', grading_periods.end_date) >= ? AND date_trunc('minute', grading_periods.start_date) < ?",
+      now,
+      now
+    )
   end
+
+  scope :closed, -> { where("grading_periods.close_date < ?", Time.zone.now) }
+  scope :open, -> { where("grading_periods.close_date IS NULL OR grading_periods.close_date >= ?", Time.zone.now) }
 
   scope :grading_periods_by, ->(context_with_ids) do
     joins(:grading_period_group).where(grading_period_groups: context_with_ids).readonly(false)
@@ -110,7 +117,8 @@ class GradingPeriod < ActiveRecord::Base
   end
 
   def in_date_range?(date)
-    start_date < date && date <= end_date
+    comparison_date = date_for_comparison(date)
+    date_for_comparison(start_date) < comparison_date && comparison_date <= date_for_comparison(end_date)
   end
 
   def last?
@@ -150,7 +158,7 @@ class GradingPeriod < ActiveRecord::Base
 
   def as_json_with_user_permissions(user)
     as_json(
-      only: [:id, :title, :start_date, :end_date, :close_date],
+      only: [:id, :title, :start_date, :end_date, :close_date, :weight],
       permissions: { user: user },
       methods: [:is_last, :is_closed],
     ).fetch(:grading_period)
@@ -158,10 +166,23 @@ class GradingPeriod < ActiveRecord::Base
 
   private
 
+  def date_for_comparison(date)
+    comparison_date = date.is_a?(String) ? Time.zone.parse(date) : date
+    comparison_date&.change(sec: 0)
+  end
+
   def destroy_scores
     scores.find_ids_in_ranges do |min_id, max_id|
       scores.where(id: min_id..max_id).update_all(workflow_state: :deleted)
     end
+  end
+
+  def destroy_grading_period_set
+    grading_period_group.destroy
+  end
+
+  def last_remaining_legacy_period?
+    course_group? && grading_period_group.active? && siblings.active.empty?
   end
 
   def skip_not_overlapping_validator?
@@ -170,7 +191,11 @@ class GradingPeriod < ActiveRecord::Base
 
   scope :overlaps, ->(from, to) do
     # sourced: http://c2.com/cgi/wiki?TestIfDateRangesOverlap
-    where('((end_date > ?) and (start_date < ?))', from, to)
+    where(
+      "((date_trunc('minute', end_date) > ?) and (date_trunc('minute', start_date) < ?))",
+      from&.change(sec: 0),
+      to&.change(sec: 0)
+    )
   end
 
   def not_overlapping
@@ -217,17 +242,26 @@ class GradingPeriod < ActiveRecord::Base
   end
 
   def recompute_scores
+    dates_or_workflow_state_changed = time_boundaries_changed? || saved_change_to_workflow_state?
+
     if course_group?
-      courses = [grading_period_group.course]
+      course = grading_period_group.course
+      course.recompute_student_scores(update_all_grading_period_scores: dates_or_workflow_state_changed)
+      DueDateCacher.recompute_course(course) if dates_or_workflow_state_changed
     else
-      term_ids = grading_period_group.enrollment_terms.pluck(:id)
-      courses = Course.where(enrollment_term_id: term_ids)
+      grading_period_group.recompute_scores_for_each_term(dates_or_workflow_state_changed)
     end
-    # Course#recompute_student_scores is asynchronous
-    courses.each { |course| course.recompute_student_scores(grading_period_id: self.id) }
   end
 
-  def dates_changed?
-    start_date_changed? || end_date_changed?
+  def weight_actually_changed?
+    grading_period_group.weighted && saved_change_to_weight?
+  end
+
+  def time_boundaries_changed?
+    saved_change_to_start_date? || saved_change_to_end_date?
+  end
+
+  def dates_or_weight_or_workflow_state_changed?
+    time_boundaries_changed? || weight_actually_changed? || saved_change_to_workflow_state?
   end
 end

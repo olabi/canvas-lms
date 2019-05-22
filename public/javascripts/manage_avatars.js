@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,16 +12,14 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!manage_avatars',
-  'jquery' /* $ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_misc_plugins' /* showIf */
-], function(I18n, $) {
+import I18n from 'i18n!manage_avatars'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
+import './jquery.instructure_misc_plugins' /* showIf */
 
 $(document).ready(function() {
   $(".update_avatar_link").live('click', function(event) {
@@ -52,5 +50,4 @@ $(document).ready(function() {
       $td.find(".progress").text(I18n.t('errors.update_failed', "Update failed, please try again")).css('visibility', 'visible');
     });
   });
-});
 });

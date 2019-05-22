@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -133,20 +133,20 @@
 class ConferencesController < ApplicationController
   include Api::V1::Conferences
 
-  before_filter :require_context
-  skip_before_filter :load_user, :only => [:recording_ready]
+  before_action :require_context
+  skip_before_action :load_user, :only => [:recording_ready]
 
   add_crumb(proc{ t '#crumbs.conferences', "Conferences"}) do |c|
     c.send(:named_context_url, c.instance_variable_get("@context"), :context_conferences_url)
   end
 
-  before_filter { |c| c.active_tab = "conferences" }
-  before_filter :require_config
-  before_filter :reject_student_view_student
-  before_filter :get_conference, :except => [:index, :create]
+  before_action { |c| c.active_tab = "conferences" }
+  before_action :require_config
+  before_action :reject_student_view_student
+  before_action :get_conference, :except => [:index, :create]
 
   # @API List conferences
-  # Retrieve the list of conferences for this context
+  # Retrieve the paginated list of conferences for this context
   #
   # This API returns a JSON object containing the list of conferences,
   # the key for the list of conferences is "conferences"
@@ -182,9 +182,12 @@ class ConferencesController < ApplicationController
       conference.ended_at.nil?
     }
     log_asset_access([ "conferences", @context ], "conferences", "other")
-    if @context.is_a? Course
-      @users = User.where(:id => @context.typical_current_enrollments.active_by_date.where.not(:user_id => @current_user).select(:user_id)).
+    case @context
+    when Course
+      @users = User.where(:id => @context.current_enrollments.not_fake.active_by_date.where.not(:user_id => @current_user).select(:user_id)).
         order(User.sortable_name_order_by_clause).to_a
+    when Group
+      @users = @context.participating_users_in_context.where("users.id<>?", @current_user).order(User.sortable_name_order_by_clause).to_a.uniq
     else
       @users = @context.users.where("users.id<>?", @current_user).order(User.sortable_name_order_by_clause).to_a.uniq
     end
@@ -196,6 +199,7 @@ class ConferencesController < ApplicationController
       conference_type_details: conference_types_json(WebConference.conference_types),
       users: @users.map { |u| {:id => u.id, :name => u.last_name_first} },
     )
+    set_tutorial_js_env
     flash[:error] = t('Some conferences on this page are hidden because of errors while retrieving their status') if @errors
   end
   protected :web_index
@@ -228,7 +232,7 @@ class ConferencesController < ApplicationController
           end
           @conference.save
           format.html { redirect_to named_context_url(@context, :context_conference_url, @conference.id) }
-          format.json { render :json => WebConference.find(@conference).as_json(:permissions => {:user => @current_user, :session => session},
+          format.json { render :json => WebConference.find(@conference.id).as_json(:permissions => {:user => @current_user, :session => session},
                                                                                 :url => named_context_url(@context, :context_conference_url, @conference)) }
         else
           format.html { render :index }
@@ -343,6 +347,26 @@ class ConferencesController < ApplicationController
     end
   end
 
+  def recording
+    if authorized_action(@conference, @current_user, :read)
+      @response = @conference.recording(params[:recording_id]) || {}
+      respond_to do |format|
+        format.html { redirect_to named_context_url(@context, :context_conferences_url) }
+        format.json { render :json => @response }
+      end
+    end
+  end
+
+  def delete_recording
+    if authorized_action(@conference, @current_user, :delete)
+      @response = @conference.delete_recording(params[:recording_id])
+      respond_to do |format|
+        format.html { redirect_to named_context_url(@context, :context_conferences_url) }
+        format.json { render :json => @response, :status => :ok }
+      end
+    end
+  end
+
   protected
 
   def require_config
@@ -354,8 +378,9 @@ class ConferencesController < ApplicationController
 
   def get_new_members
     members = [@current_user]
-
-    if params[:user] && params[:user][:all] != '1'
+    if params[:observers] && params[:observers][:remove] == '1'
+      ids = @context.user_ids - @context.observers.pluck(:id)
+    elsif params[:user] && params[:user][:all] != '1'
       ids = []
       params[:user].each do |id, val|
         ids << id.to_i if val == '1'

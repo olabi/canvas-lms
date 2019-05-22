@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module RubricsCommon
@@ -26,9 +43,41 @@ module RubricsCommon
     @association = @rubric.associate_with(@assignment, @course, purpose: 'grading', use_for_grading: false)
   end
 
+  def assignment_with_editable_rubric(points, title = 'My Rubric')
+    @assignment = create_assignment_with_points(points)
+    @rubric = @course.rubrics.build
+    rubric_params = {
+      :title => title,
+      :hide_score_total => false,
+      :criteria => {
+        "0" => {
+          :points => points,
+          :description => "no outcome row",
+          :long_description => 'non outcome criterion',
+          :ratings => {
+            "0" => {
+              :points => points,
+              :description => "Amazing",
+            },
+            "1" => {
+                :points => 3,
+                :description => "Reduced Marks",
+            },
+            "2" => {
+                :points => 0,
+                :description => "No Marks",
+            }
+          }
+        }
+      }
+    }
+    @rubric.update_criteria(rubric_params)
+    @rubric.reload
+    @association = @rubric.associate_with(@assignment, @course, purpose: 'grading', use_for_grading: true)
+  end
+
   def edit_rubric_after_updating
     fj(".rubric .edit_rubric_link:visible").click
-    driver.find_element(:tag_name, "body").click
   end
 
   # should be in editing mode before calling
@@ -79,8 +128,13 @@ module RubricsCommon
     create_rubric_with_criterion_points "5.5"
     edit_rubric_after_updating
 
-    split_ratings(1)
-
+    wait_for_ajaximations
+    fj('.add_rating_link_after:visible').click
+    expect(f('#edit_rating_form input')).to have_value('3')
+    set_value(f('#rating_form_title'), 'three')
+    fj("span:contains('Update Rating')").click
+    wait_for_ajaximations
+    expect(ffj(".rubric .criterion:visible .rating .points").count).to eq 3
     expect(ffj(".rubric .criterion:visible .rating .points")[1].text).to eq '3'
   end
 
@@ -90,6 +144,7 @@ module RubricsCommon
 
     split_ratings(1)
     wait_for_ajaximations
+    wait_for_dom_ready
     expect(ffj(".rubric .criterion:visible .rating .points").count).to eq 3
     expect(ffj(".rubric .criterion:visible .rating .points")[1].text).to eq '0'
   end
@@ -104,7 +159,6 @@ module RubricsCommon
     f('.outcome-link').click
     wait_for_ajaximations
     f('.ui-dialog .btn-primary').click
-    accept_alert
     wait_for_ajaximations
   end
 end

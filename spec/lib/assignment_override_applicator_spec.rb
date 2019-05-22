@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require_relative '../sharding_spec_helper'
 
 describe AssignmentOverrideApplicator do
   def create_group_override
@@ -88,15 +88,32 @@ describe AssignmentOverrideApplicator do
       expect(@overridden_assignment.overridden_for_user.id).to eq @student1.id
       student_in_course
       @student2 = @student
-      AssignmentOverrideApplicator.expects(:overrides_for_assignment_and_user).with(@overridden_assignment, @student2).returns([])
+      expect(AssignmentOverrideApplicator).to receive(:overrides_for_assignment_and_user).with(@overridden_assignment, @student2).and_return([])
       @reoverridden_assignment = AssignmentOverrideApplicator.assignment_overridden_for(@overridden_assignment, @student2)
     end
 
     it "should not attempt to apply overrides if an overridden assignment is overridden for the same user" do
       @overridden_assignment = AssignmentOverrideApplicator.assignment_overridden_for(@assignment, @student)
       expect(@overridden_assignment.overridden_for_user.id).to eq @student.id
-      AssignmentOverrideApplicator.expects(:overrides_for_assignment_and_user).never
+      expect(AssignmentOverrideApplicator).to receive(:overrides_for_assignment_and_user).never
       @reoverridden_assignment = AssignmentOverrideApplicator.assignment_overridden_for(@overridden_assignment, @student)
+    end
+
+    it "ignores soft deleted Assignment Override Students" do
+      now = Time.zone.now.change(usec: 0)
+      adhoc_override = assignment_override_model(:assignment => @assignment)
+      override_student = adhoc_override.assignment_override_students.create!(user: @student)
+      adhoc_override.override_due_at(7.days.from_now(now))
+      adhoc_override.save!
+      override_student.update!(workflow_state: 'deleted')
+
+      adhoc_override = assignment_override_model(:assignment => @assignment)
+      adhoc_override.assignment_override_students.create!(user: @student)
+      adhoc_override.override_due_at(2.days.from_now(now))
+      adhoc_override.save!
+
+      overriden_assignment = AssignmentOverrideApplicator.assignment_overridden_for(@assignment, @student)
+      expect(overriden_assignment.due_at).to eq(adhoc_override.due_at)
     end
 
     context "give teachers the more lenient of override.due_at or assignment.due_at" do
@@ -168,7 +185,7 @@ describe AssignmentOverrideApplicator do
       it "should cache by assignment and user" do
         enable_cache do
           AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
-          Rails.cache.expects(:write_entry).never
+          expect(Rails.cache).to receive(:write_entry).never
           AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
         end
       end
@@ -177,7 +194,7 @@ describe AssignmentOverrideApplicator do
         enable_cache do
           overrides1 = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
           assignment = create_assignment
-          Rails.cache.expects(:write_entry)
+          expect(Rails.cache).to receive(:write_entry)
           overrides2 = AssignmentOverrideApplicator.overrides_for_assignment_and_user(assignment, @student)
         end
       end
@@ -189,7 +206,7 @@ describe AssignmentOverrideApplicator do
           expect(@assignment.versions.count).to eq 2
           enable_cache do
             AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment.versions.first.model, @student)
-            Rails.cache.expects(:write_entry)
+            expect(Rails.cache).to receive(:write_entry)
             AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment.versions.current.model, @student)
           end
         end
@@ -199,7 +216,7 @@ describe AssignmentOverrideApplicator do
         enable_cache do
           AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
           user = user_model
-          Rails.cache.expects(:write_entry)
+          expect(Rails.cache).to receive(:write_entry)
           AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, user)
         end
       end
@@ -248,6 +265,26 @@ describe AssignmentOverrideApplicator do
       end
 
       it "should order section overrides by position" # see TODO in implementation
+
+      context "sharding" do
+        specs_require_sharding
+
+        it "should not break when running for a teacher on a different shard" do
+          @shard1.activate do
+            @teacher = User.create!
+          end
+          teacher_in_course(:user => @teacher, :course => @course, :active_all => true)
+
+          @adhoc_override = assignment_override_model(:assignment => @assignment)
+          @adhoc_override.assignment_override_students.create!(:user => @student)
+          allow(ActiveRecord::Base.connection).to receive(:use_qualified_names?).and_return(true)
+
+          @shard1.activate do
+            ovs = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @teacher)
+            expect(ovs).to eq [@adhoc_override]
+          end
+        end
+      end
     end
 
     context 'adhoc overrides' do
@@ -763,7 +800,7 @@ describe AssignmentOverrideApplicator do
 
     it "should return a readonly assignment object" do
       expect(@overridden).to be_readonly
-      expect{ @overridden.save! }.to raise_exception ActiveRecord::ReadOnlyRecord
+      expect{ @overridden.save!(validate: false) }.to raise_exception ActiveRecord::ReadOnlyRecord
     end
 
     it "should cast datetimes to the active time zone" do
@@ -808,7 +845,7 @@ describe AssignmentOverrideApplicator do
       @override = assignment_override_model(:assignment => @assignment)
       enable_cache do
         overrides1 = AssignmentOverrideApplicator.collapsed_overrides(@assignment, [@override])
-        Rails.cache.expects(:write_entry).never
+        expect(Rails.cache).to receive(:write_entry).never
         Timecop.freeze(5.seconds.from_now) do
           overrides2 = AssignmentOverrideApplicator.collapsed_overrides(@assignment, [@override])
         end
@@ -821,7 +858,7 @@ describe AssignmentOverrideApplicator do
       @override = assignment_override_model(:assignment => @assignment1)
       enable_cache do
         AssignmentOverrideApplicator.collapsed_overrides(@assignment1, [@override])
-        Rails.cache.expects(:write_entry)
+        expect(Rails.cache).to receive(:write_entry)
         AssignmentOverrideApplicator.collapsed_overrides(@assignment2, [@override])
       end
     end
@@ -836,7 +873,7 @@ describe AssignmentOverrideApplicator do
         enable_cache do
           expect(@assignment.versions.first.updated_at).not_to eq @assignment.versions.current.model.updated_at
           AssignmentOverrideApplicator.collapsed_overrides(@assignment.versions.first.model, [@override])
-          Rails.cache.expects(:write_entry)
+          expect(Rails.cache).to receive(:write_entry)
           AssignmentOverrideApplicator.collapsed_overrides(@assignment.versions.current.model, [@override])
         end
       end
@@ -848,7 +885,7 @@ describe AssignmentOverrideApplicator do
       @override2 = assignment_override_model(:assignment => @assignment)
       enable_cache do
         AssignmentOverrideApplicator.collapsed_overrides(@assignment, [@override1])
-        Rails.cache.expects(:write_entry)
+        expect(Rails.cache).to receive(:write_entry)
         AssignmentOverrideApplicator.collapsed_overrides(@assignment, [@override2])
       end
     end
@@ -863,14 +900,14 @@ describe AssignmentOverrideApplicator do
 
     it "should use raw UTC time for datetime fields" do
       Time.zone = 'Alaska'
-      @assignment = create_assignment(
-        :due_at => 5.days.from_now,
-        :unlock_at => 6.days.from_now,
-        :lock_at => 7.days.from_now)
+      @assignment = create_assignment(due_at: 5.days.from_now, unlock_at: 4.days.from_now, lock_at: 7.days.from_now)
       collapsed = AssignmentOverrideApplicator.collapsed_overrides(@assignment, [])
-      expect(collapsed[:due_at].class).to eq Time; expect(collapsed[:due_at]).to eq @assignment.due_at.utc
-      expect(collapsed[:unlock_at].class).to eq Time; expect(collapsed[:unlock_at]).to eq @assignment.unlock_at.utc
-      expect(collapsed[:lock_at].class).to eq Time; expect(collapsed[:lock_at]).to eq @assignment.lock_at.utc
+      expect(collapsed[:due_at].class).to eq Time
+      expect(collapsed[:due_at]).to eq @assignment.due_at.utc
+      expect(collapsed[:unlock_at].class).to eq Time
+      expect(collapsed[:unlock_at]).to eq @assignment.unlock_at.utc
+      expect(collapsed[:lock_at].class).to eq Time
+      expect(collapsed[:lock_at]).to eq @assignment.lock_at.utc
     end
 
     it "should not use raw UTC time for date fields" do

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,14 +24,12 @@ describe 'RecalculateMutedAssignments' do
     it "should work" do
       c1 = course_factory
       a1 = c1.assignments.create!(:title => "Test Assignment")
-      c1.any_instantiation
-      c1.expects(:recompute_student_scores).never
-      
+      expect_any_instantiation_of(c1).to receive(:recompute_student_scores).never
+
       c2 = course_factory
       a2 = c2.assignments.create!(:title => "Test Assignment2")
       a2.mute!
-      c2.any_instantiation
-      c2.expects :recompute_student_scores
+      expect_any_instantiation_of(c2).to receive :recompute_student_scores
 
       RecalculateMutedAssignments.up
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe Importers::ContextExternalToolImporter do
@@ -7,6 +24,14 @@ describe Importers::ContextExternalToolImporter do
     tool = Importers::ContextExternalToolImporter.import_from_migration({:title => 'tool', :url => 'http://example.com'}, @course, migration)
     expect(tool).not_to be_nil
     expect(tool.context).to eq @course
+  end
+
+  it 'should not create a new record if "persist" is falsey' do
+    course_model
+    migration = @course.content_migrations.create!
+    expect do
+      Importers::ContextExternalToolImporter.import_from_migration({:title => 'tool', :url => 'http://example.com'}, @course, migration, nil, false)
+    end.not_to change {ContextExternalTool.count}
   end
 
   it "should work for account-level tools" do

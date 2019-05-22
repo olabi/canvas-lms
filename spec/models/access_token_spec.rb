@@ -1,5 +1,5 @@
- #
-# Copyright (C) 2012 Instructure, Inc.
+#
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,13 +17,14 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
 
 describe AccessToken do
 
   context "Authenticate" do
     shared_examples "#authenticate" do
 
-      it "new access tokens shouldnt have an expiratione" do
+      it "new access tokens shouldnt have an expiration" do
         at = AccessToken.create!(:user => user_model, :developer_key => DeveloperKey.default)
         expect(at.expires_at).to eq nil
       end
@@ -105,7 +106,7 @@ describe AccessToken do
       expect(AccessToken.authenticate(@token_string)).to be_nil
     end
 
-    it "should authenticate via crypted_token" do
+    it "should authenticate via crypted_refresh_token" do
       expect(AccessToken.authenticate_refresh_token(@refresh_token_string)).to eq @at
     end
 
@@ -167,6 +168,41 @@ describe AccessToken do
     end
   end
 
+  describe "visible tokens" do
+    specs_require_sharding
+    it "only displays integrations from non-internal developer keys" do
+      user = User.create!
+      trustedkey = DeveloperKey.create!(internal_service: true)
+      trusted_access_token = user.access_tokens.create!({developer_key: trustedkey})
+
+      untrustedkey = DeveloperKey.create!()
+      third_party_access_token = user.access_tokens.create!({developer_key: untrustedkey})
+
+      expect(AccessToken.visible_tokens(user.access_tokens).length).to eq 1
+      expect(AccessToken.visible_tokens(user.access_tokens).first.id).to eq third_party_access_token.id
+    end
+
+    it "access token and developer key scoping work cross-shard" do
+      trustedkey = DeveloperKey.new(internal_service: true)
+      untrustedkey = DeveloperKey.new()
+
+      @shard1.activate do
+        trustedkey.save!
+        untrustedkey.save!
+      end
+
+      @shard2.activate do
+        user = User.create!
+        trusted_access_token = user.access_tokens.create!({developer_key: trustedkey})
+        third_party_access_token = user.access_tokens.create!({developer_key: untrustedkey})
+        user.save!
+
+        expect(AccessToken.visible_tokens(user.access_tokens).length).to eq 1
+        expect(AccessToken.visible_tokens(user.access_tokens).first.id).to eq third_party_access_token.id
+      end
+    end
+  end
+
   describe "token scopes" do
     let_once(:token) do
       token = AccessToken.new
@@ -190,6 +226,59 @@ describe AccessToken do
     it "should not match if token has less scopes then requested" do
       expect(token.scoped_to?(['user_profile'])).to eq false
     end
+
+    it "doesn't expire /auth/userinfo scope, even for auto expiring developer key" do
+      dk = DeveloperKey.create!
+      expect(dk.auto_expire_tokens).to eq true
+      token = AccessToken.create!(developer_key: dk, scopes: ['/auth/userinfo'])
+      expect(token.expires_at).to eq nil
+    end
+
+    it "does not validate scopes if the workflow state is deleted" do
+      dk_scopes = ["url:POST|/api/v1/accounts/:account_id/admins", "url:DELETE|/api/v1/accounts/:account_id/admins/:user_id",  "url:GET|/api/v1/accounts/:account_id/admins"]
+      dk = DeveloperKey.create!(scopes: dk_scopes, require_scopes: true)
+      token = AccessToken.new(developer_key: dk, scopes: dk_scopes)
+      dk.update!(scopes: [])
+      expect { token.destroy! }.not_to raise_error
+    end
+  end
+
+  context "url scopes" do
+    let(:token) do
+      token = AccessToken.new
+      token.scopes = %w{
+        blah/scope
+        url:GET|/api/v1/accounts
+        url:POST|/api/v1/courses
+        url:PUT|/api/v1/courses/:id
+        url:DELETE|/api/v1/courses/:course_id/assignments/:id
+      }
+      token
+    end
+
+    it "returns regexes that correspond to the http method" do
+      expect(token.url_scopes_for_method('GET')).to match_array [/^\/api\/v1\/accounts(?:\.[^\/]+|)$/]
+    end
+
+    it "accounts for format segments" do
+      token = AccessToken.new(scopes: %w{url:GET|/blah})
+      expect(token.url_scopes_for_method('GET')).to match_array [/^\/blah(?:\.[^\/]+|)$/]
+    end
+
+    it "accounts for glob segments" do
+      token = AccessToken.new(scopes: %w{url:GET|/*blah})
+      expect(token.url_scopes_for_method('GET')).to match_array [/^\/.+(?:\.[^\/]+|)$/]
+    end
+
+    it "accounts for dynamic segments" do
+      token = AccessToken.new(scopes: %w{url:GET|/courses/:id})
+      expect(token.url_scopes_for_method('GET')).to match_array [/^\/courses\/[^\/]+(?:\.[^\/]+|)$/]
+    end
+
+    it "accounts for optional segments" do
+      token = AccessToken.new(scopes: %w{url:GET|/courses(/:course_id)(/*blah)})
+      expect(token.url_scopes_for_method('GET')).to match_array [/^\/courses(?:\/[^\/]+|)(?:\/.+|)(?:\.[^\/]+|)$/]
+    end
   end
 
   describe "account scoped access" do
@@ -200,6 +289,7 @@ describe AccessToken do
       @foreign_ac = Account.create!
 
       @dk = DeveloperKey.create!(account: @ac)
+      enable_developer_key_account_binding! @dk
       @at = AccessToken.create!(:user => user_model, :developer_key => @dk)
 
       @dk_without_account = DeveloperKey.create!
@@ -226,8 +316,148 @@ describe AccessToken do
       expect(@at.authorized_for_account?(@foreign_ac)).to be false
     end
 
-    it "foreign account should be authorized if there is no account" do
-      expect(@at_without_account.authorized_for_account?(@foreign_ac)).to be true
+    it "foreign account should not be authorized if there is no account" do
+      expect(@at_without_account.authorized_for_account?(@foreign_ac)).to be false
+    end
+
+    context 'when the developer key new feature flags are on' do
+      let(:root_account) { account_model }
+      let(:root_account_key) { DeveloperKey.create!(account: root_account) }
+      let(:site_admin_key) { DeveloperKey.create! }
+      let(:sub_account) do
+        account = account_model
+        account.update!(root_account: root_account)
+        account
+      end
+
+      shared_examples_for 'an access token that honors developer key bindings' do
+        let(:access_token) { raise 'set in example' }
+        let(:binding) { raise 'set in example' }
+        let(:account) { raise 'set in example' }
+
+        it 'authorizes if the binding state is on' do
+          binding.update!(workflow_state: 'on')
+          expect(access_token.authorized_for_account?(account)).to eq true
+        end
+
+        it 'does not authorize if the binding state is off' do
+          binding.update!(workflow_state: 'off')
+          expect(access_token.authorized_for_account?(account)).to eq false
+        end
+
+        it 'does not authorize if the binding state is allow' do
+          binding.update!(workflow_state: 'allow')
+          expect(access_token.authorized_for_account?(account)).to eq false
+        end
+      end
+
+      describe 'site admin key' do
+        context 'when target account is site admin' do
+          it_behaves_like 'an access token that honors developer key bindings' do
+            let(:access_token) { AccessToken.create!(user: user_model, developer_key: site_admin_key) }
+            let(:binding) { site_admin_key.developer_key_account_bindings.find_by(account: Account.site_admin) }
+            let(:account) { Account.site_admin }
+          end
+        end
+
+        context 'when target account is root account' do
+          let(:access_token) { AccessToken.create!(user: user_model, developer_key: site_admin_key) }
+          let(:binding) { site_admin_key.developer_key_account_bindings.create!(account: root_account) }
+
+          before do
+            site_admin_key.developer_key_account_bindings.find_by(account: Account.site_admin).update!(
+              workflow_state: 'allow'
+            )
+          end
+
+          it_behaves_like 'an access token that honors developer key bindings' do
+            let(:access_token) { AccessToken.create!(user: user_model, developer_key: site_admin_key) }
+            let(:binding) { site_admin_key.developer_key_account_bindings.create!(account: root_account) }
+            let(:account) { root_account }
+          end
+
+          it 'does not authorize if the root account binding state is on but site admin off' do
+            binding.update!(workflow_state: 'on')
+            site_admin_key.developer_key_account_bindings.find_by(account: Account.site_admin).update!(
+              workflow_state: 'off'
+            )
+            expect(access_token.authorized_for_account?(root_account)).to eq false
+          end
+        end
+
+        context 'when target is a sub account' do
+          let(:access_token) { AccessToken.create!(user: user_model, developer_key: site_admin_key) }
+          let(:binding) { site_admin_key.developer_key_account_bindings.create!(account: root_account) }
+
+          before do
+            site_admin_key.developer_key_account_bindings.find_by(account: Account.site_admin).update!(
+              workflow_state: 'allow'
+            )
+          end
+
+          it_behaves_like 'an access token that honors developer key bindings' do
+            let(:access_token) { AccessToken.create!(user: user_model, developer_key: site_admin_key) }
+            let(:binding) { site_admin_key.developer_key_account_bindings.create!(account: root_account) }
+            let(:account) { sub_account }
+          end
+
+          it 'does not authorize if the root account binding state is on but site admin off' do
+            binding.update!(workflow_state: 'on')
+            site_admin_key.developer_key_account_bindings.find_by(account: Account.site_admin).update!(
+              workflow_state: 'off'
+            )
+            expect(access_token.authorized_for_account?(sub_account)).to eq false
+          end
+        end
+      end
+
+      describe 'root acount key' do
+        it_behaves_like 'an access token that honors developer key bindings' do
+          let(:access_token) { AccessToken.create!(user: user_model, developer_key: root_account_key) }
+          let(:binding) { root_account_key.developer_key_account_bindings.find_by!(account: root_account) }
+          let(:account) { root_account }
+        end
+      end
+    end
+
+    describe 'adding scopes' do
+      let(:dev_key) { DeveloperKey.create! require_scopes: true, scopes: TokenScopes.all_scopes.slice(0,10)}
+      let(:access_token) { AccessToken.new(user: user_model, developer_key: dev_key, scopes: scopes) }
+      let(:scopes) { [TokenScopes.all_scopes[12]] }
+
+      before do
+        allow_any_instance_of(Account).to receive(:feature_enabled?).and_return(false)
+      end
+
+      it 'is invalid when scopes requested are not included on dev key' do
+        expect(access_token).not_to be_valid
+      end
+
+      context do
+        let(:scopes) { [TokenScopes.all_scopes[8], TokenScopes.all_scopes[7]] }
+
+        it 'is valid when scopes requested are included on dev key' do
+          expect(access_token).to be_valid
+        end
+      end
+
+      context 'with bad scopes' do
+        let(:scopes) { ['bad/scope'] }
+
+        it 'is invalid' do
+          expect(access_token).not_to be_valid
+        end
+
+        context 'with require_scopes off' do
+          before do
+            dev_key.update! require_scopes: false
+          end
+
+          it 'is valid' do
+            expect(access_token).to be_valid
+          end
+        end
+      end
     end
   end
 
@@ -241,11 +471,23 @@ describe AccessToken do
     end
 
     it "should regenerate the token" do
-      DateTime.stubs(:now).returns(Time.zone.parse('2015-06-29T23:01:00+00:00'))
+      allow(DateTime).to receive(:now).and_return(Time.zone.parse('2015-06-29T23:01:00+00:00'))
 
       @at.update_attribute(:expires_at, 2.hours.ago)
       @at.regenerate_access_token
       expect(@at.expires_at.to_i).to be((DateTime.now.utc + 1.hour).to_i)
     end
   end
+
+  describe "#dev_key_account_id" do
+
+    it "returns the developer_key account_id" do
+      account = Account.create!
+      dev_key = DeveloperKey.create!(account: account)
+      at = AccessToken.create!(developer_key: dev_key)
+      expect(at.dev_key_account_id).to eq account.id
+    end
+
+  end
+
 end

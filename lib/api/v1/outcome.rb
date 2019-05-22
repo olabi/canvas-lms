@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,7 @@ module Api::V1::Outcome
   # context id and type, and description.
   def outcomes_json(outcomes, user, session, opts = {})
     outcome_ids = outcomes.map(&:id)
-    opts[:assessed_outcomes] = LearningOutcomeResult.uniq.where(learning_outcome_id: outcome_ids).pluck(:learning_outcome_id)
+    opts[:assessed_outcomes] = LearningOutcomeResult.distinct.where(learning_outcome_id: outcome_ids).pluck(:learning_outcome_id)
     outcomes.map { |o| outcome_json(o, user, session, opts) }
   end
 
@@ -44,6 +44,7 @@ module Api::V1::Outcome
     api_json(outcome, user, session, :only => json_attributes, :methods => [:title]).tap do |hash|
       hash['url'] = api_v1_outcome_path :id => outcome.id
       hash['can_edit'] = can_edit.call
+      hash['has_updateable_rubrics'] = outcome.updateable_rubrics?
       unless opts[:outcome_style] == :abbrev
         hash['description'] = outcome.description
 
@@ -54,11 +55,12 @@ module Api::V1::Outcome
           hash['calculation_int'] = outcome.calculation_int
         end
 
-        if criterion = outcome.data && outcome.data[:rubric_criterion]
-          hash['points_possible'] = criterion[:points_possible]
-          hash['mastery_points'] = criterion[:mastery_points]
-          hash['ratings'] = criterion[:ratings]
-        end
+        hash['points_possible'] = outcome.rubric_criterion[:points_possible]
+        hash['mastery_points'] = outcome.rubric_criterion[:mastery_points]
+        hash['ratings'] = outcome.rubric_criterion[:ratings]&.clone
+        hash['ratings']&.each_with_index do |rating, i|
+          rating[:percent] = opts[:rating_percents][i] if i < opts[:rating_percents].length
+        end if opts[:rating_percents]
         if opts[:assessed_outcomes] && outcome.context_type != "Account"
           hash['assessed'] = opts[:assessed_outcomes].include?(outcome.id)
         else
@@ -100,7 +102,7 @@ module Api::V1::Outcome
     #
     # Assumption:  All of the outcome links have the same context.
     #
-    opts[:assessed_outcomes] = LearningOutcomeResult.uniq.where(
+    opts[:assessed_outcomes] = LearningOutcomeResult.distinct.where(
       context_type: outcome_links.first.context_type,
       context_id: outcome_links.map(&:context_id),
       learning_outcome_id: outcome_links.map(&:content_id)

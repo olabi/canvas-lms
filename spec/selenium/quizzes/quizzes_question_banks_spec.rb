@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -155,7 +172,8 @@ describe 'quizzes question banks' do
       bank = AssessmentQuestionBank.create!(context: @course)
       3.times { assessment_question_model(bank: bank) }
 
-      get "/courses/#{@course.id}/quizzes/new"
+      get "/courses/#{@course.id}/quizzes"
+      click_new_quiz_button
       click_questions_tab
 
       f('.add_question_group_link').click
@@ -184,7 +202,8 @@ describe 'quizzes question banks' do
     it 'creates a question group from a question bank from within the Find Quiz Question modal', priority: "1", test_id: 140590 do
       assessment_question_model(bank: AssessmentQuestionBank.create!(context: @course))
 
-      get "/courses/#{@course.id}/quizzes/new"
+      get "/courses/#{@course.id}/quizzes"
+      click_new_quiz_button
       click_questions_tab
       wait_for_ajaximations
 

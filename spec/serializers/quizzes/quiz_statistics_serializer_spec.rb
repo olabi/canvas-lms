@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 
 describe Quizzes::QuizStatisticsSerializer do
@@ -9,9 +26,15 @@ describe Quizzes::QuizStatisticsSerializer do
     end
   end
 
+  let :assignment do
+    context.assignments.create!(title: 'quiz assignment')
+  end
+
   let :quiz do
     context.quizzes.build(title: 'banana split').tap do |quiz|
       quiz.id = 1
+      quiz.assignment = assignment
+      quiz.workflow_state = 'available'
       quiz.save!
     end
   end
@@ -30,7 +53,7 @@ describe Quizzes::QuizStatisticsSerializer do
   end
 
   let(:user) { User.new }
-  let(:session) { stub }
+  let(:session) { double }
   let(:host_name) { 'example.com' }
 
   let :controller do
@@ -40,8 +63,8 @@ describe Quizzes::QuizStatisticsSerializer do
     }
 
     ActiveModel::FakeController.new(options).tap do |controller|
-      controller.stubs(:session).returns session
-      controller.stubs(:context).returns context
+      allow(controller).to receive(:session).and_return session
+      allow(controller).to receive(:context).and_return context
     end
   end
 
@@ -69,8 +92,8 @@ describe Quizzes::QuizStatisticsSerializer do
   it 'serializes generated_at to point to the earliest report date' do
     oldest = 5.days.ago
 
-    statistics.student_analysis.stubs(created_at: oldest)
-    statistics.item_analysis.stubs(created_at: oldest + 1.days)
+    allow(statistics.student_analysis).to receive_messages(created_at: oldest)
+    allow(statistics.item_analysis).to receive_messages(created_at: oldest + 1.days)
 
     @json = subject.as_json[:quiz_statistics].stringify_keys
     expect(@json['generated_at']).to eq oldest
@@ -100,8 +123,20 @@ describe Quizzes::QuizStatisticsSerializer do
     expect(@json['links']['quiz']).to eq 'http://example.com/api/v1/courses/1/quizzes/1'
   end
 
+  it 'serializes speed_grader url' do
+    allow(quiz.assignment).to receive(:can_view_speed_grader?).and_return true
+    expect(subject.as_json[:quiz_statistics][:speed_grader_url]).to eq(
+      controller.send(:speed_grader_course_gradebook_url, quiz.context, assignment_id: quiz.assignment.id)
+    )
+  end
+
+  it 'does not serialize speed_grader url if user cannot view speed grader' do
+    allow(quiz.assignment).to receive(:can_view_speed_grader?).and_return false
+    expect(subject.as_json[:quiz_statistics][:speed_grader_url]).to be_nil
+  end
+
   it 'stringifies question_statistics ids' do
-    subject.stubs(student_analysis_report: {
+    allow(subject).to receive_messages(student_analysis_report: {
       questions: [ ['question', { id: 5 }] ]
     })
 
@@ -111,11 +146,11 @@ describe Quizzes::QuizStatisticsSerializer do
   end
 
   it 'munges item_analysis with question_statistics' do
-    subject.stubs(student_analysis_report: {
+    allow(subject).to receive_messages(student_analysis_report: {
       questions: [ ['question', { id: 5 }] ]
     })
 
-    subject.stubs(item_analysis_report: [
+    allow(subject).to receive_messages(item_analysis_report: [
       { question_id: 5, foo: 'bar' }
     ])
 

@@ -2,8 +2,9 @@
   <strong>{{#t "due"}}Due{{/t}}</strong>
 
   {{#if allDates}}
-  <a title class="vdd_tooltip_link"
-     aria-labelledby="vdd_tooltip_{{selector}}"
+  <a title="tooltip"
+     class="vdd_tooltip_link"
+     aria-describedby="vdd_tooltip_{{selector}}"
      data-tooltip-selector="#vdd_tooltip_{{selector}}"
      {{#if linkHref}}href="{{linkHref}}"{{/if}}
      >{{#t "multiple_dates"}}Multiple Dates{{/t}}</a>
@@ -16,7 +17,7 @@
           <dd>
             {{#if dueAt}}
               <span {{contextSensitiveDatetimeTitle dueAt}}>
-                {{tDateToString (fudge dueAt) 'short'}}
+                {{tDateToString dueAt 'short'}}
               </span>
             {{else}}
                -
@@ -32,8 +33,17 @@
 {{else}}
   {{#if singleSectionDueDate}}
     <strong>{{#t "due_date"}}Due{{/t}}</strong>
-    <span {{contextSensitiveDatetimeTitle singleSectionDueDate}}>
+    <span {{contextSensitiveDatetimeTitle singleSectionDueDate}} aria-hidden="true">
       {{datetimeFormatted singleSectionDueDate}}
     </span>
+    <span class="screenreader-only">{{contextSensitiveDatetimeTitle singleSectionDueDate justText=true}}</span>
+  {{else}}
+      {{#if todo_date}}
+      <strong>{{#t "todo_date"}}To do{{/t}}</strong>
+      <span {{contextSensitiveDatetimeTitle todo_date}} aria-hidden="true">
+        {{datetimeFormatted todo_date}}
+      </span>
+      <span class="screenreader-only">{{contextSensitiveDatetimeTitle todo_date justText=true}}</span>
+    {{/if}}
   {{/if}}
 {{/if}}

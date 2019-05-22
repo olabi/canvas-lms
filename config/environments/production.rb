@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 environment_configuration(defined?(config) && config) do |config|
   # Settings specified here will take precedence over those in config/application.rb
 
@@ -12,11 +29,6 @@ environment_configuration(defined?(config) && config) do |config|
   # run rake js:build to build the optimized JS if set to true
   ENV['USE_OPTIMIZED_JS']                              = "true"
 
-  # initialize cache store. has to eval, not just require, so that it has
-  # access to config.
-  cache_store_rb = File.dirname(__FILE__) + "/cache_store.rb"
-  eval(File.new(cache_store_rb).read, nil, cache_store_rb, 1)
-
   # Specifies the header that your web server uses for directly sending files
   # If you have mod_xsendfile enabled in apache:
   # config.action_dispatch.x_sendfile_header = 'X-Sendfile'
@@ -28,7 +40,7 @@ environment_configuration(defined?(config) && config) do |config|
 
   # Disable Rails's static asset server
   # In production, Apache or nginx will already do this
-  config.serve_static_files = false
+  config.public_file_server.enabled = false
 
   # Enable serving of images, stylesheets, and javascripts from an asset server
   # config.action_controller.asset_host = "http://assets.example.com"

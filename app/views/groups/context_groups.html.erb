@@ -1,8 +1,29 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% content_for :page_title do %><%= join_title t(:page_title, 'Course Groups'), @context.name %><% end %>
 
 <% if !@context.is_a?(Account) %>
-  <% js_env :course_id => @context.id %>
-  <% js_env :STUDENT_CAN_ORGANIZE_GROUPS_FOR_COURSE =>  @context.respond_to?(:allow_student_organized_groups) && @context.allow_student_organized_groups && can_do(@context.groups.temp_record, @current_user, :create) %>
+  <%
+    js_env :course_id => @context.id,
+      :STUDENT_CAN_ORGANIZE_GROUPS_FOR_COURSE => @context.respond_to?(:allow_student_organized_groups) && @context.allow_student_organized_groups && can_do(@context.groups.temp_record, @current_user, :create),
+      :CAN_VIEW_PAGES => @context.grants_right?(@current_user, :view_group_pages)
+  %>
   <% js_bundle :react_groups %>
 <% else %>
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 environment_configuration(defined?(config) && config) do |config|
   # Settings specified here will take precedence over those in config/application.rb
 
@@ -30,10 +47,14 @@ environment_configuration(defined?(config) && config) do |config|
   # Raise exceptions instead of rendering exception templates
   config.action_dispatch.show_exceptions = true
 
-  # Print deprecation notices to the stderr
-  config.active_support.deprecation = :stderr
+  # Print deprecation notices to both stderr and the log
+  config.active_support.deprecation = [:stderr, :log]
 
   config.eager_load = false
+
+  config.after_initialize do
+    require_relative 'bullet'
+  end
 
   # eval <env>-local.rb if it exists
   Dir[File.dirname(__FILE__) + "/" + File.basename(__FILE__, ".rb") + "-*.rb"].each { |localfile| eval(File.new(localfile).read, nil, localfile, 1) }

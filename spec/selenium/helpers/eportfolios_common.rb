@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module EportfoliosCommon
@@ -6,6 +23,9 @@ module EportfoliosCommon
     f(".add_eportfolio_link").click
     wait_for_animations
     replace_content f("#eportfolio_name"), "student content"
+  end
+
+  def validate_eportfolio(is_public = false)
     f("#eportfolio_public").click if is_public
     expect_new_page_load { f("#eportfolio_submit").click }
     eportfolio = Eportfolio.find_by_name("student content")
@@ -57,7 +77,7 @@ module EportfoliosCommon
     section_name = section.find_element(:css, '.name').text
     section.find_element(:css, '.section_settings_menu').click
     section.find_element(:css, '.move_section_link').click
-    move_to_modal = f("[aria-label=\"Modal dialog: Move Section #{section_name}\"]")
+    move_to_modal = f("[role=dialog][aria-label=\"Move Section\"]")
     click_option('#MoveToDialog__select', '-- At the bottom --', :text)
     move_to_modal.find_element(:css, '#MoveToDialog__move').click
   end
@@ -83,7 +103,7 @@ module EportfoliosCommon
     page_name = page.find_element(:css, '.name').text
     page.find_element(:css, '.page_settings_menu').click
     page.find_element(:css, '.move_page_link').click
-    move_to_modal = f("[aria-label=\"Modal dialog: Move Page #{page_name}\"]")
+    move_to_modal = f("[role=dialog][aria-label=\"Move Page\"]")
     click_option('#MoveToDialog__select', '-- At the bottom --', :text)
     move_to_modal.find_element(:css, '#MoveToDialog__move').click
   end

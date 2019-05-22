@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,9 +19,6 @@
 # @API Grade Change Log
 #
 # Query audit log of grade change events.
-#
-# Only available if the server has configured audit logs; will return 404 Not
-# Found response otherwise.
 #
 # For each endpoint, a compound document is returned. The primary collection of
 # event objects is paginated, ordered by date descending. Secondary collections
@@ -139,16 +136,15 @@ class GradeChangeAuditApiController < AuditorApiController
   # @returns [GradeChangeEvent]
   #
   def for_assignment
+    return render_unauthorized_action unless admin_authorized?
+
     @assignment = Assignment.active.find(params[:assignment_id])
     unless @assignment.context.root_account == @domain_root_account
       raise ActiveRecord::RecordNotFound, "Couldn't find assignment with API id '#{params[:assignment_id]}'"
     end
-    if authorize
-      events = Auditors::GradeChange.for_assignment(@assignment, query_options)
-      render_events(events, polymorphic_url([:api_v1, :audit_grade_change, @assignment]))
-    else
-      render_unauthorized_action
-    end
+
+    events = Auditors::GradeChange.for_assignment(@assignment, query_options)
+    render_events(events, polymorphic_url([:api_v1, :audit_grade_change, @assignment]))
   end
 
   # @API Query by course.
@@ -164,13 +160,17 @@ class GradeChangeAuditApiController < AuditorApiController
   # @returns [GradeChangeEvent]
   #
   def for_course
-    @course = @domain_root_account.all_courses.active.find(params[:course_id])
-    if authorize
-      events = Auditors::GradeChange.for_course(@course, query_options)
-      render_events(events, polymorphic_url([:api_v1, :audit_grade_change, @course]))
-    else
-      render_unauthorized_action
+    begin
+      course = Course.find(params[:course_id])
+    rescue ActiveRecord::RecordNotFound => not_found
+      return render_unauthorized_action unless admin_authorized?
+      raise not_found
     end
+
+    return render_unauthorized_action unless course_authorized?(course)
+
+    events = Auditors::GradeChange.for_course(course, query_options)
+    render_events(events, polymorphic_url([:api_v1, :audit_grade_change, course]), course: course)
   end
 
   # @API Query by student.
@@ -186,16 +186,15 @@ class GradeChangeAuditApiController < AuditorApiController
   # @returns [GradeChangeEvent]
   #
   def for_student
+    return render_unauthorized_action unless admin_authorized?
+
     @student = User.active.find(params[:student_id])
     unless @domain_root_account.associated_user?(@student)
       raise ActiveRecord::RecordNotFound, "Couldn't find user with API id '#{params[:student_id]}'"
     end
-    if authorize
-      events = Auditors::GradeChange.for_root_account_student(@domain_root_account, @student, query_options)
-      render_events(events, api_v1_audit_grade_change_student_url(@student))
-    else
-      render_unauthorized_action
-    end
+
+    events = Auditors::GradeChange.for_root_account_student(@domain_root_account, @student, query_options)
+    render_events(events, api_v1_audit_grade_change_student_url(@student), remove_anonymous: true)
   end
 
   # @API Query by grader.
@@ -211,26 +210,127 @@ class GradeChangeAuditApiController < AuditorApiController
   # @returns [GradeChangeEvent]
   #
   def for_grader
+    return render_unauthorized_action unless admin_authorized?
+
     @grader = User.active.find(params[:grader_id])
     unless @domain_root_account.associated_user?(@grader)
       raise ActiveRecord::RecordNotFound, "Couldn't find user with API id '#{params[:grader_id]}'"
     end
-    if authorize
-      events = Auditors::GradeChange.for_root_account_grader(@domain_root_account, @grader, query_options)
-      render_events(events, api_v1_audit_grade_change_grader_url(@grader))
-    else
-      render_unauthorized_action
+
+    events = Auditors::GradeChange.for_root_account_grader(@domain_root_account, @grader, query_options)
+    render_events(events, api_v1_audit_grade_change_grader_url(@grader))
+  end
+
+  def for_course_and_other_parameters
+    begin
+      course = Course.find(params[:course_id])
+    rescue ActiveRecord::RecordNotFound => not_found
+      return render_unauthorized_action unless admin_authorized?
+      raise not_found
     end
+
+    return render_unauthorized_action unless course_authorized?(course)
+
+    args = { course: course }
+    args[:assignment] = course.assignments.find(params[:assignment_id]) if params[:assignment_id]
+    args[:grader] = course.all_users.find(params[:grader_id]) if params[:grader_id]
+    args[:student] = course.all_users.find(params[:student_id]) if params[:student_id]
+
+    url_method = if args[:assignment] && args[:grader] && args[:student]
+      :api_v1_audit_grade_change_course_assignment_grader_student_url
+    elsif args[:assignment] && args[:grader]
+      :api_v1_audit_grade_change_course_assignment_grader_url
+    elsif args[:assignment] && args[:student]
+      :api_v1_audit_grade_change_course_assignment_student_url
+    elsif args[:assignment]
+      :api_v1_audit_grade_change_course_assignment_url
+    elsif args[:grader] && args[:student]
+      :api_v1_audit_grade_change_course_grader_student_url
+    elsif args[:grader]
+      :api_v1_audit_grade_change_course_grader_url
+    elsif args[:student]
+      :api_v1_audit_grade_change_course_student_url
+    end
+
+    events = Auditors::GradeChange.for_course_and_other_arguments(course, args, query_options)
+    render_events(events, send(url_method, args), course: course, remove_anonymous: params[:student_id].present?)
   end
 
   private
 
-  def authorize
+  def admin_authorized?
     @domain_root_account.grants_right?(@current_user, session, :view_grade_changes)
   end
 
-  def render_events(events, route)
+  def course_authorized?(course)
+    course.grants_any_right?(@current_user, session, :manage_grades, :view_all_grades)
+  end
+
+  def render_events(events, route, course: nil, remove_anonymous: false)
     events = Api.paginate(events, self, route)
+
+    if params.fetch(:include, []).include?("current_grade")
+      grades = current_grades(events)
+      events.each { |event| event.grade_current = current_grade_for_event(event, grades) }
+    end
+
+    if course.present?
+      events = events_visible_to_current_user(course, events)
+    end
+
+    # In the case of for_student, simply anonymizing the data would continue
+    # to leak information, so just drop the event completely while the
+    # assignment is still anonymous and muted.
+    events = remove_anonymous ? remove_anonymous_events(events) : anonymize_events(events)
     render :json => grade_change_events_compound_json(events, @current_user, session)
+  end
+
+  def remove_anonymous_events(events)
+    assignments_anonymous_and_muted = anonymous_and_muted(events)
+
+    events.reject do |event|
+      assignment_id = event["attributes"].fetch("assignment_id")
+      assignments_anonymous_and_muted[assignment_id]
+    end
+  end
+
+  def anonymize_events(events)
+    assignments_anonymous_and_muted = anonymous_and_muted(events)
+
+    events.each do |event|
+      attributes = event["attributes"]
+      assignment_id = attributes.fetch("assignment_id")
+      attributes["student_id"] = nil if assignments_anonymous_and_muted[assignment_id]
+    end
+  end
+
+  def anonymous_and_muted(events)
+    assignment_ids = events.map { |event| event["attributes"].fetch("assignment_id") }.compact
+    assignments = Assignment.find(assignment_ids)
+    assignments_anonymous_and_muted = {}
+
+    assignments.each do |assignment|
+      assignments_anonymous_and_muted[assignment.global_id] = assignment.anonymous_grading? && assignment.muted?
+    end
+
+    assignments_anonymous_and_muted
+  end
+
+  def events_visible_to_current_user(course, events)
+    visible_student_ids =
+      course.students_visible_to(@current_user, include: :priors_and_deleted).index_by(&:global_id)
+
+    events.select { |event| visible_student_ids[event.student_id] }
+  end
+
+  def current_grade_for_event(event, grades)
+    submission_id = Shard.relative_id_for(event.submission_id, Shard.current, Shard.current)
+    grades.fetch(submission_id, I18n.t("N/A"))
+  end
+
+  def current_grades(events)
+    submission_ids = events.map(&:submission_id)
+    grades = Submission.where(id: submission_ids).pluck(:id, :grade)
+    grades.each_with_object({}) { |(key, value), hsh| hsh[key] = value }
   end
 end

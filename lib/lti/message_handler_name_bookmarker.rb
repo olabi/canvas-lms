@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,7 +38,7 @@ module Lti
           "OR #{name_collation_key} #{comparison} #{placeholder_collation_key}",
           bookmark[0], bookmark[1], bookmark[0])
       end
-      scope.order("#{name_collation_key}, lti_message_handlers.id")
+      scope.order(name_collation_key, :id)
     end
   end
 end

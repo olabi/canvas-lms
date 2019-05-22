@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -461,8 +461,8 @@ describe LearningOutcome do
         'n_mastery'
       ]
       invalid_values = {
-        decaying_average: [0, 100, 1000, nil],
-        n_mastery: [0, 10, nil]
+        decaying_average: [0, 100, 1000],
+        n_mastery: [0, 10]
       }.with_indifferent_access
 
       calc_method.each do |method|
@@ -489,9 +489,9 @@ describe LearningOutcome do
 
     context "should set calculation_int to default if the calculation_method is changed and calculation_int isn't set" do
       method_to_int = {
-        # "decaying_average" => { default: 75, testval: 4, altmeth: 'n_mastery' },
-        # "n_mastery" => { default: 5, testval: nil, altmeth: 'highest' },
-        "highest" => { default: nil, testval: nil, altmeth: 'latest' },
+        "decaying_average" => { default: 65, testval: nil, altmeth: 'latest' },
+        "n_mastery" => { default: 5, testval: nil, altmeth: 'highest' },
+        "highest" => { default: nil, testval: 4, altmeth: 'n_mastery' },
         "latest" => { default: nil, testval: 72, altmeth: 'decaying_average' },
       }
 
@@ -524,6 +524,11 @@ describe LearningOutcome do
       }.to change {
         @outcome.alignments.count
       }.from(1).to(0)
+    end
+
+    it "returns points possible value set through rubric_criterion assessor" do
+      @outcome.rubric_criterion[:points_possible] = 10
+      expect(@outcome.rubric_criterion[:points_possible]).to eq 10
     end
 
     it "returns #data[:rubric_criterion] when #rubric_criterion is called" do
@@ -638,13 +643,13 @@ describe LearningOutcome do
       end
 
       it "should grant :update iff the site admin grants :manage_global_outcomes" do
-        @admin = stub
+        @admin = double
 
-        Account.site_admin.expects(:grants_right?).with(@admin, nil, :manage_global_outcomes).returns(true)
+        expect(Account.site_admin).to receive(:grants_right?).with(@admin, nil, :manage_global_outcomes).and_return(true)
         expect(@outcome.grants_right?(@admin, :update)).to be_truthy
         @outcome.clear_permissions_cache(@admin)
 
-        Account.site_admin.expects(:grants_right?).with(@admin, nil, :manage_global_outcomes).returns(false)
+        expect(Account.site_admin).to receive(:grants_right?).with(@admin, nil, :manage_global_outcomes).and_return(false)
         expect(@outcome.grants_right?(@admin, :update)).to be_falsey
       end
     end
@@ -669,7 +674,7 @@ describe LearningOutcome do
         expect(@outcome.grants_right?(@user, :update)).to be_truthy
       end
 
-      it "should not grant :read to users without :read_outcomes on the context" do
+      it "should not grant :update to users without :read_outcomes on the context" do
         student_in_course(:active_enrollment => 1)
         expect(@outcome.grants_right?(User.new, :update)).to be_falsey
       end
@@ -806,9 +811,20 @@ describe LearningOutcome do
     end
 
     context "default values" do
-      it "should default calculation_method to highest" do
+      it 'should default mastery points to 3' do
         @outcome = LearningOutcome.create!(:title => 'outcome')
-        expect(@outcome.calculation_method).to eql('highest')
+        expect(@outcome.mastery_points).to be 3
+      end
+
+      it 'should default points possible to 5' do
+        @outcome = LearningOutcome.create!(:title => 'outcome')
+        expect(@outcome.points_possible).to be 5
+      end
+
+      it "should default calculation_method to decaying_average" do
+        @outcome = LearningOutcome.create!(:title => 'outcome')
+        expect(@outcome.calculation_method).to eql('decaying_average')
+        expect(@outcome.calculation_int).to be 65
       end
 
       it "should default calculation_int to nil for highest" do
@@ -831,7 +847,7 @@ describe LearningOutcome do
 
       # This is to prevent changing behavior of existing outcomes made before we added the
       # ability to set a calculation_method
-      it "should set calculation_method to highest if the record is pre-existing and nil" do
+      it "should set calculation_method to decaying_average if the record is pre-existing and nil" do
         @outcome = LearningOutcome.create!(:title => 'outcome')
         @outcome.update_column(:calculation_method, nil)
         @outcome.reload
@@ -840,7 +856,7 @@ describe LearningOutcome do
         @outcome.save!
         @outcome.reload
         expect(@outcome.description).to eq("foo bar baz qux")
-        expect(@outcome.calculation_method).to eq('highest')
+        expect(@outcome.calculation_method).to eq('decaying_average')
       end
     end
   end
@@ -965,6 +981,37 @@ describe LearningOutcome do
       end
     end
 
+    describe '#ensure_presence_in_context' do
+      it 'adds active outcomes to a context if they are not present' do
+        account = Account.default
+        course_factory
+        3.times do |i|
+          LearningOutcome.create!(
+            context: account,
+            title: "outcome_#{i}",
+            calculation_method: 'highest',
+            workflow_state: i == 0 ? 'deleted' : 'active'
+          )
+        end
+        outcome_ids = account.created_learning_outcomes.pluck(:id)
+        LearningOutcome.ensure_presence_in_context(outcome_ids, @course)
+        expect(@course.linked_learning_outcomes.count).to eq(2)
+      end
+    end
+
+    it 'should de-dup outcomes linked multiple times' do
+      account = Account.default
+      course_factory
+      lo = LearningOutcome.create!(context: @course, title: "outcome",
+        calculation_method: 'highest', workflow_state: 'active')
+      3.times do |i|
+        group = @course.learning_outcome_groups.create!(:title => "groupage_#{i}")
+        group.add_outcome(lo)
+      end
+      expect(@course.learning_outcome_links.count).to eq(3)
+      expect(@course.linked_learning_outcomes.count).to eq(1) # not 3
+    end
+
     describe '#align' do
       let(:assignment) { assignment_model }
 
@@ -1013,31 +1060,163 @@ describe LearningOutcome do
     end
 
     it "should read vendor_guid_2" do
-      AcademicBenchmark.stubs(:use_new_guid_columns?).returns(false)
+      allow(AcademicBenchmark).to receive(:use_new_guid_columns?).and_return(false)
       expect(@outcome.vendor_guid).to be_nil
       @outcome.vendor_guid = "GUID-XXXX"
       @outcome.save!
       expect(@outcome.vendor_guid).to eql "GUID-XXXX"
-      AcademicBenchmark.stubs(:use_new_guid_columns?).returns(true)
+      allow(AcademicBenchmark).to receive(:use_new_guid_columns?).and_return(true)
       expect(@outcome.vendor_guid).to eql "GUID-XXXX"
       @outcome.write_attribute('vendor_guid_2', "GUID-YYYY")
       expect(@outcome.vendor_guid).to eql "GUID-YYYY"
-      AcademicBenchmark.stubs(:use_new_guid_columns?).returns(false)
+      allow(AcademicBenchmark).to receive(:use_new_guid_columns?).and_return(false)
       expect(@outcome.vendor_guid).to eql "GUID-XXXX"
     end
 
     it "should read migration_id_2" do
-      AcademicBenchmark.stubs(:use_new_guid_columns?).returns(false)
+      allow(AcademicBenchmark).to receive(:use_new_guid_columns?).and_return(false)
       expect(@outcome.migration_id).to be_nil
       @outcome.migration_id = "GUID-XXXX"
       @outcome.save!
       expect(@outcome.migration_id).to eql "GUID-XXXX"
-      AcademicBenchmark.stubs(:use_new_guid_columns?).returns(true)
+      allow(AcademicBenchmark).to receive(:use_new_guid_columns?).and_return(true)
       expect(@outcome.migration_id).to eql "GUID-XXXX"
       @outcome.write_attribute('migration_id_2', "GUID-YYYY")
       expect(@outcome.migration_id).to eql "GUID-YYYY"
-      AcademicBenchmark.stubs(:use_new_guid_columns?).returns(false)
+      allow(AcademicBenchmark).to receive(:use_new_guid_columns?).and_return(false)
       expect(@outcome.migration_id).to eql "GUID-XXXX"
+    end
+  end
+
+  context 'propagate changes to aligned rubrics' do
+    before :once do
+      course_with_teacher(:active_course => true, :active_user => true)
+    end
+
+    it 'does not propagate on a new record' do
+      lo = LearningOutcome.new
+      lo.short_description = 'beta'
+      expect(ContentTag).not_to receive(:learning_outcome_alignments)
+      lo.save!
+    end
+
+    it 'does not propagate on assessed rubric' do
+      assignment_model
+      course_with_student_logged_in(:active_all => true)
+      outcome_with_rubric mastery_points: 4.0
+      @association = @rubric.associate_with(@assignment, @course, :purpose => 'grading', :use_for_grading => true)
+      @assessment = @association.assess({
+        :user => @student,
+        :assessor => @teacher,
+        :artifact => @assignment.find_or_create_submission(@student),
+        :assessment => {
+          :assessment_type => 'grading',
+          :criterion_crit1 => {
+            :points => 5
+          }
+        }
+      })
+      @outcome.rubric_criterion = { mastery_points: 3.0 }
+      @outcome.save!
+      expect(@rubric.reload.criteria[0][:mastery_points]).to be 4.0
+    end
+
+    it 'propagates on data change' do
+      outcome_with_rubric mastery_points: 4.0
+      @outcome.rubric_criterion = { mastery_points: 3.0 }
+      @outcome.save!
+      expect(@rubric.reload.criteria[0][:mastery_points]).to be 3.0
+    end
+
+    it 'propagates on short description change' do
+      outcome_with_rubric
+      @outcome.short_description = 'beta'
+      @outcome.save!
+      expect(@rubric.reload.criteria[0][:description]).to eql 'beta'
+    end
+
+    it 'propagates on description change' do
+      outcome_with_rubric
+      @outcome.description = 'beta'
+      @outcome.save!
+      expect(@rubric.reload.criteria[0][:long_description]).to eql 'beta'
+    end
+  end
+
+  context 'updateable rubrics' do
+    before :once do
+      course_with_teacher(:active_course => true, :active_user => true)
+    end
+
+    it 'returns unassessed rubric' do
+      outcome_with_rubric
+      expect(@outcome.updateable_rubrics.length).to eq 1
+    end
+
+    context 'one assessed assignment' do
+      before do
+        course_with_student_logged_in(:active_all => true)
+        outcome_with_rubric
+        a1 = assignment_model
+        association = @rubric.associate_with(a1, @course, :purpose => 'grading', :use_for_grading => true)
+        association.assess({
+          :user => @student,
+          :assessor => @teacher,
+          :artifact => a1.find_or_create_submission(@student),
+          :assessment => {
+            :assessment_type => 'grading',
+            :criterion_crit1 => {
+              :points => 5
+            }
+          }
+        })
+      end
+
+      it 'does not return assessed rubric' do
+        expect(@outcome.updateable_rubrics.length).to eq 0
+      end
+
+      context 'plus one unassessed assignment' do
+        before do
+          a2 = assignment_model
+          @rubric.associate_with(a2, @course, :purpose => 'grading', :use_for_grading => true)
+        end
+
+        it 'does not return assessed rubric' do
+          expect(@outcome.updateable_rubrics.length).to eq 0
+        end
+      end
+    end
+
+    it 'does return course rubric referenced by single assignment' do
+      outcome_with_rubric
+      a1 = assignment_model
+      a1.create_rubric_association(:rubric => @rubric,
+                                   :purpose => 'grading',
+                                   :use_for_grading => true,
+                                   :context => @course)
+      RubricAssociation.create!(
+        :rubric => @rubric,
+        :association_object => @course,
+        :context => @course,
+        :purpose => 'bookmark'
+      )
+      expect(@outcome.updateable_rubrics.length).to eq 1
+    end
+
+    it 'does not return rubric referenced by multiple assignments' do
+      outcome_with_rubric
+      a1 = assignment_model
+      a2 = assignment_model
+      a1.create_rubric_association(:rubric => @rubric,
+                                   :purpose => 'grading',
+                                   :use_for_grading => true,
+                                   :context => @course)
+      a2.create_rubric_association(:rubric => @rubric,
+                                   :purpose => 'grading',
+                                   :use_for_grading => true,
+                                   :context => @course)
+      expect(@outcome.updateable_rubrics.length).to eq 0
     end
   end
 end

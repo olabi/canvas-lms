@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,8 +18,8 @@
 
 define [
   'Backbone'
-  'compiled/collections/OutcomeCollection'
-  'compiled/collections/PaginatedCollection'
+  '../collections/OutcomeCollection'
+  '../collections/PaginatedCollection'
 ], (Backbone, OutcomeCollection, PaginatedCollection) ->
 
   class OutcomeGroup extends Backbone.Model

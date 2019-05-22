@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,13 +17,12 @@
 #
 
 define [
-  'i18n!collaborations'
   'jquery'
   'Backbone'
-  'compiled/views/collaborations/ListView'
-  'compiled/views/collaborations/MemberListView'
+  './ListView'
+  './MemberListView'
   'jst/collaborations/CollaboratorPicker'
-], (I18n, $, {View}, ListView, MemberListView, widgetTemplate) ->
+], ($, {View}, ListView, MemberListView, widgetTemplate) ->
 
   class CollaboratorPickerView extends View
     template: widgetTemplate

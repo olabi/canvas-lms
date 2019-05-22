@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 
 module Qti
@@ -6,13 +23,13 @@ class AssessmentTestConverter
   include HtmlHelper
   DEFAULT_POINTS_POSSIBLE = 1
 
-  attr_reader :base_dir, :identifier, :href, :interaction_type, :title, :quiz
+  attr_reader :package_root, :identifier, :href, :interaction_type, :title, :quiz
 
   def initialize(manifest_node, base_dir, opts={})
     @log = Canvas::Migration::logger
     @manifest_node = manifest_node
-    @base_dir = base_dir
-    @href = File.join(@base_dir, @manifest_node['href'])
+    @package_root = PackageRoot.new(base_dir)
+    @href = @package_root.item_path(@manifest_node['href'])
     @converted_questions = opts[:converted_questions]
     @opts = opts
 

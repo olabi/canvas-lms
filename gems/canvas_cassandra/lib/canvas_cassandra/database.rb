@@ -1,6 +1,6 @@
 # encoding: utf-8
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -182,8 +182,12 @@ module CanvasCassandra
     end
 
     def tables
-      if @db.use_cql3?
-        @db.execute("SELECT columnfamily_name FROM system.schema_columnfamilies WHERE keyspace_name=?", @db.keyspace).map do |row|
+      if @db.connection.describe_version >= '20.1.0' && @db.execute("SELECT cql_version FROM system.local").first['cql_version'] >= '3.4.4'
+        @db.execute("SELECT table_name FROM system_schema.tables WHERE keyspace_name=?", keyspace).map do |row|
+          row['table_name']
+        end
+      elsif @db.use_cql3?
+        @db.execute("SELECT columnfamily_name FROM system.schema_columnfamilies WHERE keyspace_name=?", keyspace).map do |row|
           row['columnfamily_name']
         end
       else
@@ -206,7 +210,7 @@ module CanvasCassandra
     end
 
     def keyspace
-      db.keyspace
+      db.keyspace.to_s.dup.force_encoding('UTF-8')
     end
     alias :name :keyspace
 

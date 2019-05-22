@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/conversations_common')
 
 describe "conversations index page" do
@@ -55,8 +72,7 @@ describe "conversations index page" do
     it "should archive multiple conversations", priority: "1", test_id: 201490 do
       conversations
       select_conversations
-      f('#archive-btn').click
-      wait_for_ajaximations
+      click_archive_button
       expect(f('.messages')).not_to contain_css('li')
       run_progress_job
       @conversations.each { |c| expect(c.reload).to be_archived }

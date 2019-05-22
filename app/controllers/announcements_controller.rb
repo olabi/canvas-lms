@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,13 @@ require 'atom'
 class AnnouncementsController < ApplicationController
   include Api::V1::DiscussionTopics
 
-  before_filter :require_context, :except => :public_feed
-  before_filter { |c| c.active_tab = "announcements" }
+  before_action :require_context, :except => :public_feed
+  before_action { |c| c.active_tab = "announcements" }
+
+  def announcements_locked?
+    return false unless @context.is_a?(Course)
+    @context.lock_all_announcements?
+  end
 
   def index
     return unless authorized_action(@context, @current_user, :read)
@@ -34,11 +39,19 @@ class AnnouncementsController < ApplicationController
         add_crumb(t(:announcements_crumb, "Announcements"))
         can_create = @context.announcements.temp_record.grants_right?(@current_user, session, :create)
         js_env :permissions => {
-          :create => can_create,
-          :moderate => can_create
+          create: can_create,
+          manage_content: @context.grants_right?(@current_user, session, :manage_content),
+          moderate: can_create
         }
-        js_env :is_showing_announcements => true
-        js_env :atom_feed_url => feeds_announcements_format_path((@context_enrollment || @context).feed_code, :atom)
+        js_env is_showing_announcements: true
+        js_env atom_feed_url: feeds_announcements_format_path((@context_enrollment || @context).feed_code, :atom)
+        js_env(COURSE_ID: @context.id.to_s) if @context.is_a?(Course)
+        js_env ANNOUNCEMENTS_LOCKED: announcements_locked?
+
+        js_bundle :announcements_index_v2
+        css_bundle :announcements_index
+
+        set_tutorial_js_env
       end
     end
   end
@@ -49,7 +62,7 @@ class AnnouncementsController < ApplicationController
 
   def public_feed
     return unless get_feed_context
-    announcements = @context.announcements.active.order('posted_at DESC').limit(15).
+    announcements = @context.announcements.published.order('posted_at DESC').limit(15).
       select{|a| a.visible_for?(@current_user) }
 
     respond_to do |format|
@@ -63,7 +76,7 @@ class AnnouncementsController < ApplicationController
         announcements.each do |e|
           feed.entries << e.to_atom
         end
-        render :text => feed.to_xml
+        render :plain => feed.to_xml
       }
       format.rss {
         @announcements = announcements
@@ -83,7 +96,7 @@ class AnnouncementsController < ApplicationController
           channel.items << item
         end
         rss.channel = channel
-        render :text => rss.to_s
+        render :plain => rss.to_s
       }
     end
   end

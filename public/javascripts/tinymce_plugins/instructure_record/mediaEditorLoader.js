@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2015 Instructure, Inc.
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,32 +12,30 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'jquery',
-  'str/htmlEscape',
-  'jsx/shared/rce/RceCommandShim',
-  'media_comments'
-], function($, htmlEscape, RceCommandShim) {
+import $ from 'jquery'
+import htmlEscape from '../../str/htmlEscape'
+import {send} from 'jsx/shared/rce/RceCommandShim'
+import '../../media_comments'
 
   var mediaEditorLoader = {
-    insertCode: function(ed, mediaCommentId, mediaType){
+    insertCode: function(ed, mediaCommentId, mediaType, title){
       var $editor = $("#" + ed.id);
-      var linkCode = this.makeLinkHtml(mediaCommentId, mediaType)
-      RceCommandShim.send($editor, 'insert_code', linkCode);
+      var linkCode = this.makeLinkHtml(mediaCommentId, mediaType, title)
+      send($editor, 'insert_code', linkCode);
     },
 
-    makeLinkHtml: function(mediaCommentId, mediaType) {
-      return "<a href='/media_objects/" +
-        htmlEscape(mediaCommentId) +
-        "' class='instructure_inline_media_comment " +
-        htmlEscape(mediaType || "video") +
-        "_comment' id='media_comment_" +
-        htmlEscape(mediaCommentId) +
-        "'>this is a media comment</a><br>";
+    makeLinkHtml: function(mediaCommentId, mediaType, title) {
+      return $('<a />')
+                 .attr({href:`/media_objects/${htmlEscape(mediaCommentId)}`})
+                 .addClass('instructure_inline_media_comment')
+                 .addClass(`${htmlEscape(mediaType || 'video')}_comment`)
+                 .attr({id:`media_comment_${htmlEscape(mediaCommentId)}`})
+                 .attr({'data-alt':htmlEscape(title)})
+                 .text('this is a media comment')[0].outerHTML
     },
 
     getComment: function(ed, mediaCommentId){
@@ -50,8 +48,8 @@ define([
       ed.selection.collapse(true);
     },
 
-    commentCreatedCallback: function(ed, mediaCommentId, mediaType) {
-      this.insertCode(ed, mediaCommentId, mediaType)
+    commentCreatedCallback: function(ed, mediaCommentId, mediaType, title) {
+      this.insertCode(ed, mediaCommentId, mediaType, title)
       this.collapseMediaComment(ed, mediaCommentId)
     },
 
@@ -60,5 +58,4 @@ define([
     }
   }
 
-  return mediaEditorLoader;
-});
+export default mediaEditorLoader;

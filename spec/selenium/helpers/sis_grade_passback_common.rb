@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module SisGradePassbackCommon
   def getpseudonym(user_sis_id)
     pseudo = Pseudonym.where(sis_user_id: user_sis_id).first
@@ -126,7 +143,7 @@ module SisGradePassbackCommon
           "#{@teacher.id},T1,#{getsection('S1').id},S1,#{getpseudonym('S4').user.id},S4,#{getenroll('S4', 'S1').id},active,0,F\n" \
           "#{@teacher.id},T1,#{getsection('S3').id},S3,#{@stud5.id},,#{Enrollment.where(user_id: @stud5.user.id, course_section_id: getsection('S3').first.id).id},active,85,B\n" \
           "#{@teacher.id},T1,#{@sec4.id},,#{@stud6.id},,#{Enrollment.where(user_id: @stud6.user.id, course_section_id: @sec4.id).first.id},active,90,A-\n"
-    SSLCommon.expects(:post_data).with("http://localhost/endpoint", csv, "text/csv", {})
+    expect(SSLCommon).to receive(:post_data).with("http://localhost/endpoint", csv, "text/csv", {})
     f("#publish_grades_link").click
     wait_for_ajaximations
     expect(f("#publish_grades_messages").text).to eq(wait_for_success ? "Publishing - 6" : "Published - 6")

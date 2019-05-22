@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 - 2014 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,7 +35,7 @@ module AccountReports
 
       #if both dates are specified use them or change the start date if range is over 2 week
       if start_at && end_at
-        if end_at - start_at > 2.weeks
+        if end_at - start_at > 2.weeks.to_i
           @start = end_at - 2.weeks
           @account_report.parameters["start_at"] = @start
         end
@@ -110,6 +110,7 @@ module AccountReports
                INNER JOIN #{CourseSection.quoted_table_name} cs ON cs.id = e.course_section_id
                INNER JOIN #{Pseudonym.quoted_table_name} p ON e.user_id = p.user_id
                  AND courses.root_account_id = p.account_id
+                 AND p.workflow_state <> 'deleted'
                INNER JOIN #{User.quoted_table_name} u ON u.id = p.user_id").
         where("NOT EXISTS (SELECT s.user_id
                            FROM #{Submission.quoted_table_name} s
@@ -117,6 +118,7 @@ module AccountReports
                              AND a.context_type = 'Course'
                            WHERE s.user_id = p.user_id
                              AND a.context_id = courses.id
+                             AND s.workflow_state <> 'deleted'
                            #{time_span_join})")
 
       no_subs = no_subs.where(e: {workflow_state: enrollment_states}) if enrollment_states
@@ -186,19 +188,33 @@ module AccountReports
       param = {}
 
       if start_at
-        param[:start_at] = start_at
-        start = " AND aua.updated_at > :start_at"
+        data = data.where("enrollments.last_activity_at < ? OR enrollments.last_activity_at IS NULL", start_at)
+        # Only select enrollments that have zero activity across an entire course.
+        # This makes it so that users that have enrollments in multiple sections
+        # don't get pulled up unless they have zero activity across
+        # all the sections they belong to.
+        data = data.where(%{NOT EXISTS (
+          SELECT 1 AS ONE
+          FROM #{Enrollment.quoted_table_name} AS other_ens
+          WHERE other_ens.id<>enrollments.id
+            AND other_ens.user_id=enrollments.user_id
+            AND other_ens.course_id=enrollments.course_id
+            AND (
+              other_ens.last_activity_at IS NOT NULL
+              AND other_ens.last_activity_at > ?
+            )
+        )}, start_at)
       else
-        start = ""
+        data = data.where("enrollments.last_activity_at IS NULL")
+        data = data.where(%{NOT EXISTS (
+          SELECT 1 AS ONE
+          FROM #{Enrollment.quoted_table_name} AS other_ens
+          WHERE other_ens.id<>enrollments.id
+            AND other_ens.user_id=enrollments.user_id
+            AND other_ens.course_id=enrollments.course_id
+            AND other_ens.last_activity_at IS NOT NULL
+        )})
       end
-
-      data = data.
-        where("NOT EXISTS (SELECT user_id, context_id
-                           FROM #{AssetUserAccess.quoted_table_name} aua
-                           WHERE aua.user_id = enrollments.user_id
-                             AND aua.context_id = enrollments.course_id
-                             AND aua.context_type = 'Course'
-                           #{start})", param)
 
       data = data.where(:enrollments => {:course_id => course}) if course
       data = add_term_scope(data, 'c')
@@ -347,11 +363,10 @@ module AccountReports
       columns << 'access_tokens.last_used_at'
       columns << 'access_tokens.developer_key_id'
 
-      user_tokens = AccessToken
-                      .select(columns)
-                      .joins(user: {pseudonym: :account})
-                      .where("accounts.id = ? OR accounts.root_account_id = ?", root_account, root_account)
-                      .order("users.id, sortable_name, last_used_at DESC")
+      user_tokens = root_account.pseudonyms.
+        select(columns).
+        joins(user: :access_tokens).order("users.id, sortable_name, last_used_at DESC")
+      user_tokens = user_tokens.where.not(pseudonyms: {workflow_state: 'deleted'}) unless @include_deleted
 
       user_tokens = add_user_sub_account_scope(user_tokens)
 

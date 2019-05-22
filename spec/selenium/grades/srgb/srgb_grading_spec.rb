@@ -1,10 +1,27 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../helpers/gradebook_common'
-require_relative '../page_objects/srgb_page'
+require_relative '../pages/srgb_page'
 require_relative '../setup/gradebook_setup'
 
 describe 'Screenreader Gradebook grading' do
   include_context 'in-process server selenium tests'
-  include_context 'reusable_course'
+  include_context 'reusable_gradebook_course'
   include GradebookCommon
   include GradebookSetup
 
@@ -110,7 +127,16 @@ describe 'Screenreader Gradebook grading' do
     it 'on late submissions', priority: "2", test_id: 615701 do
       login_to_srgb
       srgb_page.select_assignment(assignment_1)
-      expect(f('p.late.muted em')).to include_text('This submission was late.')
+      expect(f('.late-pill')).to include_text('LATE')
+      expect(f('.submission_late_penalty')).to include_text('Late Penalty')
+      expect(f('.submission_final_grade')).to include_text('Final Grade')
+    end
+
+    it 'on missing submissions', priority: "2", test_id: 3308516 do
+      assignment_1.submissions.find_by(user: student).update!(late_policy_status: 'missing')
+      login_to_srgb
+      srgb_page.select_assignment(assignment_1)
+      expect(f('.missing-pill')).to include_text('MISSING')
     end
 
     it 'on dropped assignments', priority: "2", test_id: 615700 do
@@ -125,7 +151,7 @@ describe 'Screenreader Gradebook grading' do
       srgb_page.select_assignment(assignment_1)
 
       # indicates assignment_1 was dropped
-      expect(f('.dropped.muted em')).to include_text('This grade is currently dropped for this student.')
+      expect(f('.dropped.muted')).to include_text('This grade is currently dropped for this student.')
     end
 
     it 'on resubmitted assignments', priority: "2", test_id: 164000 do
@@ -145,7 +171,7 @@ describe 'Screenreader Gradebook grading' do
       srgb_page.select_assignment(assignment_1)
 
       # indicates assignment_1 was resubmitted
-      expect(f('.resubmitted.muted em')).to include_text('This assignment has been resubmitted')
+      expect(f('.resubmitted.muted')).to include_text('This assignment has been resubmitted')
 
       # grade the assignment again
       srgb_page.grade_srgb_assignment(srgb_page.main_grade_input, 10)
@@ -157,9 +183,9 @@ describe 'Screenreader Gradebook grading' do
   end
 
   context 'with grading periods' do
-    before(:each) do
+    before do
       term_name = "First Term"
-      create_multiple_grading_periods(term_name)
+      create_grading_periods(term_name)
       add_teacher_and_student
       associate_course_to_term(term_name)
       user_session(@teacher)
@@ -168,8 +194,9 @@ describe 'Screenreader Gradebook grading' do
     it 'assignment in ended gp should be gradable', test_id: 2947128, priority: "1" do
       assignment = @course.assignments.create!(due_at: 13.days.ago, title: "assign in ended")
       SRGB.visit(@course.id)
-      SRGB.select_grading_period(@gp_ended)
-      SRGB.select_student(student)
+      SRGB.select_grading_period(@gp_ended.title)
+      SRGB.visit(@course.id) # TODO: delete this line when fixing CNVS-37376
+      SRGB.select_student(@student)
       SRGB.select_assignment(assignment)
       SRGB.enter_grade(8)
 
@@ -180,12 +207,13 @@ describe 'Screenreader Gradebook grading' do
     it 'assignment in closed gp should not be gradable', test_id: 2947127, priority: "1" do
       assignment = @course.assignments.create!(due_at: 18.days.ago, title: "assign in closed")
       SRGB.visit(@course.id)
-      SRGB.select_grading_period(@gp_closed)
-      SRGB.select_student(student)
+      SRGB.select_grading_period(@gp_closed.title)
+      SRGB.visit(@course.id) # TODO: delete this line when fixing CNVS-37376
+      SRGB.select_student(@student)
       SRGB.select_assignment(assignment)
 
       expect(SRGB.grading_enabled?).to be false
-      expect(Submission.where(assignment_id: assignment.id, user_id: @student.id).first).to eq nil
+      expect(Submission.not_placeholder.where(assignment_id: assignment.id, user_id: @student.id).first).to eq nil
     end
   end
 end

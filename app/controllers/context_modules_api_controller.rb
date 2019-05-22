@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,209 +24,6 @@
 # can be unlocked by various criteria such as reading a page or achieving a
 # minimum score on a quiz. Modules themselves can be unlocked by the completion
 # of other Modules.
-#
-# @model ModuleItemCompletionRequirement
-#     {
-#       "id": "ModuleItemCompletionRequirement",
-#       "description": "",
-#       "properties": {
-#         "type": {
-#           "example": "min_score",
-#           "type": "string"
-#         },
-#         "min_score": {
-#           "example": 10,
-#           "type": "integer"
-#         },
-#         "completed": {
-#           "example": true,
-#           "type": "boolean"
-#         }
-#       }
-#     }
-#
-# @model ModuleItemContentDetails
-#     {
-#       "id": "ModuleItemContentDetails",
-#       "description": "",
-#       "properties": {
-#         "points_possible": {
-#           "example": 20,
-#           "type": "integer"
-#         },
-#         "due_at": {
-#           "example": "2012-12-31T06:00:00-06:00",
-#           "type": "datetime"
-#         },
-#         "unlock_at": {
-#           "example": "2012-12-31T06:00:00-06:00",
-#           "type": "datetime"
-#         },
-#         "lock_at": {
-#           "example": "2012-12-31T06:00:00-06:00",
-#           "type": "datetime"
-#         },
-#         "locked_for_user": {
-#           "example": true,
-#           "type": "boolean"
-#         },
-#         "lock_explanation": {
-#           "example": "This quiz is part of an unpublished module and is not available yet.",
-#           "type": "string"
-#         },
-#         "lock_info": {
-#           "example": {"asset_string": "assignment_4", "unlock_at": "2012-12-31T06:00:00-06:00", "lock_at": "2012-12-31T06:00:00-06:00", "context_module": {}},
-#           "$ref": "LockInfo"
-#         }
-#       }
-#     }
-#
-# @model ModuleItem
-#     {
-#       "id": "ModuleItem",
-#       "description": "",
-#       "properties": {
-#         "id": {
-#           "description": "the unique identifier for the module item",
-#           "example": 768,
-#           "type": "integer"
-#         },
-#         "module_id": {
-#           "description": "the id of the Module this item appears in",
-#           "example": 123,
-#           "type": "integer"
-#         },
-#         "position": {
-#           "description": "the position of this item in the module (1-based)",
-#           "example": 1,
-#           "type": "integer"
-#         },
-#         "title": {
-#           "description": "the title of this item",
-#           "example": "Square Roots: Irrational numbers or boxy vegetables?",
-#           "type": "string"
-#         },
-#         "indent": {
-#           "description": "0-based indent level; module items may be indented to show a hierarchy",
-#           "example": 0,
-#           "type": "integer"
-#         },
-#         "type": {
-#           "description": "the type of object referred to one of 'File', 'Page', 'Discussion', 'Assignment', 'Quiz', 'SubHeader', 'ExternalUrl', 'ExternalTool'",
-#           "example": "Assignment",
-#           "type": "string",
-#           "allowableValues": {
-#             "values": [
-#               "File",
-#               "Page",
-#               "Discussion",
-#               "Assignment",
-#               "Quiz",
-#               "SubHeader",
-#               "ExternalUrl",
-#               "ExternalTool"
-#             ]
-#           }
-#         },
-#         "content_id": {
-#           "description": "the id of the object referred to applies to 'File', 'Discussion', 'Assignment', 'Quiz', 'ExternalTool' types",
-#           "example": 1337,
-#           "type": "integer"
-#         },
-#         "html_url": {
-#           "description": "link to the item in Canvas",
-#           "example": "https://canvas.example.edu/courses/222/modules/items/768",
-#           "type": "string"
-#         },
-#         "url": {
-#           "description": "(Optional) link to the Canvas API object, if applicable",
-#           "example": "https://canvas.example.edu/api/v1/courses/222/assignments/987",
-#           "type": "string"
-#         },
-#         "page_url": {
-#           "description": "(only for 'Page' type) unique locator for the linked wiki page",
-#           "example": "my-page-title",
-#           "type": "string"
-#         },
-#         "external_url": {
-#           "description": "(only for 'ExternalUrl' and 'ExternalTool' types) external url that the item points to",
-#           "example": "https://www.example.com/externalurl",
-#           "type": "string"
-#         },
-#         "new_tab": {
-#           "description": "(only for 'ExternalTool' type) whether the external tool opens in a new tab",
-#           "example": false,
-#           "type": "boolean"
-#         },
-#         "completion_requirement": {
-#           "description": "Completion requirement for this module item",
-#           "$ref": "ModuleItemCompletionRequirement"
-#         },
-#         "content_details": {
-#           "description": "(Present only if requested through include[]=content_details) If applicable, returns additional details specific to the associated object",
-#           "$ref": "ModuleItemContentDetails"
-#         }
-#       }
-#     }
-#
-# @model ModuleItemSequenceAsset
-#     {
-#       "id": "ModuleItemSequenceAsset",
-#       "description": "",
-#       "properties": {
-#         "id": {
-#           "example": 768,
-#           "type": "integer"
-#         },
-#         "module_id": {
-#           "example": 123,
-#           "type": "integer"
-#         },
-#         "title": {
-#           "example": "A lonely page",
-#           "type": "string"
-#         },
-#         "type": {
-#           "example": "Page",
-#           "type": "string"
-#         }
-#       }
-#     }
-#
-# @model ModuleItemSequenceNode
-#     {
-#       "id": "ModuleItemSequenceNode",
-#       "description": "",
-#       "properties": {
-#         "prev": {
-#           "$ref": "ModuleItemSequenceAsset"
-#         },
-#         "current": {
-#           "$ref": "ModuleItemSequenceAsset"
-#         },
-#         "next": {
-#           "$ref": "ModuleItemSequenceAsset"
-#         }
-#       }
-#     }
-#
-# @model ModuleItemSequence
-#     {
-#       "id": "ModuleItemSequence",
-#       "description": "",
-#       "properties": {
-#         "items": {
-#           "description": "an array containing one hash for each appearence of the asset in the module sequence (up to 10 total)",
-#           "type": "array",
-#           "items": { "$ref": "ModuleItemSequenceNode" }
-#         },
-#         "modules": {
-#           "description": "an array containing each Module referenced above",
-#           "type": "array",
-#           "items": { "$ref": "Module" }
-#         }
-#       }
-#     }
 #
 # @model Module
 #     {
@@ -310,18 +107,23 @@
 #         "publish_final_grade": {
 #           "description": "if the student's final grade for the course should be published to the SIS upon completion of this module",
 #           "type": "boolean"
+#         },
+#         "published": {
+#           "description": "(Optional) Whether this module is published. This field is present only if the caller has permission to view unpublished modules.",
+#           "type": "boolean",
+#           "example": true
 #         }
 #       }
 #     }
 #
 class ContextModulesApiController < ApplicationController
-  before_filter :require_context
-  before_filter :find_student, :only => [:index, :show]
+  before_action :require_context
+  before_action :find_student, :only => [:index, :show]
   include Api::V1::ContextModule
 
   # @API List modules
   #
-  # List the modules in a course
+  # A paginated list of the modules in a course
   #
   # @argument include[] [String, "items"|"content_details"]
   #    - "items": Return module items inline if possible.
@@ -332,13 +134,13 @@ class ContextModulesApiController < ApplicationController
   #      too numerous to return inline. Callers must be prepared to use the
   #      {api:ContextModuleItemsApiController#index List Module Items API}
   #      if items are not returned.
-  #    - "content_details": Requires include['items']. Returns additional
+  #    - "content_details": Requires 'items'. Returns additional
   #      details with module items specific to their associated content items.
   #      Includes standard lock information for each item.
   #
   # @argument search_term [String]
-  #   The partial name of the modules (and module items, if include['items'] is
-  #   specified) to match and return.
+  #   The partial name of the modules (and module items, if 'items' is
+  #   specified with include[]) to match and return.
   #
   # @argument student_id
   #   Returns module completion information for the student with this id.
@@ -371,17 +173,9 @@ class ContextModulesApiController < ApplicationController
       end
 
       if includes.include?('items')
-        user_ids = [(@student || @current_user).id]
-
         if @context.user_has_been_observer?(@student || @current_user)
           opts[:observed_student_ids] = ObserverEnrollment.observed_student_ids(self.context, (@student || @current_user) )
-          user_ids.concat(opts[:observed_student_ids])
         end
-
-        opts[:assignment_visibilities] = AssignmentStudentVisibility.visible_assignment_ids_for_user(user_ids, @context.id)
-        opts[:discussion_visibilities] = DiscussionTopic.visible_to_students_in_course_with_da(user_ids, @context.id).pluck(:id)
-        opts[:page_visibilities] = WikiPage.visible_to_students_in_course_with_da(user_ids, @context.id).pluck(:id)
-        opts[:quiz_visibilities] = Quizzes::Quiz.visible_to_students_in_course_with_da(user_ids,@context.id).pluck(:quiz_id)
       end
 
       render :json => modules_and_progressions.map { |mod, prog| module_json(mod, @student || @current_user, session, prog, includes, opts) }.compact
@@ -401,7 +195,7 @@ class ContextModulesApiController < ApplicationController
   #      too numerous to return inline. Callers must be prepared to use the
   #      {api:ContextModuleItemsApiController#index List Module Items API}
   #      if items are not returned.
-  #    - "content_details": Requires include['items']. Returns additional
+  #    - "content_details": Requires 'items'. Returns additional
   #      details with module items specific to their associated content items.
   #      Includes standard lock information for each item.
   #
@@ -420,6 +214,36 @@ class ContextModulesApiController < ApplicationController
       ActiveRecord::Associations::Preloader.new.preload(mod, content_tags: :content) if includes.include?('items')
       prog = @student ? mod.evaluate_for(@student) : nil
       render :json => module_json(mod, @student || @current_user, session, prog, includes)
+    end
+  end
+
+  def duplicate
+    if authorized_action(@context, @current_user, :manage_content)
+      old_module = @context.modules_visible_to(@current_user).find(params[:module_id])
+      if !@context.root_account.feature_enabled?(:duplicate_modules)
+        return render json: { error: 'duplicating objects not enabled' }, status: :bad_request
+      end
+      return render json: { error: 'unable to find module to duplicate' }, status: :bad_request unless old_module
+      return render json: { error: 'cannot duplicate this module' }, status: :bad_request unless old_module.can_be_duplicated?
+
+      new_module = old_module.duplicate
+      new_module.save!
+      new_module.insert_at(old_module.position + 1)
+      if new_module
+        result_json = new_module.as_json(include: :content_tags, methods: :workflow_state)
+        attachment_tags = new_module.content_tags.select do |content_tag|
+          content_tag.content_type == 'Attachment'
+        end
+        result_json['ENV_UPDATE'] = attachment_tags.map do |attachment_tag|
+          { :id => attachment_tag.id.to_s,
+            :content_id => attachment_tag.content_id,
+            :content_details => content_details(attachment_tag, @current_user, :for_admin => true)
+          }
+        end
+        render :json => result_json
+      else
+        render :json => { error: 'cannot save new module' }, status: :bad_request
+      end
     end
   end
 

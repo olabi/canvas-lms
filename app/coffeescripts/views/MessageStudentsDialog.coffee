@@ -1,14 +1,31 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!quizzes'
   'jquery'
-  'compiled/views/DialogFormView'
+  './DialogFormView'
   'jst/messageStudentsDialog'
   'jst/EmptyDialogFormWrapper'
-  'compiled/models/Conversation'
+  '../models/ConversationCreator'
   'jst/_messageStudentsWhoRecipientList'
   'underscore'
-  'compiled/jquery/serializeForm'
-], (I18n, $, DialogFormView, template, wrapperTemplate, Conversation, recipientListTemplate, _) ->
+  '../jquery/serializeForm'
+], (I18n, $, DialogFormView, template, wrapperTemplate, ConversationCreator, recipientListTemplate, _) ->
 
   class MessageStudentsDialog extends DialogFormView
 
@@ -51,7 +68,7 @@ define [
         I18n.t('message_students', 'Message students')
 
       @recipients = @recipientGroups[0].recipients
-      @model or= new Conversation
+      @model or= new ConversationCreator(chunkSize: ENV.MAX_GROUP_CONVERSATION_SIZE)
 
     toJSON: =>
       json = {}

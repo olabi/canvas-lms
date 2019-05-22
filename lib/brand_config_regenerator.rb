@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # This is what is in charge of regenerating all of the child
 # brand configs when an account saves theirs in the theme editor
 class BrandConfigRegenerator
@@ -24,7 +41,7 @@ class BrandConfigRegenerator
       if @account.site_admin?
         # note: this is only root accounts on the same shard as site admin
         @account.shard.activate do
-          root_scope = Account.root_accounts.active.where.not(id: @account)
+          root_scope = Account.root_accounts.active.non_shadow.where.not(id: @account)
           result.concat(root_scope.select(&:brand_config_md5))
           result.concat(SharedBrandConfig.where(account_id: root_scope))
 
@@ -66,7 +83,7 @@ class BrandConfigRegenerator
     )
     progress.user = @current_user
     progress.reset!
-    progress.process_job(new_config, job_type, {priority: Delayed::HIGH_PRIORITY}, thing.id)
+    progress.process_job(new_config, job_type, { priority: Delayed::HIGH_PRIORITY, strand: "brand_config_regenerate_#{thing.global_asset_string}" }, thing.id)
 
     @new_configs[config.md5] = new_config
     @progresses << progress

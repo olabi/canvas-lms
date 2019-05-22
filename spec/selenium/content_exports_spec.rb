@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 require 'nokogiri'
@@ -39,7 +56,7 @@ describe "content exports" do
 
       run_export do
         f("input[value=qti]").click
-        f(%{.quiz_item[name="copy[quizzes][#{CC::CCHelper.create_key(q2)}]"]}).click
+        f(%{.quiz_item[name="copy[quizzes][#{CC::CCHelper.create_key(q2, global: true)}]"]}).click
       end
 
       expect(@export.export_type).to eq 'qti'
@@ -48,8 +65,8 @@ describe "content exports" do
       zip_file = Zip::File.open(file_handle.path)
       manifest_doc = Nokogiri::XML.parse(zip_file.read("imsmanifest.xml"))
 
-      expect(manifest_doc.at_css("resource[identifier=#{CC::CCHelper.create_key(q1)}]")).not_to be_nil
-      expect(manifest_doc.at_css("resource[identifier=#{CC::CCHelper.create_key(q2)}]")).to be_nil
+      expect(manifest_doc.at_css("resource[identifier=#{CC::CCHelper.create_key(q1, global: true)}]")).not_to be_nil
+      expect(manifest_doc.at_css("resource[identifier=#{CC::CCHelper.create_key(q2, global: true)}]")).to be_nil
     end
   end
 end

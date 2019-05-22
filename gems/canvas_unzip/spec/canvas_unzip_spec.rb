@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -60,6 +60,14 @@ describe "CanvasUnzip" do
       end
     end
 
+    it "should deal with empty archives" do
+      Dir.mktmpdir do |tmpdir|
+        subdir = File.join(tmpdir, 'sub_dir')
+        Dir.mkdir(subdir)
+        expect { CanvasUnzip.extract_archive(fixture_filename("empty.#{extension}"), subdir) }.not_to raise_error
+      end
+    end
+
     it "should enumerate entries" do
       indices = []
       entries = []
@@ -83,7 +91,7 @@ describe "CanvasUnzip" do
       expect {
         limits = CanvasUnzip::Limits.new(CanvasUnzip::DEFAULT_BYTE_LIMIT, 2)
         Dir.mktmpdir do |tmpdir|
-          CanvasUnzip.extract_archive(fixture_filename("test.zip"), tmpdir, limits)
+          CanvasUnzip.extract_archive(fixture_filename("test.zip"), tmpdir, limits: limits)
         end
       }.to raise_error(CanvasUnzip::FileLimitExceeded)
     end
@@ -92,7 +100,7 @@ describe "CanvasUnzip" do
       expect {
         limits = CanvasUnzip::Limits.new(10, 100)
         Dir.mktmpdir do |tmpdir|
-          CanvasUnzip.extract_archive(fixture_filename("test.zip"), tmpdir, limits)
+          CanvasUnzip.extract_archive(fixture_filename("test.zip"), tmpdir, limits: limits)
         end
       }.to raise_error(CanvasUnzip::SizeLimitExceeded)
     end

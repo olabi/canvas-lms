@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/groups_common')
 
@@ -46,6 +63,7 @@ describe "student groups" do
       end
 
       it "teacher can delete a student group", priority: "1", test_id: 182060 do
+        skip_if_safari(:alert)
         expect(f(".group-name")).to include_text(group_name.to_s)
         delete_group
         expect(f("#content")).not_to contain_css(".group-name")
@@ -76,7 +94,7 @@ describe "student groups" do
         wait_for_ajaximations
 
         # Looks for student to have a group leader icon
-        expect(f('.icon-user.group-leader')).to be_displayed
+        expect(f('.group-leader .icon-user')).to be_displayed
         # Verifies group leader silhouette and leader's name appear in the group header
         expect(f('.span3.ellipsis.group-leader')).to be_displayed
         expect(f('.span3.ellipsis.group-leader')).to include_text("Test Student 1")

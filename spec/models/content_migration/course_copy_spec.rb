@@ -1,4 +1,20 @@
 # coding: utf-8
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
@@ -60,7 +76,7 @@ describe ContentMigration do
       @cm.save!
       run_course_copy
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
       expect(new_topic.message).to eq topic.message
       expect(@copy_to.syllabus_body).to match(/\/courses\/#{@copy_to.id}\/discussion_topics\/#{new_topic.id}/)
@@ -75,6 +91,15 @@ describe ContentMigration do
       run_course_copy
 
       expect(@copy_to.syllabus_body).to match /#{@copy_from.syllabus_body}/
+    end
+
+    it "should not migrate a blank syllabus" do
+      body = "woo"
+      @copy_to.update_attribute(:syllabus_body, body)
+
+      run_course_copy
+
+      expect(@copy_to.syllabus_body).to eq body
     end
 
     it "should not migrate syllabus when not selected" do
@@ -99,10 +124,10 @@ describe ContentMigration do
 
       run_course_copy
 
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).not_to be_nil
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
       expect(new_topic.message).to match(Regexp.new("/courses/#{@copy_to.id}/files/#{new_att.id}/preview"))
     end
@@ -115,10 +140,10 @@ describe ContentMigration do
 
       run_course_copy
 
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).not_to be_nil
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
 
       expect(new_topic.message).to match(Regexp.new("/courses/#{@copy_to.id}/files/#{new_att.id}/preview"))
@@ -133,7 +158,7 @@ describe ContentMigration do
       run_course_copy
 
       @copy_to.enroll_student(student)
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).to be_present
 
       expect(new_att.grants_right?(student, :download)).to be_falsey
@@ -144,14 +169,30 @@ describe ContentMigration do
       asmnt1 = @copy_from.assignments.create!(:title => "some assignment")
       tag = mod1.add_item({:id => asmnt1.id, :type => 'assignment', :indent => 1})
       body = %{<p>Link to module item: <a href="/courses/%s/modules/items/%s">some assignment</a></p>}
-      page = @copy_from.wiki.wiki_pages.create!(:title => "some page", :body => body % [@copy_from.id, tag.id])
+      page = @copy_from.wiki_pages.create!(:title => "some page", :body => body % [@copy_from.id, tag.id])
 
       run_course_copy
 
       mod1_to = @copy_to.context_modules.where(migration_id: mig_id(mod1)).first
       tag_to = mod1_to.content_tags.first
-      page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(page)).first
+      page_to = @copy_to.wiki_pages.where(migration_id: mig_id(page)).first
       expect(page_to.body).to eq body % [@copy_to.id, tag_to.id]
+    end
+
+    it "should translate links to assignments with module item id" do
+      mod1 = @copy_from.context_modules.create!(:name => "some module")
+      asmnt1 = @copy_from.assignments.create!(:title => "some assignment")
+      tag = mod1.add_item({:id => asmnt1.id, :type => 'assignment', :indent => 1})
+      body = %{<p>Link to module item: <a href="/courses/%s/assignments/%s?module_item_id=%s">some assignment</a></p>}
+      page = @copy_from.wiki_pages.create!(:title => "some page", :body => body % [@copy_from.id, asmnt1.id, tag.id])
+
+      run_course_copy
+
+      mod1_to = @copy_to.context_modules.where(migration_id: mig_id(mod1)).first
+      asmnt_to = @copy_to.assignments.where(migration_id: mig_id(asmnt1)).first
+      tag_to = mod1_to.content_tags.first
+      page_to = @copy_to.wiki_pages.where(migration_id: mig_id(page)).first
+      expect(page_to.body).to eq body % [@copy_to.id, asmnt_to.id, tag_to.id]
     end
 
     it "should translate links to modules in quiz content" do
@@ -184,6 +225,17 @@ describe ContentMigration do
       expect(mod3_to.position).to eq 3 # put at end
     end
 
+    it "shan't interweave module order when restoring deleting modules in the destination course neither" do
+      ['A', 'B'].map { |name| @copy_to.context_modules.create!(:name => name) }
+      ['C', 'D'].map { |name| @copy_from.context_modules.create!(:name => name) }
+      run_course_copy
+      expect(@copy_to.context_modules.order(:position).pluck(:name)).to eq(['A', 'B', 'C', 'D'])
+
+      @copy_to.context_modules.where(name: ['C', 'D']).map(&:destroy)
+      run_course_copy
+      expect(@copy_to.context_modules.order(:position).pluck(:name)).to eq(['A', 'B', 'C', 'D'])
+    end
+
     it "should be able to copy links to files in folders with html entities and unicode in path" do
       root_folder = Folder.root_folders(@copy_from).first
       folder1 = root_folder.sub_folders.create!(:context => @copy_from, :name => "mol&eacute; ? i'm silly")
@@ -196,7 +248,7 @@ describe ContentMigration do
       body += "<a class='instructure_file_link' href='/courses/#{@copy_from.id}/files/#{att2.id}/download'>link</a>"
       body += "<img src='/courses/#{@copy_from.id}/files/#{img.id}/preview'>"
       dt = @copy_from.discussion_topics.create!(:message => body, :title => "discussion title")
-      page = @copy_from.wiki.wiki_pages.create!(:title => "some page", :body => body)
+      page = @copy_from.wiki_pages.create!(:title => "some page", :body => body)
 
       run_course_copy
 
@@ -204,7 +256,7 @@ describe ContentMigration do
       att_to2 = @copy_to.attachments.where(migration_id: mig_id(att2)).first
       img_to = @copy_to.attachments.where(migration_id: mig_id(img)).first
 
-      page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(page)).first
+      page_to = @copy_to.wiki_pages.where(migration_id: mig_id(page)).first
       expect(page_to.body).to include "/courses/#{@copy_to.id}/files/#{att_to1.id}/download"
       expect(page_to.body).to include "/courses/#{@copy_to.id}/files/#{att_to2.id}/download"
       expect(page_to.body).to include "/courses/#{@copy_to.id}/files/#{img_to.id}/preview"
@@ -223,8 +275,8 @@ describe ContentMigration do
       cm2 = @copy_from.context_modules.create!(:name => "another module")
       att = Attachment.create!(:filename => 'first.txt', :uploaded_data => StringIO.new('ohai'), :folder => Folder.unfiled_folder(@copy_from), :context => @copy_from)
       att2 = Attachment.create!(:filename => 'second.txt', :uploaded_data => StringIO.new('ohai'), :folder => Folder.unfiled_folder(@copy_from), :context => @copy_from)
-      wiki = @copy_from.wiki.wiki_pages.create!(:title => "wiki", :body => "ohai")
-      wiki2 = @copy_from.wiki.wiki_pages.create!(:title => "wiki2", :body => "ohais")
+      wiki = @copy_from.wiki_pages.create!(:title => "wiki", :body => "ohai")
+      wiki2 = @copy_from.wiki_pages.create!(:title => "wiki2", :body => "ohais")
       data = [{:points => 3,:description => "Outcome row",:id => 1,:ratings => [{:points => 3,:description => "Rockin'",:criterion_id => 1,:id => 2}]}]
       rub1 = @copy_from.rubrics.build(:title => "rub1")
       rub1.data = data
@@ -277,8 +329,8 @@ describe ContentMigration do
       expect(@copy_to.attachments.where(migration_id: mig_id(att)).first).not_to be_nil
       expect(@copy_to.attachments.where(migration_id: mig_id(att2)).first).to be_nil
 
-      expect(@copy_to.wiki.wiki_pages.where(migration_id: mig_id(wiki)).first).not_to be_nil
-      expect(@copy_to.wiki.wiki_pages.where(migration_id: mig_id(wiki2)).first).to be_nil
+      expect(@copy_to.wiki_pages.where(migration_id: mig_id(wiki)).first).not_to be_nil
+      expect(@copy_to.wiki_pages.where(migration_id: mig_id(wiki2)).first).to be_nil
 
       expect(@copy_to.rubrics.where(migration_id: mig_id(rub1)).first).not_to be_nil
       expect(@copy_to.rubrics.where(migration_id: mig_id(rub2)).first).to be_nil
@@ -294,7 +346,7 @@ describe ContentMigration do
       dt1 = @copy_from.discussion_topics.create!(:message => "hi", :title => "discussion title")
       cm = @copy_from.context_modules.create!(:name => "some module")
       att = Attachment.create!(:filename => 'first.txt', :uploaded_data => StringIO.new('ohai'), :folder => Folder.unfiled_folder(@copy_from), :context => @copy_from)
-      wiki = @copy_from.wiki.wiki_pages.create!(:title => "wiki", :body => "ohai")
+      wiki = @copy_from.wiki_pages.create!(:title => "wiki", :body => "ohai")
       quiz = @copy_from.quizzes.create! if Qti.qti_enabled?
       ag = @copy_from.assignment_groups.create!(:name => 'empty group')
       asmnt = @copy_from.assignments.create!(:title => "some assignment")
@@ -325,7 +377,7 @@ describe ContentMigration do
       @copy_to.discussion_topics.where(migration_id: mig_id(dt1)).first.destroy
       @copy_to.context_modules.where(migration_id: mig_id(cm)).first.destroy
       @copy_to.attachments.where(migration_id: mig_id(att)).first.destroy
-      @copy_to.wiki.wiki_pages.where(migration_id: mig_id(wiki)).first.destroy
+      @copy_to.wiki_pages.where(migration_id: mig_id(wiki)).first.destroy
       @copy_to.rubrics.where(migration_id: mig_id(rub1)).first.destroy
       @copy_to.created_learning_outcomes.where(migration_id: mig_id(lo)).first.destroy
       @copy_to.quizzes.where(migration_id: mig_id(quiz)).first.destroy if Qti.qti_enabled?
@@ -349,7 +401,7 @@ describe ContentMigration do
       expect(@copy_to.context_modules.where(migration_id: mig_id(cm)).first.workflow_state).to eq 'active'
       expect(@copy_to.attachments.count).to eq 1
       expect(@copy_to.attachments.where(migration_id: mig_id(att)).first.file_state).to eq 'available'
-      expect(@copy_to.wiki.wiki_pages.where(migration_id: mig_id(wiki)).first.workflow_state).to eq 'active'
+      expect(@copy_to.wiki_pages.where(migration_id: mig_id(wiki)).first.workflow_state).to eq 'active'
       rub2 = @copy_to.rubrics.where(migration_id: mig_id(rub1)).first
       expect(rub2.workflow_state).to eq 'active'
       expect(rub2.rubric_associations.first.bookmarked).to eq true
@@ -364,9 +416,11 @@ describe ContentMigration do
 
     it "should copy course attributes" do
       Account.default.allow_self_enrollment!
+      account_admin_user(:user => @cm.user, :account => @copy_to.account)
       #set all the possible values to non-default values
       @copy_from.start_at = 5.minutes.ago
       @copy_from.conclude_at = 1.month.from_now
+      @copy_from.restrict_enrollments_to_course_dates = true
       @copy_from.is_public = false
       @copy_from.name = "haha copy from test &amp;"
       @copy_from.course_code = 'something funny'
@@ -376,7 +430,7 @@ describe ContentMigration do
       @copy_from.default_wiki_editing_roles = 'teachers'
       @copy_from.allow_student_organized_groups = false
       @copy_from.show_announcements_on_home_page = false
-      @copy_from.home_page_announcement_limit = nil
+      @copy_from.home_page_announcement_limit = 3
       @copy_from.default_view = 'modules'
       @copy_from.open_enrollment = true
       @copy_from.storage_quota = 444
@@ -395,6 +449,12 @@ describe ContentMigration do
       @copy_from.public_syllabus_to_auth = true
       @copy_from.lock_all_announcements = true
       @copy_from.allow_student_discussion_editing = false
+      @copy_from.restrict_student_future_view = true
+      @copy_from.restrict_student_past_view = true
+      @copy_from.show_total_grade_as_points = true
+      @copy_from.organize_epub_by_content_type = true
+      @copy_from.enable_offline_web_export = true
+      @copy_from.is_public_to_auth_users = true
       @copy_from.save!
 
       run_course_copy
@@ -402,6 +462,7 @@ describe ContentMigration do
       #compare settings
       expect(@copy_to.conclude_at).to eq nil
       expect(@copy_to.start_at).to eq nil
+      expect(@copy_to.restrict_enrollments_to_course_dates).to eq true
       expect(@copy_to.storage_quota).to eq 444
       expect(@copy_to.hide_final_grades).to eq true
       expect(@copy_to.grading_standard_enabled).to eq true
@@ -414,9 +475,24 @@ describe ContentMigration do
       atts = Course.clonable_attributes
       atts -= Canvas::Migration::MigratorHelper::COURSE_NO_COPY_ATTS
       atts.each do |att|
-        expect(@copy_to.send(att)).to eq @copy_from.send(att)
+        expect(@copy_to.send(att)).to eq(@copy_from.send(att)), "@copy_to.#{att}: expected #{@copy_from.send(att)}, got #{@copy_to.send(att)}"
       end
       expect(@copy_to.tab_configuration).to eq @copy_from.tab_configuration
+    end
+
+    it "should copy the overridable course visibility setting" do
+      visibility_type = "superfunvisibility"
+      allow_any_instantiation_of(@copy_from.root_account).to receive(:available_course_visibility_override_options).
+        and_return({visibility_type=> {:setting => "Some label"}})
+      @copy_from.apply_visibility_configuration(visibility_type, nil)
+      @copy_from.save!
+      run_course_copy
+      expect(@copy_to.reload.overridden_course_visibility).to eq visibility_type
+
+      @copy_from.apply_visibility_configuration('public', nil)
+      @copy_from.save!
+      run_course_copy
+      expect(@copy_to.reload.overridden_course_visibility).to be_blank
     end
 
     it "should copy dashboard images" do
@@ -488,11 +564,15 @@ describe ContentMigration do
 
       expect(mod2_to.prerequisites.count).to eq 1
       expect(mod2_to.prerequisites.first[:id]).to eq mod1_to.id
+
+      mod1.update_attribute(:require_sequential_progress, false)
+      run_course_copy
+      expect(mod1_to.reload.require_sequential_progress).to be_falsey
     end
 
     it "should sync module items (even when removed) on re-copy" do
       mod = @copy_from.context_modules.create!(:name => "some module")
-      page = @copy_from.wiki.wiki_pages.create(:title => "some page")
+      page = @copy_from.wiki_pages.create(:title => "some page")
       tag1 = mod.add_item({:id => page.id, :type => 'wiki_page'})
       asmnt = @copy_from.assignments.create!(:title => "some assignment")
       tag2 = mod.add_item({:id => asmnt.id, :type => 'assignment', :indent => 1})
@@ -532,6 +612,29 @@ describe ContentMigration do
       expect(@copy_to.syllabus_body).to eq @copy_from.syllabus_body.gsub("/courses/#{@copy_from.id}/file_contents/course%20files",'')
     end
 
+    it "should copy weird object links" do
+      att = Attachment.create!(:filename => 'test.txt', :uploaded_data => StringIO.new('pixels and frames and stuff'),
+        :folder => Folder.root_folders(@copy_from).first, :context => @copy_from)
+      @copy_from.syllabus_body = "<object><param value=\"/courses/#{@copy_from.id}/files/#{att.id}/download\"></object>"
+      @copy_from.save!
+
+      run_course_copy
+
+      att2 = @copy_to.attachments.where(:migration_id => mig_id(att)).first
+      expect(@copy_to.reload.syllabus_body).to include "/courses/#{@copy_to.id}/files/#{att2.id}/download"
+    end
+
+    it "should copy weird longdesc things" do
+      page = @copy_from.wiki_pages.create!(:title => "page")
+      @copy_from.syllabus_body = "<img longdesc=\"/courses/#{@copy_from.id}/pages/#{page.url}/>"
+      @copy_from.save!
+
+      run_course_copy
+
+      page2 = @copy_to.wiki_pages.where(:migration_id => mig_id(page)).first
+      expect(@copy_to.reload.syllabus_body).to include "/courses/#{@copy_to.id}/pages/#{page2.url}"
+    end
+
     it "should re-use kaltura media objects" do
       expect {
         media_id = '0_deadbeef'
@@ -568,7 +671,7 @@ describe ContentMigration do
       run_course_copy
 
       expect(@copy_to.calendar_events.count).to eq 2
-      cal_2 = @copy_to.calendar_events.where(migration_id: CC::CCHelper.create_key(cal)).first
+      cal_2 = @copy_to.calendar_events.where(migration_id: mig_id(cal)).first
       expect(cal_2.title).to eq cal.title
       expect(cal_2.start_at.to_i).to eq cal.start_at.to_i
       expect(cal_2.end_at.to_i).to eq cal.end_at.to_i
@@ -576,7 +679,7 @@ describe ContentMigration do
       expect(cal_2.all_day_date).to eq cal.all_day_date
       cal_2.description = body_with_link % @copy_to.id
 
-      cal2_2 = @copy_to.calendar_events.where(migration_id: CC::CCHelper.create_key(cal2)).first
+      cal2_2 = @copy_to.calendar_events.where(migration_id: mig_id(cal2)).first
       expect(cal2_2.title).to eq cal2.title
       expect(cal2_2.start_at.to_i).to eq cal2.start_at.to_i
       expect(cal2_2.end_at.to_i).to eq cal2.end_at.to_i
@@ -588,16 +691,16 @@ describe ContentMigration do
         :uploaded_data => StringIO.new('file'), :folder => Folder.root_folders(@copy_from).first, :context => @copy_from)
       topic = @copy_from.discussion_topics.create!(:title => "some topic", :message => "<img src='/courses/#{@copy_from.id}/files/#{att.id}/preview'>")
 
-      Importers::WikiPageImporter.stubs(:process_migration).raises(ArgumentError)
+      allow(Importers::WikiPageImporter).to receive(:process_migration).and_raise(ArgumentError)
 
       expect{
         run_course_copy
       }.to raise_error(ArgumentError)
 
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).not_to be_nil
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
       expect(new_topic.message).to match(Regexp.new("/courses/#{@copy_to.id}/files/#{new_att.id}/preview"))
     end
@@ -618,14 +721,14 @@ describe ContentMigration do
 
     it "should not desync imported module item published status with existing content" do
       asmnt = @copy_from.assignments.create!(:title => "some assignment")
-      page = @copy_from.wiki.wiki_pages.create!(:title => "some page")
+      page = @copy_from.wiki_pages.create!(:title => "some page")
 
       run_course_copy
 
       new_asmnt = @copy_to.assignments.where(:migration_id => mig_id(asmnt)).first
       new_asmnt.unpublish!
 
-      new_page = @copy_to.wiki.wiki_pages.where(:migration_id => mig_id(page)).first
+      new_page = @copy_to.wiki_pages.where(:migration_id => mig_id(page)).first
       new_page.unpublish!
 
       mod1 = @copy_from.context_modules.create!(:name => "some module")
@@ -644,7 +747,7 @@ describe ContentMigration do
     end
 
     it "should restore deleted module items on re-import" do
-      page = @copy_from.wiki.wiki_pages.create!(:title => "some page")
+      page = @copy_from.wiki_pages.create!(:title => "some page")
 
       mod = @copy_from.context_modules.create!(:name => "some module")
       tag1 = mod.add_item({ :title => 'Example 1', :type => 'external_url', :url => 'http://derp.derp/something' })
@@ -691,6 +794,26 @@ describe ContentMigration do
       new_tag2 = @copy_to.context_module_tags.where(:migration_id => mig_id(tag2)).first
       expect(new_tag1).to be_published
       expect(new_tag2).to be_unpublished
+    end
+
+    it "shouldn't try to translate links to similarishly looking urls" do
+      body = %{<p>link to external thing <a href="https://someotherexampledomain.com/users/what">sad</a></p>
+        <p>another link to external thing <a href="https://someotherexampledomain2.com/files">so sad</a></p>}
+      page = @copy_from.wiki_pages.create!(:title => "some page", :body => body)
+
+      run_course_copy
+
+      page_to = @copy_to.wiki_pages.where(:migration_id => mig_id(page)).first
+      expect(page_to.body).to eq body
+    end
+
+    it "should still translate links to /course/X/files" do
+      body = %{<p>link to course files <a href="/courses/%s/files">files</a></p>}
+      page = @copy_from.wiki_pages.create!(:title => "some page", :body => body % @copy_from.id.to_s)
+      run_course_copy
+
+      page_to = @copy_to.wiki_pages.where(:migration_id => mig_id(page)).first
+      expect(page_to.body).to eq (body % @copy_to.id.to_s)
     end
   end
 end

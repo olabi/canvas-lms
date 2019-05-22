@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -172,6 +172,38 @@
 #           "description": "(Present only if requested through include[]=content_details) If applicable, returns additional details specific to the associated object",
 #           "example": {"points_possible": 20, "due_at": "2012-12-31T06:00:00-06:00", "unlock_at": "2012-12-31T06:00:00-06:00", "lock_at": "2012-12-31T06:00:00-06:00"},
 #           "$ref": "ContentDetails"
+#         },
+#         "published": {
+#           "description": "(Optional) Whether this module item is published. This field is present only if the caller has permission to view unpublished items.",
+#           "type": "boolean",
+#           "example": true
+#         }
+#       }
+#     }
+#
+# @model ModuleItemSequenceNode
+#     {
+#       "id": "ModuleItemSequenceNode",
+#       "description": "",
+#       "properties": {
+#         "prev": {
+#           "description": "The previous ModuleItem in the sequence",
+#           "$ref": "ModuleItem"
+#         },
+#         "current": {
+#           "description": "The ModuleItem being queried",
+#           "$ref": "ModuleItem",
+#           "example": {"id": 768, "module_id": 123, "title": "A lonely page", "type": "Page"}
+#         },
+#         "next": {
+#           "description": "The next ModuleItem in the sequence",
+#           "$ref": "ModuleItem",
+#           "example": {"id": 769, "module_id": 127, "title": "Project 1", "type": "Assignment"}
+#         },
+#         "mastery_path": {
+#           "type": "object",
+#           "description": "The conditional release rule for the module item, if applicable",
+#           "example": {"locked": true, "assignment_sets": [], "selected_set_id": null, "awaiting_choice": false, "still_processing": false, "modules_url": "/courses/11/modules", "choose_url": "/courses/11/modules/items/9/choose", "modules_tab_disabled": false}
 #         }
 #       }
 #     }
@@ -182,30 +214,35 @@
 #       "description": "",
 #       "properties": {
 #         "items": {
-#           "description": "an array containing one hash for each appearence of the asset in the module sequence (up to 10 total)",
-#           "example": [{"prev": null, "current": {"id": 768, "module_id": 123, "title": "A lonely page", "type": "Page"}, "next": {"id": 769, "module_id": 127, "title": "Project 1", "type": "Assignment"}}],
+#           "description": "an array containing one ModuleItemSequenceNode for each appearence of the asset in the module sequence (up to 10 total)",
+#           "example": [{"prev": null,
+#                        "current": {"id": 768, "module_id": 123, "title": "A lonely page", "type": "Page"},
+#                        "next": {"id": 769, "module_id": 127, "title": "Project 1", "type": "Assignment"},
+#                        "mastery_path": {"locked": true, "assignment_sets": [], "selected_set_id": null, "awaiting_choice": false, "still_processing": false, "modules_url": "/courses/11/modules", "choose_url": "/courses/11/modules/items/9/choose", "modules_tab_disabled": false}}],
 #           "type": "array",
-#           "items": { "type": "object" }
+#           "items": { "$ref": "ModuleItemSequenceNode" }
 #         },
 #         "modules": {
 #           "description": "an array containing each Module referenced above",
 #           "type": "array",
-#           "items": { "$ref": "Module" }
+#           "items": { "$ref": "Module" },
+#           "example": [{"id": 123, "name": "Overview"}, {"id": 127, "name": "Imaginary Numbers"}]
 #         }
 #       }
 #     }
 #
 class ContextModuleItemsApiController < ApplicationController
-  before_filter :require_context
-  before_filter :require_user, :only => [:select_mastery_path]
-  before_filter :find_student, :only => [:index, :show, :select_mastery_path]
-  before_filter :disable_escape_html_entities, :only => [:index, :show]
-  after_filter :enable_escape_html_entities, :only => [:index, :show]
+  before_action :require_context
+  before_action :require_user, :only => [:select_mastery_path]
+  before_action :find_student, :only => [:index, :show, :select_mastery_path]
+  before_action :disable_escape_html_entities, :only => [:index, :show]
+  after_action :enable_escape_html_entities, :only => [:index, :show]
   include Api::V1::ContextModule
+  include PlannerApiHelper
 
   # @API List module items
   #
-  # List the items in a module
+  # A paginated list of the items in a module
   #
   # @argument include[] [String, "content_details"]
   #   If included, will return additional details specific to the content
@@ -353,7 +390,7 @@ class ContextModuleItemsApiController < ApplicationController
       item_params[:id] = params[:module_item][:content_id]
       if ['Page', 'WikiPage'].include?(item_params[:type])
         if page_url = params[:module_item][:page_url]
-          if wiki_page = @context.wiki.wiki_pages.not_deleted.where(url: page_url).first
+          if wiki_page = @context.wiki_pages.not_deleted.where(url: page_url).first
             item_params[:id] = wiki_page.id
           else
             return render :json => {:message => "invalid page_url parameter"}, :status => :bad_request
@@ -366,8 +403,6 @@ class ContextModuleItemsApiController < ApplicationController
       item_params[:url] = params[:module_item][:external_url]
 
       if (@tag = @module.add_item(item_params)) && set_position && set_completion_requirement
-        @tag.workflow_state = 'unpublished'
-        @tag.save
         @module.touch
         render :json => module_item_json(@tag, @current_user, session, @module, nil)
       elsif @tag
@@ -463,7 +498,7 @@ class ContextModuleItemsApiController < ApplicationController
       end
 
       if @tag.save && set_position && set_completion_requirement
-        @tag.update_asset_name! if params[:module_item][:title]
+        @tag.update_asset_name!(@current_user) if params[:module_item][:title]
         render :json => module_item_json(@tag, @current_user, session, @tag.context_module, nil)
       else
         render :json => @tag.errors, :status => :bad_request
@@ -496,7 +531,7 @@ class ContextModuleItemsApiController < ApplicationController
   def select_mastery_path
     return unless authorized_action(@context, @current_user, :read)
     return unless @student == @current_user || authorized_action(@context, @current_user, :manage_assignments)
-    return render json: { message: 'mastery paths not enabled' }, status: :bad_request unless ConditionalRelease::Service.enabled_in_context?(@context)
+    return render json: { message: 'mastery paths not enabled' }, status: :bad_request unless cyoe_enabled?(@context)
     return render json: { message: 'assignment_set_id required' }, status: :bad_request unless params[:assignment_set_id]
 
     get_module_item
@@ -516,7 +551,8 @@ class ContextModuleItemsApiController < ApplicationController
     else
       assignment_ids = response[:body]['assignments'].map {|a| a['assignment_id'].try(&:to_i) }
       # assignment occurs in delayed job, may not be fully visible to user until job completes
-      assignments = @context.assignments.published.where(id: assignment_ids)
+      assignments = @context.assignments.published.where(id: assignment_ids).
+        preload(Api::V1::Assignment::PRELOADS)
 
       Assignment.preload_context_module_tags(assignments)
 
@@ -570,6 +606,7 @@ class ContextModuleItemsApiController < ApplicationController
     if authorized_action(@context, @current_user, :read)
       get_module_item
       @item.context_module_action(@current_user, :done)
+      sync_planner_completion(@item.content, @current_user, true) if planner_enabled?
       render :json => { :message => t('OK') }
     end
   end
@@ -580,6 +617,7 @@ class ContextModuleItemsApiController < ApplicationController
       if (progression = @item.progression_for_user(@current_user))
         progression.uncomplete_requirement(params[:id].to_i)
         progression.evaluate
+        sync_planner_completion(@item.content, @current_user, false) if planner_enabled?
       end
       render :json => { :message => t('OK') }
     end
@@ -592,11 +630,10 @@ class ContextModuleItemsApiController < ApplicationController
     raise ActiveRecord::RecordNotFound unless @item && @item.visible_to_user?(user)
   end
 
-  MAX_SEQUENCES = 10
   # @API Get module item sequence
   #
-  # Given an asset in a course, find the ModuleItem it belongs to, and also the previous and next Module Items
-  # in the course sequence.
+  # Given an asset in a course, find the ModuleItem it belongs to, the previous and next Module Items
+  # in the course sequence, and also any applicable mastery path rules
   #
   # @argument asset_type [String, "ModuleItem"|"File"|"Page"|"Discussion"|"Assignment"|"Quiz"|"ExternalTool"]
   #   The type of asset to find module sequence information for. Use the ModuleItem if it is known
@@ -618,77 +655,7 @@ class ContextModuleItemsApiController < ApplicationController
       return render :json => { :message => 'invalid asset_type'}, :status => :bad_request unless asset_type
       asset_id = params[:asset_id]
       return render :json => { :message => 'missing asset_id' }, :status => :bad_request unless asset_id
-
-      # assemble a sequence of content tags in the course
-      # (break ties on module position by module id)
-      tag_ids = @context.sequential_module_item_ids & @context.module_items_visible_to(@current_user).reorder(nil).pluck(:id)
-
-      # find content tags to include
-      tag_indices = []
-      if asset_type == 'ContentTag'
-        tag_ids.each_with_index { |tag_id, ix| tag_indices << ix if tag_id == asset_id.to_i }
-      else
-        # map wiki page url to id
-        if asset_type == 'WikiPage'
-          page = @context.wiki.wiki_pages.not_deleted.where(url: asset_id).first
-          asset_id = page.id if page
-        else
-          asset_id = asset_id.to_i
-        end
-
-        # find the associated assignment id, if applicable
-        if asset_type == 'Quizzes::Quiz'
-          asset = @context.quizzes.where(id: asset_id.to_i).first
-          associated_assignment_id = asset.assignment_id if asset
-        end
-
-        if asset_type == 'DiscussionTopic'
-          asset = @context.send(asset_type.tableize).where(id: asset_id.to_i).first
-          associated_assignment_id = asset.assignment_id if asset
-        end
-
-        # find up to MAX_SEQUENCES tags containing the object (or its associated assignment)
-        matching_tag_ids = @context.context_module_tags.where(:id => tag_ids).
-          where(:content_type => asset_type, :content_id => asset_id).pluck(:id)
-        if associated_assignment_id
-          matching_tag_ids += @context.context_module_tags.where(:id => tag_ids).
-            where(:content_type => 'Assignment', :content_id => associated_assignment_id).pluck(:id)
-        end
-
-        if matching_tag_ids.any?
-          tag_ids.each_with_index { |tag_id, ix| tag_indices << ix if matching_tag_ids.include?(tag_id) }
-        end
-      end
-
-      tag_indices.sort!
-      if tag_indices.length > MAX_SEQUENCES
-        tag_indices = tag_indices[0, MAX_SEQUENCES]
-      end
-
-      # render the result
-      result = { :items => [] }
-
-      needed_tag_ids = []
-      tag_indices.each do |ix|
-        needed_tag_ids << tag_ids[ix]
-        needed_tag_ids << tag_ids[ix - 1] if ix > 0
-        needed_tag_ids << tag_ids[ix + 1] if ix < tag_ids.size - 1
-      end
-
-      needed_tags = ContentTag.where(:id => needed_tag_ids.uniq).preload(:context_module).index_by(&:id)
-      tag_indices.each do |ix|
-        hash = { :current => module_item_json(needed_tags[tag_ids[ix]], @current_user, session), :prev => nil, :next => nil }
-        if ix > 0
-          hash[:prev] = module_item_json(needed_tags[tag_ids[ix - 1]], @current_user, session)
-        end
-        if ix < tag_ids.size - 1
-          hash[:next] = module_item_json(needed_tags[tag_ids[ix + 1]], @current_user, session)
-        end
-        result[:items] << hash
-      end
-      modules = needed_tags.values.map(&:context_module).uniq
-      result[:modules] = modules.map { |mod| module_json(mod, @current_user, session) }
-
+      result = context_module_sequence_items_by_asset_id(asset_id, asset_type)
       render :json => result
     end
   end
@@ -715,6 +682,51 @@ class ContextModuleItemsApiController < ApplicationController
 
       @item.context_module_action(@current_user, :read)
       render :json => { :message => t('OK') }
+    end
+  end
+
+  # @API Duplicate module item
+  #
+  # Makes a copy of an assignment, discussion or wiki page module item, within the same module.
+  # It also creates a duplicate copy of the assignment, discussion, or wiki page.
+  #
+  # @example_request
+  #
+  #     curl https://<canvas>/api/v1/courses/<course_id>/modules/items/<item_id>/duplicate \
+  #       -X POST \
+  #       -H 'Authorization: Bearer <token>'
+  #
+  include ContextModulesHelper
+  def duplicate
+    original_tag = @context.context_module_tags.not_deleted.find(params[:id])
+    if authorized_action(original_tag.context_module, @current_user, :update)
+      if original_tag.duplicate_able?
+        new_content = original_tag.content.duplicate
+        new_content.save!
+        new_tag = original_tag.context_module.add_item({
+          type: original_tag.content_type,
+          indent: original_tag.indent,
+          id: new_content.id,
+        })
+
+        new_tag.insert_at(original_tag.position + 1)
+
+        json = new_tag.as_json
+        json['new_positions'] = new_tag.context_module.content_tags.select(:id, :position)
+        json['content_tag'].merge!(
+          publishable: module_item_publishable?(new_tag),
+          published: new_tag.published?,
+          publishable_id: module_item_publishable_id(new_tag),
+          unpublishable: module_item_unpublishable?(new_tag),
+          graded: new_tag.graded?,
+          content_details: content_details(new_tag, @current_user),
+          assignment_id: new_tag.assignment.try(:id),
+          is_duplicate_able: new_tag.duplicate_able?,
+        )
+        render json: json
+      else
+        render :status => 400, :json => { :message => t("Item cannot be duplicated") }
+      end
     end
   end
 
@@ -757,7 +769,7 @@ class ContextModuleItemsApiController < ApplicationController
     if params[:module_item][:completion_requirement].blank?
       reqs[@tag.id] = {}
     elsif ["must_view", "must_submit", "must_contribute", "min_score"].include?(params[:module_item][:completion_requirement][:type])
-      reqs[@tag.id] = params[:module_item][:completion_requirement].with_indifferent_access
+      reqs[@tag.id] = params[:module_item][:completion_requirement].to_unsafe_h
     else
       @tag.errors.add(:completion_requirement, t(:invalid_requirement_type, "Invalid completion requirement type"))
       return false

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -49,6 +49,14 @@ class AssessmentQuestion < ActiveRecord::Base
     can :read and can :create and can :update and can :delete
   end
 
+  def user_can_see_through_quiz_question?(user, session=nil)
+    self.shard.activate do
+      quiz_ids = self.quiz_questions.distinct.pluck(:quiz_id)
+      quiz_ids.any? && Quizzes::Quiz.where(:id => quiz_ids, :context_type => "Course",
+        :context_id => Enrollment.where(user_id: user).active.select(:course_id)).to_a.any?{|q| q.grants_right?(user, session, :read)}
+    end
+  end
+
   def infer_defaults
     self.question_data ||= HashWithIndifferentAccess.new
     if self.question_data.is_a?(Hash)
@@ -65,7 +73,11 @@ class AssessmentQuestion < ActiveRecord::Base
     # this has to be in an after_save, because translate_links may create attachments
     # with this question as the context, and if this question does not exist yet,
     # creating that attachment will fail.
-    translate_links if self.question_data_changed? && !@skip_translate_links
+    if self.saved_change_to_question_data? && !@skip_translate_links
+      AssessmentQuestion.connection.after_transaction_commit do
+        translate_links
+      end
+    end
   end
 
   def self.translate_links(ids)
@@ -98,6 +110,9 @@ class AssessmentQuestion < ActiveRecord::Base
       elsif path
         path = URI.unescape(id_or_path)
         file = Folder.find_attachment_in_context_with_path(assessment_question_bank.context, path)
+      end
+      if file && file.replacement_attachment_id
+        file = file.replacement_attachment
       end
       begin
         new_file = file.try(:clone_for, self)
@@ -180,8 +195,6 @@ class AssessmentQuestion < ActiveRecord::Base
       # we may be modifying this data (translate_links), and only want to work on a copy
       data = data.try(:dup)
     end
-    # force AR to think this attribute has changed
-    self.question_data_will_change!
     write_attribute(:question_data, data.to_hash.with_indifferent_access)
   end
 
@@ -270,7 +283,9 @@ class AssessmentQuestion < ActiveRecord::Base
       qq.assessment_question = self
       qq.workflow_state = 'generated'
       qq.duplicate_index = duplicate_index
-      qq.save_without_callbacks
+      Quizzes::QuizQuestion.suspend_callbacks(:validate_blank_questions, :infer_defaults, :update_quiz) do
+        qq.save!
+      end
     end
   end
 
@@ -283,6 +298,7 @@ class AssessmentQuestion < ActiveRecord::Base
 
   alias_method :destroy_permanently!, :destroy
   def destroy
+    self.assessment_question_bank.touch
     self.workflow_state = 'deleted'
     self.deleted_at = Time.now.utc
     self.save

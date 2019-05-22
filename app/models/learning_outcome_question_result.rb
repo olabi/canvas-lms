@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,6 +26,8 @@ class LearningOutcomeQuestionResult < ActiveRecord::Base
   scope :for_associated_asset, lambda {|associated_asset|
     where(:associated_asset_type => associated_asset.class.to_s, :associated_asset_id => associated_asset.id)
   }
+
+  delegate :hide_points, to: :learning_outcome_result
 
   before_save :infer_defaults
 

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -149,7 +149,7 @@ describe ActiveRecord::Base do
     it "should not use a cursor when start is passed" do
       skip "needs PostgreSQL" unless Account.connection.adapter_name == 'PostgreSQL'
       Account.transaction do
-        Account.expects(:find_in_batches_with_cursor).never
+        expect(Account).to receive(:find_in_batches_with_cursor).never
         Account.where(:id => Account.default).find_each(start: 0) do
         end
       end
@@ -161,43 +161,21 @@ describe ActiveRecord::Base do
         end
       }.to raise_error(ArgumentError)
     end
-  end
 
-  describe "#remove_dropped_columns" do
-    before do
-      @orig_dropped = ActiveRecord::Base::DROPPED_COLUMNS
-    end
+    context "sharding" do
+      specs_require_sharding
 
-    after do
-      ActiveRecord::Base.send(:remove_const, :DROPPED_COLUMNS)
-      ActiveRecord::Base::DROPPED_COLUMNS = @orig_dropped
-      User.reset_column_information
-    end
-
-    it "should mask columns marked as dropped from column info methods" do
-      expect(User.columns.any? { |c| c.name == 'name' }).to be_truthy
-      expect(User.column_names).to be_include('name')
-      u = User.create!(:name => 'my name')
-      # if we ever actually drop the name column, this spec will fail on the line
-      # above, so it's all good
-      ActiveRecord::Base.send(:remove_const, :DROPPED_COLUMNS)
-      ActiveRecord::Base::DROPPED_COLUMNS = { 'users' => %w(name) }
-      User.reset_column_information
-      expect(User.columns.any? { |c| c.name == 'name' }).to be_falsey
-      expect(User.column_names).not_to be_include('name')
-
-      # load from the db should hide the attribute
-      u = User.find(u.id)
-      expect(u.attributes.keys.include?('name')).to be_falsey
-    end
-
-    it "should only drop columns from the specific table specified" do
-      ActiveRecord::Base.send(:remove_const, :DROPPED_COLUMNS)
-      ActiveRecord::Base::DROPPED_COLUMNS = { 'users' => %w(name) }
-      User.reset_column_information
-      Group.reset_column_information
-      expect(User.columns.any? { |c| c.name == 'name' }).to be_falsey
-      expect(Group.columns.any? { |c| c.name == 'name' }).to be_truthy
+      it "properly transposes a cursor query across multiple shards" do
+        u1 = User.create!
+        u2 = @shard1.activate { User.create! }
+        User.transaction do
+          users = []
+          User.preload(:pseudonyms).where(id: [u1, u2]).find_each do |u|
+            users << u
+          end
+          expect(users.sort).to eq [u1, u2].sort
+        end
+      end
     end
   end
 
@@ -259,7 +237,7 @@ describe ActiveRecord::Base do
           tries += 1
           Submission.create!(:user => @user, :assignment => @assignment)
         end
-      }.to raise_error # we don't catch the error the last time
+      }.to raise_error(ActiveRecord::RecordNotUnique) # we don't catch the error the last time
       expect(tries).to eql 3
       expect(Submission.count).to eql 1
     end
@@ -298,7 +276,7 @@ describe ActiveRecord::Base do
           tries += 1
           raise "oh crap"
         }
-      }.to raise_error
+      }.to raise_error("oh crap")
       expect(tries).to eql 1
     end
   end
@@ -310,13 +288,19 @@ describe ActiveRecord::Base do
       User.cache do
         User.first
 
-        User.connection.expects(:select).never
+        count = 0
+        allow(User.connection).to receive(:select).and_wrap_original do |original, args|
+          count += 1
+          original.call(args)
+        end
         User.first
-        User.connection.unstub(:select)
+        expect(count).to eq 0
 
         User.create!
-        User.connection.expects(:select).once.returns(ActiveRecord::Result.new([], []))
+
+        count = 0
         User.first
+        expect(count).to eq 1
       end
     end
 
@@ -324,15 +308,21 @@ describe ActiveRecord::Base do
       u = User.create
       User.cache do
         User.first
-        User.connection.expects(:select).never
+
+        count = 0
+        allow(User.connection).to receive(:select).and_wrap_original do |original, args|
+          count += 1
+          original.call(args)
+        end
         User.first
-        User.connection.unstub(:select)
+        expect(count).to eq 0
 
         u2 = User.new
         u2.id = u.id
         expect{ u2.save! }.to raise_error(ActiveRecord::RecordNotUnique)
-        User.connection.expects(:select).once.returns(ActiveRecord::Result.new([], []))
+        count = 0
         User.first
+        expect(count).to eq 1
       end
     end
   end
@@ -348,8 +338,27 @@ describe ActiveRecord::Base do
       expect(names).to be_include("bulk_insert_2")
     end
 
+    it "should handle arrays" do
+      arr1 = ['1, 2', 3, 'string with "quotes"', "another 'string'", "a fancy strîng"]
+      arr2 = ['4', '5;', nil, "string with \t tab and \n newline and slash \\"]
+      DeveloperKey.bulk_insert [
+        {name: "bulk_insert_1", workflow_state: "registered", redirect_uris: arr1},
+        {name: "bulk_insert_2", workflow_state: "registered", redirect_uris: arr2}
+      ]
+      names = DeveloperKey.order(:name).pluck(:redirect_uris)
+      expect(names).to be_include(arr1.map(&:to_s))
+      expect(names).to be_include(arr2)
+    end
+
     it "should not raise an error if there are no records" do
       expect { Course.bulk_insert [] }.to change(Course, :count).by(0)
+    end
+
+    it 'should work through bulk insert objects' do
+      users = [User.new(name: 'bulk_insert_1', workflow_state: 'registered', preferences: {accepted_terms: Time.zone.now})]
+      User.bulk_insert_objects users
+      names = User.order(:name).pluck(:name, :preferences)
+      expect(names.first.last[:accepted_terms]).not_to be_nil
     end
   end
 
@@ -438,16 +447,10 @@ describe ActiveRecord::Base do
       @user = user_model
     end
 
-    it "should fail with improper nested hashes" do
-      expect {
-        User.where(:name => { :users => { :id => @user }}).first
-      }.to raise_error(ActiveRecord::StatementInvalid)
-    end
-
     it "should fail with dot in nested column name" do
       expect {
         User.where(:name => { "users.id" => @user }).first
-      }.to raise_error(ActiveRecord::StatementInvalid)
+      }.to raise_error(TypeError)
     end
 
     it "should not fail with a dot in column name only" do
@@ -479,14 +482,14 @@ describe ActiveRecord::Base do
     end
 
     it "should do an update all with a join" do
-      Pseudonym.joins(:user).active.where(:users => {:name => 'a'}).update_all(:unique_id => 'pa3')
+      expect(Pseudonym.joins(:user).active.where(:users => {:name => 'a'}).update_all(:unique_id => 'pa3')).to eq 1
       expect(@p1.reload.unique_id).to eq 'pa3'
       expect(@p1_2.reload.unique_id).to eq 'pa2'
       expect(@p2.reload.unique_id).to eq 'pb'
     end
 
     it "should do a delete all with a join" do
-      Pseudonym.joins(:user).active.where(:users => {:name => 'a'}).delete_all
+      expect(Pseudonym.joins(:user).active.where(:users => {:name => 'a'}).delete_all).to eq 1
       expect { @p1.reload }.to raise_error(ActiveRecord::RecordNotFound)
       expect(@u1.reload).not_to be_deleted
       expect(@p1_2.reload.unique_id).to eq 'pa2'
@@ -539,7 +542,7 @@ describe ActiveRecord::Base do
   describe "add_index" do
     it "should raise an error on too long of name" do
       name = 'some_really_long_name_' * 10
-      expect { User.connection.add_index :users, [:id], name: name }.to raise_error
+      expect { User.connection.add_index :users, [:id], name: name }.to raise_error(/Index name .+ is too long/)
     end
   end
 
@@ -554,7 +557,7 @@ describe ActiveRecord::Base do
       relation = Assignment.all
       user1 = User.create!
       account1 = Account.create!
-      relation.expects(:where).with("(context_id=? AND context_type=?) OR (context_id=? AND context_type=?)", user1, 'User', account1, 'Account')
+      expect(relation).to receive(:where).with("(context_id=? AND context_type=?) OR (context_id=? AND context_type=?)", user1, 'User', account1, 'Account')
       relation.polymorphic_where(context: [user1, account1])
     end
 
@@ -562,7 +565,7 @@ describe ActiveRecord::Base do
       relation = Assignment.all
       user1 = User.create!
       account1 = Account.create!
-      relation.expects(:where).with("(context_id=? AND context_type=?) OR (context_id=? AND context_type=?) OR (context_id IS NULL AND context_type IS NULL)", user1, 'User', account1, 'Account')
+      expect(relation).to receive(:where).with("(context_id=? AND context_type=?) OR (context_id=? AND context_type=?) OR (context_id IS NULL AND context_type IS NULL)", user1, 'User', account1, 'Account')
       relation.polymorphic_where(context: [nil, user1, account1])
     end
   end
@@ -577,8 +580,6 @@ describe ActiveRecord::Base do
       @u4 = User.create!(name: 'b')
 
       @us = [@u1, @u2, @u3, @u4]
-      # for sanity
-      expect(User.where(id: @us, name: nil).order(:id).all).to eq [@u1, @u3]
     end
 
     it "should sort nulls first" do
@@ -689,7 +690,7 @@ describe ActiveRecord::Base do
     end
 
     it "prefixes specific associations" do
-      expect(AssessmentRequest.reflections.keys).to be_include('assessor_asset_user')
+      expect(AssessmentRequest.reflections.keys).to be_include('assessor_asset_submission')
     end
 
     it "prefixes specific associations with an explicit name" do

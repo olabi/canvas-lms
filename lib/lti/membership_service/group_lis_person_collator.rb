@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,11 +29,8 @@ module Lti
 
       private
 
-      def users
-        @users ||= UserSearch.scope_for(@context, @user)
-                             .preload(:communication_channels)
-                             .offset(@page * @per_page)
-                             .limit(@per_page + 1)
+      def scope
+        @user_scope ||= @user.nil? ? @context.participating_users : UserSearch.scope_for(@context, @user)
       end
 
       def generate_roles(user)

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,7 @@ class Quizzes::OutstandingQuizSubmissionsController < ApplicationController
   include Api::V1::QuizSubmission
   include ::Filters::Quizzes
 
-  before_filter :require_user, :require_context, :require_quiz
+  before_action :require_user, :require_context, :require_quiz
 
   # Index any outstanding quiz submissions
   #
@@ -43,7 +43,7 @@ class Quizzes::OutstandingQuizSubmissionsController < ApplicationController
       quiz = Quizzes::Quiz.find(params[:quiz_id])
       oqs = Quizzes::OutstandingQuizSubmissionManager.new(quiz).find_by_quiz
       @quiz_submissions = Api.paginate(oqs, self, api_route)
-      json = quiz_submissions_json(@quiz_submissions, quiz, @current_user, session, @context, ['user'])
+      json = quiz_submissions_json(@quiz_submissions, quiz, @current_user, session, @context, ['user'], {})
       render json: json
     end
   end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -138,10 +138,11 @@
 #
 class OutcomeGroupsApiController < ApplicationController
   include Api::V1::Outcome
+  include Api::V1::Progress
 
-  before_filter :require_user
-  before_filter :get_context
-  before_filter :require_context, :only => [:link_index]
+  before_action :require_user
+  before_action :get_context
+  before_action :require_context, :only => [:link_index]
 
   # @API Redirect to root outcome group for context
   #
@@ -158,7 +159,6 @@ class OutcomeGroupsApiController < ApplicationController
   end
 
   # @API Get all outcome groups for context
-  # @beta
   #
   # @returns [OutcomeGroup]
   def index
@@ -170,7 +170,6 @@ class OutcomeGroupsApiController < ApplicationController
   end
 
   # @API Get all outcome links for context
-  # @beta
   #
   # @argument outcome_style [Optional, String]
   #   The detail level of the outcomes. Defaults to "abbrev".
@@ -193,7 +192,7 @@ class OutcomeGroupsApiController < ApplicationController
 
     unless params["outcome_style"] == "abbrev"
       outcome_ids = links.map(&:content_id)
-      ret = LearningOutcomeResult.uniq.where(learning_outcome_id: outcome_ids).pluck(:learning_outcome_id)
+      ret = LearningOutcomeResult.distinct.where(learning_outcome_id: outcome_ids).pluck(:learning_outcome_id)
       # ret is now a list of outcomes that have been assessed
       outcome_params[:assessed_outcomes] = ret
     end
@@ -319,7 +318,7 @@ class OutcomeGroupsApiController < ApplicationController
 
   # @API List linked outcomes
   #
-  # List the immediate OutcomeLink children of the outcome group. Paginated.
+  # A paginated list of the immediate OutcomeLink children of the outcome group.
   #
   # @argument outcome_style [Optional, String]
   #   The detail level of the outcomes. Defaults to "abbrev".
@@ -389,7 +388,7 @@ class OutcomeGroupsApiController < ApplicationController
   # If linking an existing outcome, the outcome_id must identify an outcome
   # available to this context; i.e. an outcome owned by this group's context,
   # an outcome owned by an associated account, or a global outcome. With
-  # outcome_id present, any other parameters are ignored.
+  # outcome_id present, any other parameters (except move_from) are ignored.
   #
   # If defining a new outcome, the outcome is created in the outcome group's
   # context using the provided title, description, ratings, and mastery points;
@@ -406,6 +405,9 @@ class OutcomeGroupsApiController < ApplicationController
   #
   # @argument outcome_id [Integer]
   #   The ID of the existing outcome to link.
+  #
+  # @argument move_from [Integer]
+  #   The ID of the old outcome group. Only used if outcome_id is present.
   #
   # @argument title [String]
   #   The title of the new outcome. Required if outcome_id is absent.
@@ -430,10 +432,10 @@ class OutcomeGroupsApiController < ApplicationController
   #   The points corresponding to a rating level for the embedded rubric criterion.
   #
   # @argument calculation_method [String, "decaying_average"|"n_mastery"|"latest"|"highest"]
-  #   The new calculation method.  Defaults to "highest"
+  #   The new calculation method.  Defaults to "decaying_average"
   #
   # @argument calculation_int [Integer]
-  #   The new calculation int.  Only applies if the calculation_method is "decaying_average" or "n_mastery"
+  #   The new calculation int.  Only applies if the calculation_method is "decaying_average" or "n_mastery". Defaults to 65
   #
   # @returns OutcomeLink
   #
@@ -453,7 +455,7 @@ class OutcomeGroupsApiController < ApplicationController
   #        -F 'vendor_guid=customid9000' \
   #        -F 'mastery_points=3' \
   #        -F 'calculation_method=decaying_average' \
-  #        -F 'calculation_int=75' \
+  #        -F 'calculation_int=65' \
   #        -F 'ratings[][description]=Exceeds Expectations' \
   #        -F 'ratings[][points]=5' \
   #        -F 'ratings[][description]=Meets Expectations' \
@@ -486,6 +488,19 @@ class OutcomeGroupsApiController < ApplicationController
 
     @outcome_group = context_outcome_groups.find(params[:id])
     if params[:outcome_id]
+      if params[:move_from]
+        old_outcome_group = context_outcome_groups.find(params[:move_from])
+        @outcome_link = old_outcome_group.child_outcome_links.active.where(content_id: params[:outcome_id]).first
+        unless @outcome_link
+          render json: 'error'.to_json, status: :bad_request
+          return
+        end
+
+        @outcome_group.adopt_outcome_link(@outcome_link)
+        render json: outcome_link_json(@outcome_link, @current_user, session)
+        return
+      end
+
       @outcome = context_available_outcome(params[:outcome_id])
       unless @outcome
         render :json => 'error'.to_json, :status => :bad_request
@@ -538,7 +553,7 @@ class OutcomeGroupsApiController < ApplicationController
 
   # @API List subgroups
   #
-  # List the immediate OutcomeGroup children of the outcome group. Paginated.
+  # A paginated list of the immediate OutcomeGroup children of the outcome group.
   #
   # @returns [OutcomeGroup]
   #
@@ -627,6 +642,14 @@ class OutcomeGroupsApiController < ApplicationController
   # @argument source_outcome_group_id [Required, Integer]
   #   The ID of the source outcome group.
   #
+  # @argument async [Boolean]
+  #    If true, perform action asynchronously.  In that case, this endpoint
+  #    will return a Progress object instead of an OutcomeGroup.
+  #    Use the {api:ProgressController#show progress endpoint}
+  #    to query the status of the operation.  The imported outcome group id
+  #    and url will be returned in the results of the Progress object
+  #    as "outcome_group_id" and "outcome_group_url"
+  #
   # @returns OutcomeGroup
   #
   # @example_request
@@ -663,8 +686,21 @@ class OutcomeGroupsApiController < ApplicationController
     end
 
     # import the validated source
-    @child_outcome_group = @outcome_group.add_outcome_group(@source_outcome_group)
-    render :json => outcome_group_json(@child_outcome_group, @current_user, session)
+    if value_to_boolean(params[:async])
+      progress = Progress.create!(context: @context, user: @current_user, tag: :import_outcome_group)
+      progress.process_job(
+        self.class,
+        :add_outcome_group_async,
+        {},
+        @outcome_group,
+        @source_outcome_group,
+        polymorphic_path([:api_v1, @context, :outcome_groups])
+      )
+      render json: progress_json(progress, @current_user, session)
+    else
+      @child_outcome_group = @outcome_group.add_outcome_group(@source_outcome_group)
+      render :json => outcome_group_json(@child_outcome_group, @current_user, session)
+    end
   end
 
   protected
@@ -711,4 +747,13 @@ class OutcomeGroupsApiController < ApplicationController
     outcome.save
     outcome
   end
+
+  def self.add_outcome_group_async(progress, target_group, source_group, partial_path)
+    copy = target_group.add_outcome_group(source_group)
+    progress.set_results(
+      outcome_group_id: copy.id,
+      outcome_group_url: "#{partial_path}/#{copy.id}"
+    )
+  end
+  private_class_method :add_outcome_group_async
 end

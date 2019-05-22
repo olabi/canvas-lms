@@ -1,4 +1,22 @@
 /*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
 @styleguide Highlights/Alerts
 
 
@@ -62,7 +80,7 @@
 // Base styles
 
 .alert {
-  padding: $ic-sp $ic-sp*3 $ic-sp $ic-sp;
+  padding: direction-sides($ic-sp $ic-sp*3 $ic-sp $ic-sp);
   background-color: $ic-bg-light-alert;
   border-radius: $ic-border-radius;
   color: $ic-bg-light-alert-text;
@@ -80,7 +98,7 @@
 .alert .close {
   position: relative;
   top: -2px;
-  right: -21px;
+  #{direction(right)}: -21px;
   line-height: $baseLineHeight;
 }
 
@@ -120,7 +138,7 @@
 .ic-flash-info, .ic-flash-success, .ic-flash-warning, .ic-flash-error {
   position: relative;
   box-sizing: border-box;
-  padding: $ic-sp/2 40px $ic-sp/2 $ic-sp*4;
+  padding: direction-sides($ic-sp/2 40px $ic-sp/2 $ic-sp*4);
   margin: 0 auto;
   width: 475px;
   min-height: 20px;
@@ -134,7 +152,7 @@
 
   .close_link {
     position: absolute;
-    right: $ic-sp/3;
+    #{direction(right)}: $ic-sp/3;
     top: 50%;
     margin-top: -12px;
     text-decoration: none;
@@ -147,7 +165,7 @@
   .ic-flash__icon {
     position: absolute;
     top: 0;
-    left: 0;
+    #{direction(left)}: 0;
     width: $ic-sp*3;
     height: 100%;
     display: flex;
@@ -158,7 +176,7 @@
     i[class*=icon-],
     i[class^=icon-] {
       &:before {
-        left: -1px; // account for left border, so icon looks centered
+        #{direction(left)}: -1px; // account for left border, so icon looks centered
       }
     }
 
@@ -171,8 +189,8 @@
 }
 
 .ic-flash-info {
-  border-color: $ic-brand-primary;
-  .ic-flash__icon { background-color: $ic-brand-primary; }
+  border-color: var(--ic-brand-primary);
+  .ic-flash__icon { background-color: var(--ic-brand-primary); }
 }
 
 .ic-flash-success {
@@ -230,7 +248,7 @@ a.Button--flash {
   &:after {
     content: "";
     position: fixed;
-    top: 0; left: 0;
+    top: 0; #{direction(left)}: 0;
     width: 100%;
     height: 3px;
     background: $ic-color-action;
@@ -245,18 +263,18 @@ a.Button--flash {
 // left and right border, making Canvas appear as if
 // it is inside a frame.
 body.is-masquerading-or-student-view {
-  border-right: 3px solid $ic-color-action;
-  .ic-app-header { border-left: 3px solid $ic-color-action; }
+  border-#{direction(right)}: 3px solid $ic-color-action;
+  .ic-app-header { border-#{direction(left)}: 3px solid $ic-color-action; }
 }
 
 .ic-alert-masquerade-student-view-module {
   flex: 1;
   padding: 0 $ic-sp/2;
-  &:first-of-type { padding-left: 0; }
+  &:first-of-type { padding-#{direction(left)}: 0; }
   &:last-of-type {
-    padding-right: 0;
+    padding-#{direction(right)}: 0;
     &.ic-alert-masquerade-student-view-module--buttons {
-      text-align: right;
+      text-align: direction(right);
     }
   }
   &.ic-alert-masquerade-student-view-module--header {
@@ -281,7 +299,7 @@ $ic-notification-border-thickness: 2px;
 // .ic-notification
 .ic-notification {
   display: flex;
-  border: $ic-notification-border-thickness solid $ic-brand-primary;
+  border: $ic-notification-border-thickness solid var(--ic-brand-primary);
   margin-bottom: $ic-sp;
   box-shadow: 0 1px 6px rgba(black, 0.2);
   border-radius: $baseBorderRadius;
@@ -298,8 +316,8 @@ $ic-notification-border-thickness: 2px;
     }
     .ic-notification__message { flex: 1; }
     .ic-notification__actions {
-      margin-left: $ic-sp*2;
-      @include breakpoint(desktop) { margin-left: $ic-sp*3; }
+      margin-#{direction(left)}: $ic-sp*2;
+      @include breakpoint(desktop) { margin-#{direction(left)}: $ic-sp*3; }
     }
     .ic-notification__title {
       display: block;
@@ -310,14 +328,14 @@ $ic-notification-border-thickness: 2px;
 }
 
 .ic-notification__icon {
-  background: $ic-brand-primary;
+  background: var(--ic-brand-primary);
   flex: 0 0 $ic-sp*4;
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
-  border-top-left-radius: ($baseBorderRadius - $ic-notification-border-thickness);
-  border-bottom-left-radius: ($baseBorderRadius - $ic-notification-border-thickness);
+  border-top-#{direction(left)}-radius: ($baseBorderRadius - $ic-notification-border-thickness);
+  border-bottom-#{direction(left)}-radius: ($baseBorderRadius - $ic-notification-border-thickness);
   box-sizing: border-box;
   @include overwrite-default-icon-size($ic-notification-icon-size);
   i[class*=icon-], i[class^=icon-] {
@@ -327,7 +345,7 @@ $ic-notification-border-thickness: 2px;
 }
 
 .ic-notification__title {
-  margin-right: $ic-sp/3;
+  margin-#{direction(right)}: $ic-sp/3;
   @include fontSize($ic-font-size--small);
   display: inline;
   font-weight: bold;
@@ -338,6 +356,7 @@ $ic-notification-border-thickness: 2px;
   padding: $ic-sp;
   box-sizing: border-box;
   background: $ic-color-light;
+  position: relative;
 }
 
 .ic-notification__message {
@@ -350,9 +369,9 @@ $ic-notification-border-thickness: 2px;
 }
 
 .ic-notification__admin-actions {
-  float: right;
-  margin-left: $ic-sp;
-  margin-bottom: $ic-sp/2;
+  position: absolute;
+  #{direction(right)}: $ic-sp;
+  top: $ic-sp;
 }
 
 .notification_account_content {
@@ -361,6 +380,6 @@ $ic-notification-border-thickness: 2px;
 
 .notification_account_content_text {
   font-size: 0.8em;
-  padding-left: 12px;
+  padding-#{direction(left)}: 12px;
   line-height: 22px;
 }

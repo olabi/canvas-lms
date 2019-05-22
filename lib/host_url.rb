@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -92,10 +92,6 @@ class HostUrl
       host
     end
 
-    def short_host(context)
-      context_host(context)
-    end
-    
     def outgoing_email_address(preferred_user="notifications")
       @outgoing_email_address.presence || "#{preferred_user}@#{outgoing_email_domain}"
     end

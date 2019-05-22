@@ -16,13 +16,13 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'bookmarked_collection'
   spec.add_dependency 'canvas_cassandra'
-  spec.add_dependency 'canvas_statsd'
+  spec.add_dependency 'inst_statsd'
   spec.add_dependency 'json_token'
   spec.add_dependency 'paginated_collection'
 
-  spec.add_dependency 'rails', ">= 4.2", "< 5.1"
+  spec.add_dependency 'rails', ">= 4.2"
 
   spec.add_development_dependency 'bundler', '~> 1.5'
   spec.add_development_dependency 'rspec', "~> 3.5.0"
-  spec.add_development_dependency 'sqlite3'
+  spec.add_development_dependency 'sqlite3', '~> 1.3.6'
 end

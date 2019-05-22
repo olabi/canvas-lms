@@ -1,3 +1,21 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
 require File.expand_path('../../spec_helper', File.dirname(__FILE__))
 
 class GradebookHistoryHarness
@@ -24,21 +42,21 @@ describe Api::V1::GradebookHistory do
   subject(:gradebook_history) { GradebookHistoryHarness.new }
   let(:course) { double }
   let(:controller) do
-    stub(
+    double(
       :params => {},
-      :request => stub(:query_parameters => {}),
-      :response => stub(:headers => {})
+      :request => double(:query_parameters => {}),
+      :response => double(:headers => {})
     )
   end
   let(:path) { '' }
   let(:user) { User.new }
-  let(:session) { stub }
+  let(:session) { double }
   let(:api_context) { Api::V1::ApiContext.new(controller, path, user, session) }
   let(:now) { Time.now.in_time_zone }
   let(:yesterday) { (now - 24.hours).in_time_zone }
 
   before do
-    Submission.any_instance.stubs(:user_can_read_grade?).with(user, session).returns(true)
+    allow_any_instance_of(Submission).to receive(:user_can_read_grade?).with(user, session).and_return(true)
   end
 
   def submit(assignment, student, day, grader)
@@ -133,11 +151,30 @@ describe Api::V1::GradebookHistory do
     it 'returns a grader hash for that day' do
       expect(@day_hash.map{|g| g[:id] }.sort).to eq [@grader1.id, @grader2.id].sort
     end
+  end
 
-    it 'includes assignment data' do
-      assignment_hash = @day_hash.find{|g| g[:id] == @grader1.id}[:assignments].first
-      expect(assignment_hash['id']).to eq @assignment.id
-      expect(assignment_hash['name']).to eq @assignment.title
+  describe '#versions_json' do
+      let(:grader) { User.create!(:name => 'grader') }
+      let(:student) { User.create! }
+      let(:assignment) { course.assignments.create!(:title => "some assignment") }
+      let(:versions) { [Version.create!(versionable: submission, model: submission)] }
+      let(:harness) {  GradebookHistoryHarness.new }
+      let(:submission) do
+        s = assignment.submit_homework(student)
+        s.update_attributes(graded_at: now, score: 90, grade: '90', grader: grader)
+        s
+      end
+      let(:course) do
+        c = Course.create!
+        c.enroll_student(student)
+        c.enroll_teacher(grader)
+        c
+      end
+
+    it "does preloads originality reports" do
+      submission.reload
+      harness.versions_json(course, versions, api_context)
+      expect(versions.first.model.association(:originality_reports).loaded?).to eq true
     end
   end
 
@@ -202,12 +239,12 @@ describe Api::V1::GradebookHistory do
 
   describe '#day_string_for' do
     it 'builds a formatted date' do
-      submission = stub(:graded_at => now)
+      submission = double(:graded_at => now)
       expect(gradebook_history.day_string_for(submission)).to match(/\d{4}-\d{2}-\d{2}/)
     end
 
     it 'gives a empty string if there is no time' do
-      submission = stub(:graded_at => nil)
+      submission = double(:graded_at => nil)
       expect(gradebook_history.day_string_for(submission)).to eq ''
     end
   end

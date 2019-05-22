@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,46 +33,28 @@ module BasicLTI
       end
     end
 
-    class InvalidSourceId < StandardError
-    end
-
     SOURCE_ID_REGEX = %r{^(\d+)-(\d+)-(\d+)-(\d+)-(\w+)$}
 
     def self.decode_source_id(tool, sourceid)
       tool.shard.activate do
-        raise InvalidSourceId, 'Invalid sourcedid' if sourceid.blank?
-        md = sourceid.match(SOURCE_ID_REGEX)
-        raise InvalidSourceId, 'Invalid sourcedid' unless md
-        new_encoding = [md[1], md[2], md[3], md[4]].join('-')
-        raise InvalidSourceId, 'Invalid signature' unless Canvas::Security.
-            verify_hmac_sha1(md[5], new_encoding, key: tool.shard.settings[:encryption_key])
-
-        raise InvalidSourceId, 'Tool is invalid' unless tool.id == md[1].to_i
-        course = Course.active.where(id: md[2]).first
-        raise InvalidSourceId, 'Course is invalid' unless course
-
-        user = course.student_enrollments.active.where(user_id: md[4]).first.try(:user)
-        raise InvalidSourceId, 'User is no longer in course' unless user
-
-        assignment = course.assignments.active.where(id: md[3]).first
-        raise InvalidSourceId, 'Assignment is invalid' unless assignment
-
-        tag = assignment.external_tool_tag if assignment
-        raise InvalidSourceId, 'Assignment is no longer associated with this tool' unless tag and tool.
-            matches_url?(tag.url, false) and tool.workflow_state != 'deleted'
-
-        return course, assignment, user
+        sourcedid = BasicLTI::Sourcedid.load!(sourceid)
+        raise BasicLTI::Errors::InvalidSourceId, 'Tool is invalid' unless tool == sourcedid.tool
+        return sourcedid.course, sourcedid.assignment, sourcedid.user
       end
     end
 
     def self.process_request(tool, xml)
-      res = LtiResponse.new(xml)
+      res = (quizzes_next_tool?(tool) ? BasicLTI::QuizzesNextLtiResponse : LtiResponse).new(xml)
 
       unless res.handle_request(tool)
         res.code_major = 'unsupported'
         res.description = 'Request could not be handled. ¯\_(ツ)_/¯'
       end
-      return res
+      res
+    end
+
+    def self.quizzes_next_tool?(tool)
+      tool.tool_id == 'Quizzes 2' && tool.context.root_account.feature_enabled?(:quizzes_next_submission_history)
     end
 
     def self.process_legacy_request(tool, params)
@@ -110,6 +92,10 @@ module BasicLTI
 
       def result_score
         @lti_request.at_css('imsx_POXBody > replaceResultRequest > resultRecord > result > resultScore > textString').try(:content)
+      end
+
+      def submission_submitted_at
+        @lti_request && @lti_request.at_css('imsx_POXBody > replaceResultRequest > submissionDetails > submittedAt').try(:content)
       end
 
       def result_total_score
@@ -183,7 +169,7 @@ module BasicLTI
 
         begin
           course, assignment, user = BasicLTI::BasicOutcomes.decode_source_id(tool, source_id)
-        rescue InvalidSourceId => e
+        rescue Errors::InvalidSourceId => e
           self.code_major = 'failure'
           self.description = e.to_s
           self.body = "<#{operation_ref_identifier}Response />"
@@ -248,12 +234,20 @@ module BasicLTI
           error_message = I18n.t('lib.basic_lti.no_score', "No score given")
         end
 
+        submitted_at = submission_submitted_at
+        submitted_at_date = submitted_at.present? ? Time.zone.parse(submitted_at) : nil
+        if submitted_at.present? && submitted_at_date.nil?
+          error_message = I18n.t('Invalid timestamp - timestamp not parseable')
+        elsif submitted_at_date.present? && submitted_at_date > Time.zone.now + 1.minute
+          error_message = I18n.t('Invalid timestamp - timestamp in future')
+        end
+
         if error_message
           self.code_major = 'failure'
           self.description = error_message
         elsif assignment.grading_type != "pass_fail" && (assignment.points_possible.nil?)
 
-          unless submission = Submission.where(user_id: user.id, assignment_id: assignment).first
+          unless submission = existing_submission
             submission = Submission.create!(submission_hash.merge(:user => user,
                                                                   :assignment => assignment))
           end
@@ -266,14 +260,14 @@ to because the assignment has no points possible.
         else
           if attachment
             job_options = {
-              :priority => Delayed::LOW_PRIORITY,
+              :priority => Delayed::HIGH_PRIORITY,
               :max_attempts => 1,
-              :n_strand => 'file_download'
+              :n_strand => Attachment.clone_url_strand(url)
             }
 
             send_later_enqueue_args(:fetch_attachment_and_save_submission, job_options, url, attachment, _tool, submission_hash, assignment, user, new_score, raw_score)
           else
-            create_homework_submission _tool, submission_hash, assignment, user, new_score, raw_score
+            create_homework_submission _tool, submission_hash, assignment, user, new_score, raw_score, submitted_at_date
           end
         end
 
@@ -282,7 +276,7 @@ to because the assignment has no points possible.
         true
       end
 
-      def create_homework_submission(_tool, submission_hash, assignment, user, new_score, raw_score)
+      def create_homework_submission(_tool, submission_hash, assignment, user, new_score, raw_score, submitted_at_date=nil)
         if submission_hash[:submission_type].present? && submission_hash[:submission_type] != 'external_tool'
           @submission = assignment.submit_homework(user, submission_hash.clone)
         end
@@ -291,9 +285,17 @@ to because the assignment has no points possible.
           submission_hash[:grade] = (new_score >= 1 ? "pass" : "fail") if assignment.grading_type == "pass_fail"
           submission_hash[:grader_id] = -_tool.id
           @submission = assignment.grade_student(user, submission_hash).first
+          if submission_hash[:submission_type] == 'external_tool' && submitted_at_date.nil?
+            @submission.submitted_at = Time.zone.now
+          end
+        end
+
+        if submitted_at_date.present?
+          @submission.submitted_at = submitted_at_date
         end
 
         if @submission
+          @submission.attempt -= 1 if @submission.attempt.try(:'>', 0) && @submission.submitted_at_changed?
           @submission.save
         else
           self.code_major = 'failure'

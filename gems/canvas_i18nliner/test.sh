@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
 
-npm install
-npm test
+yarn install
+yarn test
+

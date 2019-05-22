@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -109,7 +109,7 @@ module CC
             node.lomimscc :value, "yes"
           end
           rights.lomimscc :description do |desc|
-            desc.lomimscc :string, "#{course.license_data[:readable_license]} - #{course.license_data[:license_url]}"
+            desc.lomimscc :string, "#{course.readable_license} - #{course.license_data[:license_url]}"
           end
         end
       end

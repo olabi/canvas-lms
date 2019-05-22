@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 
@@ -6,8 +23,11 @@ describe "calendar2" do
   include Calendar2Common
 
   before(:each) do
+    # or some stuff we need to click is "below the fold"
+    make_full_screen
+
     Account.default.tap do |a|
-      a.settings[:show_scheduler]   = true
+      a.settings[:show_scheduler] = true
       a.save!
     end
   end
@@ -155,6 +175,8 @@ describe "calendar2" do
 
         get "/calendar2"
 
+        # navigate to the next month for end of month
+        f('.navigate_next').click unless Time.now.utc.month == (Time.now.utc + 1.day).month
         open_edit_event_dialog
         description = 'description...'
         replace_content f('[name=description]'), description
@@ -297,6 +319,15 @@ describe "calendar2" do
       create_quiz
 
       assert_views(@quiz.title,@quiz.due_at)
+    end
+  end
+
+  context "as a user" do
+    it "without enrollment in a course calendar appears" do
+      user = user_factory(name: 'user1', active_user: true)
+      user_session(user)
+      get "/calendar2"
+      expect(f(".navigate_today")).to be_displayed
     end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,12 +23,11 @@ module Api::V1::Admin
   def admin_json(admin, current_user, session)
     # admin is an AccountUser
     {
-      :id => admin.id,
-      :role => admin.role.name,
-      :role_id => admin.role_id,
-      :user => user_json(admin.user, current_user, session)
-    }.tap do |hash|
-      hash[:status] = 'deleted' if admin.destroyed?
-    end
+      id: admin.id,
+      role: admin.role.name,
+      role_id: admin.role_id,
+      user: user_json(admin.user, current_user, session),
+      workflow_state: admin.workflow_state
+    }
   end
 end

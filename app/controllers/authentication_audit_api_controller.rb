@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,14 +20,13 @@
 #
 # Query audit log of authentication events (logins and logouts).
 #
-# Only available if the server has configured audit logs; will return 404 Not
-# Found response otherwise.
-#
 # For each endpoint, a compound document is returned. The primary collection of
 # event objects is paginated, ordered by date descending. Secondary collections
 # of logins, accounts, page views, and users related to the returned events
 # are also included. Refer to the Logins, Accounts, Page Views, and Users APIs
 # for descriptions of the objects in those collections.
+#
+# Authentication logs are stored for one year.
 #
 # @model AuthenticationEvent
 #     {
@@ -77,6 +76,7 @@ class AuthenticationAuditApiController < AuditorApiController
   #
   # @argument start_time [DateTime]
   #   The beginning of the time range from which you want events.
+  #   Events are stored for one year.
   #
   # @argument end_time [DateTime]
   #   The end of the time range from which you want events.
@@ -97,6 +97,7 @@ class AuthenticationAuditApiController < AuditorApiController
   #
   # @argument start_time [DateTime]
   #   The beginning of the time range from which you want events.
+  #   Events are stored for one year.
   #
   # @argument end_time [DateTime]
   #   The end of the time range from which you want events.
@@ -117,6 +118,7 @@ class AuthenticationAuditApiController < AuditorApiController
   #
   # @argument start_time [DateTime]
   #   The beginning of the time range from which you want events.
+  #   Events are stored for one year.
   #
   # @argument end_time [DateTime]
   #   The end of the time range from which you want events.

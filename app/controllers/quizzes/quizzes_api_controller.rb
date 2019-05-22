@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2016 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -232,6 +232,11 @@
 #           "example": ["multiple_choice", "essay"],
 #           "type": "array",
 #           "items": {"type": "string"}
+#         },
+#         "anonymous_submissions": {
+#           "description": "Whether survey submissions will be kept anonymous (only applicable to 'graded_survey', 'survey' quiz types)",
+#           "example": false,
+#           "type": "boolean"
 #         }
 #       }
 #     }
@@ -284,13 +289,13 @@ class Quizzes::QuizzesApiController < ApplicationController
   include ::Filters::Quizzes
   include SubmittablesGradingPeriodProtection
 
-  before_filter :require_context
-  before_filter :require_quiz, :only => [:show, :update, :destroy, :reorder, :validate_access_code]
-  before_filter :check_differentiated_assignments, :only => [:show]
+  before_action :require_context
+  before_action :require_quiz, :only => [:show, :update, :destroy, :reorder, :validate_access_code]
+  before_action :check_differentiated_assignments, :only => [:show]
 
   # @API List quizzes in a course
   #
-  # Returns the list of Quizzes in this course.
+  # Returns the paginated list of Quizzes in this course.
   #
   # @argument search_term [String]
   #   The partial title of the quizzes to match and return.
@@ -524,7 +529,6 @@ class Quizzes::QuizzesApiController < ApplicationController
   end
 
   # @API Reorder quiz items
-  # @beta
   #
   # Change order of the quiz questions or groups within the quiz
   #
@@ -544,7 +548,6 @@ class Quizzes::QuizzesApiController < ApplicationController
   end
 
   # @API Validate quiz access code
-  # @beta
   #
   # Accepts an access code and returns a boolean indicating whether that access code is correct
   #
@@ -566,7 +569,14 @@ class Quizzes::QuizzesApiController < ApplicationController
   private
 
   def render_json
-    render json: quiz_json(@quiz, @context, @current_user, session)
+    render json: quiz_json(
+      @quiz,
+      @context,
+      @current_user,
+      session,
+      {},
+      Quizzes::QuizApiSerializer
+    )
   end
 
   def render_create_error(status)

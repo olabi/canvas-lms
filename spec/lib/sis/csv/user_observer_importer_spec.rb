@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,7 @@ describe SIS::CSV::UserObserverImporter do
   it 'should skip bad content' do
     user_with_managed_pseudonym(account: @account, sis_user_id: 'U001')
     user_with_managed_pseudonym(account: @account, sis_user_id: 'U002')
-    before_count = UserObserver.active.count
+    before_count = UserObservationLink.active.count
     importer = process_csv_data(
       'observer_id,student_id,status',
       'no_observer,U001,active',
@@ -36,12 +36,11 @@ describe SIS::CSV::UserObserverImporter do
       'U001,U002,dead',
       'U001,U002,deleted'
     )
-    expect(UserObserver.active.count).to eq before_count
+    expect(UserObservationLink.active.count).to eq before_count
 
-    expect(importer.errors).to eq []
-    warnings = importer.warnings.map(&:last)
-    expect(warnings).to eq ["An observer referenced a non-existent user no_observer",
-                            "Can't observe yourself",
+    errors = importer.errors.map(&:last)
+    expect(errors).to eq ["An observer referenced a non-existent user no_observer",
+                            "Can't observe yourself user U001",
                             "A student referenced a non-existent user no_student",
                             "No observer_id given for a user observer",
                             "No user_id given for a user observer",
@@ -52,17 +51,30 @@ describe SIS::CSV::UserObserverImporter do
   it "should add and remove user_observers" do
     user_with_managed_pseudonym(account: @account, sis_user_id: 'U001')
     user_with_managed_pseudonym(account: @account, sis_user_id: 'U002')
-    before_count = UserObserver.active.count
+    before_count = UserObservationLink.active.count
     process_csv_data_cleanly(
       "observer_id,student_id,status",
-      "U001,U002,active"
+      "U001,U002,ACTIVE"
     )
-    expect(UserObserver.active.count).to eq before_count + 1
+    expect(UserObservationLink.active.count).to eq before_count + 1
 
     process_csv_data_cleanly(
       "observer_id,student_id,status",
       "U001,U002,deleted"
     )
-    expect(UserObserver.active.count).to eq before_count
+    expect(UserObservationLink.active.count).to eq before_count
+  end
+
+  it "should be able to disable notifications by default for observers" do
+    @account.settings[:default_notifications_disabled_for_observers] = true
+    @account.save!
+    observer = user_with_managed_pseudonym(account: @account, sis_user_id: 'U001')
+    user_with_managed_pseudonym(account: @account, sis_user_id: 'U002')
+    before_count = UserObservationLink.active.count
+    process_csv_data_cleanly(
+      "observer_id,student_id,status",
+      "U001,U002,ACTIVE"
+    )
+    expect(observer.reload.default_notifications_disabled?).to eq true
   end
 end

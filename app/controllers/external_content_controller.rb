@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -97,7 +97,7 @@ class ExternalContentController < ApplicationController
       @return_url = nil unless uri.is_a?(URI::HTTP)
     end
     if @return_url.blank?
-      render :nothing => true, :status => 400
+      head :bad_request
     end
     @headers = false
   end
@@ -130,7 +130,7 @@ class ExternalContentController < ApplicationController
       message = IMS::LTI::Models::Messages::Message.generate(request.GET && request.POST)
       message.content_items
     else
-      filtered_params = params.select { |k, _| %w(url text title return_type content_type height width).include? k }.with_indifferent_access
+      filtered_params = params.permit(*%w(url text title return_type content_type height width))
       [Lti::ContentItemConverter.convert_resource_selection(filtered_params)]
     end
   end

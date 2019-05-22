@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 def visit_page
@@ -55,7 +72,7 @@ def test_selective_content(source_course=nil)
   visit_page
 
   # Open selective dialog
-  expect(f('.migrationProgressItem .progressStatus')).to include_text("Waiting for select")
+  expect(f('.migrationProgressItem .progressStatus')).to include_text("Waiting for Selection")
   f('.migrationProgressItem .selectContentBtn').click
   wait_for_ajaximations
 
@@ -142,7 +159,7 @@ describe "content migrations", :non_parallel do
       hrefs = source_links.map { |a| a.attribute(:href) }
 
       @course.content_migrations.each do |cm|
-        expect(hrefs.find { |href| href.include?("/files/#{cm.attachment.id}/download") }).not_to be_nil
+        expect(hrefs.find { |href| href.include?("/files/#{cm.attachment_id}/download") }).not_to be_nil
       end
     end
 
@@ -192,7 +209,7 @@ describe "content migrations", :non_parallel do
   end
 
   context "course copy" do
-    before :once do
+    before do
       #the "true" param is important, it forces the cache clear
       #  without it this spec group fails if
       #  you run it with the whole suite
@@ -563,10 +580,10 @@ describe "content migrations", :non_parallel do
       tool_iframe = f(".tool_launch")
       expect(f('.ui-dialog-title').text).to eq import_tool.label_for(:migration_selection)
 
-      driver.switch_to.frame(tool_iframe)
-      f("#basic_lti_link").click
+      in_frame(tool_iframe, '#basic_lti_link') do
+        f("#basic_lti_link").click
+      end
 
-      driver.switch_to.default_content
       expect(f("#converter .file_name")).to include_text "lti embedded link"
     end
 

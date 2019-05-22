@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,23 +25,22 @@ module SIS
       end
 
       def self.identifying_fields
-        %w[observer_id].freeze
+        %w[observer_id student_id].freeze
       end
 
       # possible columns:
       # observer_id, student_id, status
-      def process(csv)
-        @sis.counts[:user_observers] += SIS::UserObserverImporter.new(@root_account, importer_opts).process do |i|
-          csv_rows(csv) do |row|
-            update_progress
-
+      def process(csv, index=nil, count=nil)
+        count = SIS::UserObserverImporter.new(@root_account, importer_opts).process do |i|
+          csv_rows(csv, index, count) do |row|
             begin
               i.process_user_observer(row['observer_id'], row['student_id'], row['status'])
             rescue ImportError => e
-              add_warning(csv, "#{e}")
+              SisBatch.add_error(csv, e.to_s, sis_batch: @batch, row: row['lineno'], row_info: row)
             end
           end
         end
+        count
       end
     end
   end

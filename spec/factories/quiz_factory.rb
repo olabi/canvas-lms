@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,25 +34,87 @@ module Factories
     }
   end
 
-  def quiz_with_submission(complete_quiz = true)
-    test_data = [{:correct_comments=>"", :assessment_question_id=>nil, :incorrect_comments=>"", :question_name=>"Question 1", :points_possible=>1, :question_text=>"Which book(s) are required for this course?", :name=>"Question 1", :id=>128, :answers=>[{:weight=>0, :text=>"A", :comments=>"", :id=>1490}, {:weight=>0, :text=>"B", :comments=>"", :id=>1020}, {:weight=>0, :text=>"C", :comments=>"", :id=>7051}], :question_type=>"multiple_choice_question"}]
+  def quiz_with_submission(complete_quiz = true, skip_submission = false)
     @course ||= course_model(:reusable => true)
     @student ||= user_model
     @course.enroll_student(@student).accept
     @quiz = @course.quizzes.create
     @quiz.workflow_state = "available"
-    @quiz.quiz_questions.create!({ question_data: test_data.first })
+    @quiz.quiz_questions.create!({ question_data: test_quiz_data.first })
     @quiz.save!
+    return if skip_submission
 
     @qsub = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@student)
-    @qsub.quiz_data = test_data
-    @qsub.submission_data = complete_quiz ? [{:points=>0, :text=>"7051", :question_id=>128, :correct=>false, :answer_id=>7051}] : test_data.first
-    # {"context_id"=>"3", "text_after_answers"=>"", "context_type"=>"Course", "attempt"=>1, "user_id"=>"3", "controller"=>"quiz_submissions", "cnt"=>1, "course_id"=>"3", "quiz_id"=>"6", "question_text"=>"<p>true?</p>"}
-    @qsub.workflow_state = 'complete' if complete_quiz
+    @qsub.quiz_data = test_quiz_data
+    @qsub.started_at = 1.minute.ago
+    @qsub.attempt = 1
+    if complete_quiz
+      @qsub.submission_data = [{:points=>0, :text=>"7051", :question_id=>128, :correct=>false, :answer_id=>7051}]
+      @qsub.score = 0
+      @qsub.finished_at = Time.now.utc
+      @qsub.workflow_state = 'complete'
+      @qsub.submission = @quiz.assignment.find_or_create_submission(@student.id)
+    else
+      @qsub.submission_data = {}
+    end
     @qsub.with_versioning(true) do
       @qsub.save!
     end
     @qsub
+  end
+
+  def test_quiz_data
+    [
+      {
+        correct_comments: '',
+        assessment_question_id: nil,
+        incorrect_comments: '',
+        question_name: 'Question 1',
+        points_possible: 1,
+        question_text: 'Which book(s) are required for this course?',
+        name: 'Question 1',
+        id: 128,
+        answers: [
+          { weight: 100, text: 'A', comments: '', id: 1490 },
+          { weight: 0, text: 'B', comments: '', id: 1020 },
+          { weight: 0, text: 'C', comments: '', id: 7051 }
+        ],
+        question_type: 'multiple_choice_question'
+      }
+    ]
+  end
+
+  def generate_quiz(course)
+    quiz = course.quizzes.create(workflow_state: 'available')
+    quiz.quiz_questions.create!(question_data: test_quiz_data().first)
+    quiz.save!
+
+    quiz
+  end
+
+  def generate_quiz_submission(quiz, student:, finished_at: nil)
+    qsub = Quizzes::SubmissionManager.new(quiz).find_or_create_submission(student)
+    qsub.quiz_data = test_quiz_data()
+    qsub.started_at = 1.minute.ago
+    qsub.attempt = 1
+
+    if finished_at.nil?
+      qsub.submission_data = {}
+    else
+      qsub.submission_data = [{ points: 0, text: "7051", question_id: 128, correct: false, answer_id: 7051 }]
+      qsub.score = 0
+      qsub.finished_at = finished_at || Time.now.utc
+      qsub.workflow_state = 'complete'
+    end
+
+    qsub.submission = quiz.assignment.find_or_create_submission(student.id)
+    qsub.submission.quiz_submission = qsub
+    qsub.submission.submission_type = 'online_quiz'
+    qsub.submission.submitted_at = qsub.finished_at
+
+    qsub.save!
+
+    qsub
   end
 
   def multiple_choice_question_data

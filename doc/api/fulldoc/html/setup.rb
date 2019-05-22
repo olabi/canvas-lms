@@ -16,8 +16,10 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-$:.unshift(File.join(File.dirname(__FILE__), 'swagger'))
+$LOAD_PATH.unshift(File.join(File.dirname(__FILE__), 'swagger'))
+$LOAD_PATH.unshift(File.join(File.dirname(__FILE__), 'api_scopes'))
 require 'controller_list_view'
+require 'api_scope_mapping_writer'
 
 include Helpers::ModuleHelper
 include Helpers::FilterHelper
@@ -43,7 +45,9 @@ module YARD::Templates::Helpers::BaseHelper
       if topic
         html_file = "#{topicize topic.first}.html"
         action = $2
-        link_url("#{html_file}#method.#{topicize(controller.name.to_s).sub("_controller", "")}.#{action}", args[1])
+        name = controller.name.to_s
+        name = "#{controller.namespace.name.to_s}/#{name}" if controller.namespace.name != :root
+        link_url("#{html_file}#method.#{topicize(name).sub("_controller", "")}.#{action}", args[1])
       else
         raise "couldn't find API link for #{args.first}"
       end
@@ -118,6 +122,8 @@ module YARD::Templates::Helpers::BaseHelper
 end
 
 module YARD::Templates::Helpers::HtmlHelper
+  include CanvasAPI::Deprecatable
+
   def topicize(str)
     str.gsub(' ', '_').underscore
   end
@@ -154,6 +160,8 @@ def init
     group_by { |o| o.tags('API').first.text }.
     sort_by  { |o| o.first }
   generate_swagger_json
+  scope_writer = ApiScopeMappingWriter.new(options[:resources])
+  scope_writer.generate_scope_mapper
 
   options[:page_title] = "Canvas LMS REST API Documentation"
 
@@ -269,7 +277,7 @@ end
 def serialize_static_pages
   Dir.glob("doc/api/*.md").each do |file|
     options[:file] = file
-    filename = File.split(file).last.sub(/\..*$/, '.html')
+    filename = File.split(file).last.sub(/\.md$/, '.html')
     serialize("file." + filename, page_title: extract_page_title_from_markdown(file))
     serialize_redirect(filename)
     options.delete(:file)

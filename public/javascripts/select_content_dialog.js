@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,29 +12,31 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'INST' /* INST */,
-  'i18n!select_content_dialog',
-  'jquery' /* $ */,
-  'react',
-  'react-dom',
-  'jsx/context_modules/FileSelectBox',
-  'underscore',
-  'jquery.instructure_date_and_time' /* datetime_field */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_forms' /* formSubmit, ajaxJSONFiles, getFormData, errorBox */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_helpers' /* replaceTags, getUserServices, findLinkForService */,
-  'jquery.instructure_misc_plugins' /* showIf */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData */
-], function(INST, I18n, $, React, ReactDOM, FileSelectBox, _) {
+import INST from './INST'
+import I18n from 'i18n!select_content_dialog'
+import $ from 'jquery'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import FileSelectBox from 'jsx/context_modules/FileSelectBox'
+import _ from 'underscore'
+import htmlEscape from 'str/htmlEscape'
+import { uploadFile } from 'jsx/shared/upload_file'
+import iframeAllowances from 'jsx/external_apps/lib/iframeAllowances'
+import SelectContent from './lti/select_content'
+import './jquery.instructure_date_and_time' /* datetime_field */
+import './jquery.ajaxJSON'
+import './jquery.instructure_forms' /* formSubmit, ajaxJSONFiles, getFormData, errorBox */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import './jquery.instructure_misc_helpers' /* replaceTags, getUserServices, findLinkForService */
+import './jquery.instructure_misc_plugins' /* showIf */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import './jquery.templateData'
 
   var SelectContentDialog = {};
 
@@ -46,10 +48,14 @@ define([
     onContextExternalToolSelect : function(e) {
       e.preventDefault();
       var $tool = $(this);
+      var toolName = $tool.find('a').text();
       if($(this).hasClass('selected') && !$(this).hasClass('resource_selection')) {
         $(this).removeClass('selected');
+        $("#external_tool_create_url").val('');
+        $.screenReaderFlashMessage(I18n.t('Unselected external tool %{tool}', {tool: toolName}));
         return;
       }
+      $.screenReaderFlashMessage(I18n.t('Selected external tool %{tool}', {tool: toolName}));
       $tool.parents(".tools").find(".tool.selected").removeClass('selected');
       $tool.addClass('selected');
       if($tool.hasClass('resource_selection')) {
@@ -73,28 +79,57 @@ define([
         };
         if($dialog.length == 0) {
           $dialog = $("<div/>", {id: 'resource_selection_dialog', style: 'padding: 0; overflow-y: hidden;'});
+          $dialog.append(`<div class="before_external_content_info_alert screenreader-only" tabindex="0">
+            <div class="ic-flash-info">
+              <div class="ic-flash__icon" aria-hidden="true">
+                <i class="icon-info"></i>
+              </div>
+              ${htmlEscape(I18n.t('The following content is partner provided'))}
+            </div>
+          </div>`)
           $dialog.append($("<iframe/>", {
             id: 'resource_selection_iframe',
             style: 'width: 800px; height: ' + frameHeight + 'px; border: 0;',
             src: '/images/ajax-loader-medium-444.gif',
             borderstyle: '0',
-            tabindex: '0'
+            tabindex: '0',
+            allow: iframeAllowances()
           }));
-          var tabHelperHeight = 35;
-          $dialog.append(
-            $('<div/>',
-              {id: 'tab-helper', style: 'height: ' + tabHelperHeight + 'px;padding:5px', tabindex: '0'}
-            ).focus(function () {
-              $(this).height(tabHelperHeight + 'px')
-              var joke = document.createTextNode(I18n.t('Q: What goes black, white, black, white?  A: A panda rolling down a hill.'))
-              this.appendChild(joke)
-              var currentHeight = $dialog.dialog('option', 'height');
-              $dialog.dialog('option', 'height', currentHeight + tabHelperHeight)
-            }).blur(function () {
-              $(this).html('').height('0px');
-              var currentHeight = $dialog.dialog('option', 'height');
-              $dialog.dialog('option', 'height', currentHeight - tabHelperHeight)
-            }))
+          $dialog.append(`<div class="after_external_content_info_alert screenreader-only" tabindex="0">
+            <div class="ic-flash-info">
+              <div class="ic-flash__icon" aria-hidden="true">
+                <i class="icon-info"></i>
+              </div>
+              ${htmlEscape(I18n.t('The preceding content is partner provided'))}
+            </div>
+          </div>`)
+
+          const $external_content_info_alerts = $dialog
+            .find('.before_external_content_info_alert, .after_external_content_info_alert');
+
+          const $iframe = $dialog.find('iframe');
+
+          $external_content_info_alerts.on('focus', function(e) {
+            const iframeWidth = $iframe.outerWidth(true);
+            const iframeHeight = $iframe.outerHeight(true);
+            $iframe.css('border', '2px solid #008EE2');
+            $(this).removeClass('screenreader-only');
+            const alertHeight = $(this).outerHeight(true);
+            $iframe.css('height', `${(iframeHeight - alertHeight - 4)}px`)
+              .css('width', `${(iframeWidth - 4)}px`);
+            $dialog.scrollLeft(0).scrollTop(0)
+          });
+
+          $external_content_info_alerts.on('blur', function(e) {
+            var iframeWidth = $iframe.outerWidth(true);
+            var iframeHeight = $iframe.outerHeight(true);
+            var alertHeight = $(this).outerHeight(true);
+            $dialog.find('iframe').css('border', 'none');
+            $(this).addClass('screenreader-only');
+            $iframe.css('height', `${(iframeHeight + alertHeight)}px`)
+              .css('width', `${iframeWidth}px`);
+            $dialog.scrollLeft(0).scrollTop(0)
+          });
 
           $("body").append($dialog.hide());
           $dialog.on("dialogbeforeclose", dialogCancelHandler);
@@ -152,7 +187,7 @@ define([
           .dialog('open');
         $dialog.triggerHandler('dialogresize');
         var url = $.replaceTags($("#select_content_resource_selection_url").attr('href'), 'id', tool.definition_id);
-        url = url + '?placement=' + placement_type;
+        url = url + '?placement=' + placement_type + '&secure_params=' + $('#secure_params').val();
         $dialog.find("iframe").attr('src', url);
         $(window).on('beforeunload', beforeUnloadHandler);
       } else {
@@ -170,7 +205,6 @@ define([
   $(document).ready(function() {
     var external_services = null;
     var $dialog = $("#select_context_content_dialog");
-    INST = INST || {};
     INST.selectContentDialog = function(options) {
       var options = options || {};
       var for_modules = options.for_modules;
@@ -187,8 +221,8 @@ define([
         var $services = $("#content_tag_services").empty();
         $.getUserServices('BookmarkService', function(data) {
           for(var idx in data) {
-            service = data[idx].user_service;
-            $service = $("<a href='#' class='bookmark_service no-hover'/>");
+            var service = data[idx].user_service;
+            var $service = $("<a href='#' class='bookmark_service no-hover'/>");
             $service.addClass(service.service);
             $service.data('service', service);
             $service.attr('title', I18n.t('titles.find_links_using_service', 'Find links using %{service}', {service: service.service}));
@@ -326,10 +360,13 @@ define([
             var url = $("#select_context_content_dialog .module_item_option:visible:first .new .add_item_url").attr('href');
             var data = $("#select_context_content_dialog .module_item_option:visible:first").getFormData();
             var callback = function(data) {
+
               var obj;
 
               // discussion_topics will come from real api v1 and so wont be nested behind a `discussion_topic` or 'wiki_page' root object
-              if (item_data['item[type]'] === 'discussion_topic' || item_data['item[type]'] === 'wiki_page') {
+              if (item_data['item[type]'] === 'discussion_topic' ||
+                item_data['item[type]'] === 'wiki_page' ||
+                item_data['item[type]'] === 'attachment') {
                 obj = data;
               } else {
                 obj = data[item_data['item[type]']]; // e.g. data['wiki_page'] for wiki pages
@@ -354,11 +391,25 @@ define([
               submit(item_data);
             };
 
+            //Force the new assignment to set post_to_sis to false so that possible
+            //account validations do not prevent saving
+            if(item_data['item[type]'] == 'assignment') {
+              data['assignment[post_to_sis]'] = false
+            }
             if(item_data['item[type]'] == 'attachment') {
-              data['duplicate_handling'] = 'rename';
-              $.ajaxJSONFiles(url, 'POST', data, $("#module_attachment_uploaded_data"), function(data) {
-                callback(data);
-              }, function(data) {
+              var file = $("#module_attachment_uploaded_data")[0].files[0];
+              var url = `/api/v1/folders/${data["attachment[folder_id]"]}/files`;
+              data = {
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                parent_folder_id: data["attachment[folder_id]"],
+                on_duplicate: 'rename',
+                no_redirect: true
+              };
+              uploadFile(url, data, file).then(function(attachment) {
+                callback(attachment)
+              }).catch(function(response) {
                 $("#select_context_content_dialog").loadingImage('remove');
                 $("#select_context_content_dialog").errorBox(I18n.t('errors.failed_to_create_item', 'Failed to Create new Item'));
               });
@@ -412,7 +463,10 @@ define([
               var tool = data[idx];
               var $tool = $tool_template.clone(true);
               var placement = tool.placements.assignment_selection || tool.placements.link_selection;
-              $tool.toggleClass('resource_selection', ('resource_selection' in tool.placements || placement.message_type == "ContentItemSelectionRequest"));
+              $tool.toggleClass(
+                'resource_selection',
+                SelectContent.isContentMessage(placement, tool.placements)
+              );
               $tool.fillTemplateData({
                 data: tool,
                 dataValues: ['definition_type', 'definition_id', 'domain', 'name', 'placements', 'description']
@@ -440,5 +494,4 @@ define([
     });
   });
 
-  return SelectContentDialog;
-});
+export default SelectContentDialog;

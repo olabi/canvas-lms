@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,7 +42,11 @@ module Api::V1::Conversation
     explicit_participants = conversation.participants
     audience = conversation.other_participants(explicit_participants)
     result[:messages] = options[:messages].map{ |m| conversation_message_json(m, current_user, session) } if options[:messages]
-    result[:submissions] = options[:submissions].map { |s| submission_json(s, s.assignment, current_user, session, nil, ['assignment', 'submission_comments']) } if options[:submissions]
+    if options[:submissions]
+      result[:submissions] = options[:submissions].map do |s|
+        submission_json(s, s.assignment, current_user, session, nil, ['assignment', 'submission_comments'], params)
+      end
+    end
     result[:audience] = audience.map(&:id)
     result[:audience].map!(&:to_s) if stringify_json_ids?
     result[:audience_contexts] = contexts_for(audience, conversation.local_context_tags)
@@ -50,7 +54,16 @@ module Api::V1::Conversation
     result[:participants] = conversation_users_json(participants, current_user, session, options)
     result[:visible] = options.key?(:visible) ? options[:visible] : @set_visibility && infer_visibility(conversation)
     result[:context_name] = conversation.context_name if options[:include_context_name]
-    result[:context_code] = conversation.conversation.context_code
+
+    # Changing to account context means users can reply to admins, even if the admin messages from a
+    # course they aren't enrolled in
+    result[:context_code] =
+      if conversation.conversation.context_type.eql?("Course") && AccountUser.exists?(user_id: current_user.id)
+        "account_#{@domain_root_account.id}"
+      else
+        conversation.conversation.context_code
+      end
+
     if options[:include_reply_permission_check] && conversation.conversation.replies_locked_for?(current_user)
       result[:cannot_reply] = true
     end
@@ -66,15 +79,25 @@ module Api::V1::Conversation
     result['media_comment'] = media_comment_json(result['media_comment']) if result['media_comment']
     result['attachments'] = result['attachments'].map{ |attachment| attachment_json(attachment, current_user) }
     result['forwarded_messages'] = result['forwarded_messages'].map{ |m| conversation_message_json(m, current_user, session) }
-    result['submission'] = submission_json(message.submission, message.submission.assignment, current_user, session, nil, ['assignment', 'submission_comments']) if message.submission
+    if message.submission
+      submission = message.submission
+      assignment = submission.assignment
+      includes = %w|assignment submission_comments|
+      result['submission'] = submission_json(submission, assignment, current_user, session, nil, includes, params)
+    end
     result
   end
 
   # ensure the common contexts for those users are fetched and cached in
   # bulk, if not already done
   def preload_common_contexts(current_user, recipients)
-    users = recipients.select{ |recipient| recipient.is_a?(User) }
-    current_user.address_book.preload_users(users)
+    address_book = current_user.address_book
+    users = recipients.select{ |recipient| recipient.is_a?(User) && !address_book.cached?(recipient) }
+    address_book.preload_users(users)
+  end
+
+  def should_include_participant_avatars?(user_count)
+    user_count <= Setting.get('max_conversation_participant_count_for_avatars', '100').to_i
   end
 
   def conversation_recipients_json(recipients, current_user, session)
@@ -82,10 +105,11 @@ module Api::V1::Conversation
       {:pseudonym => :account}) # for avatar_url
 
     preload_common_contexts(current_user, recipients)
+    include_avatars = should_include_participant_avatars?(recipients.count)
     recipients.map do |recipient|
       if recipient.is_a?(User)
         conversation_user_json(recipient, current_user, session,
-          :include_participant_avatars => true,
+          :include_participant_avatars => include_avatars,
           :include_participant_contexts => true)
       else
         # contexts are already json
@@ -99,6 +123,8 @@ module Api::V1::Conversation
       :include_participant_avatars => true,
       :include_participant_contexts => true
     }.merge(options)
+    options[:include_participant_avatars] = false unless should_include_participant_avatars?(users.count)
+
     if options[:include_participant_avatars]
       ActiveRecord::Associations::Preloader.new.preload(users, {:pseudonym => :account}) # for avatar_url
     end
@@ -110,13 +136,14 @@ module Api::V1::Conversation
   def conversation_user_json(user, current_user, session, options = {})
     result = {
       :id => user.id,
-      :name => user.short_name
+      :name => user.short_name,
+      :full_name => user.name
     }
     if options[:include_participant_contexts]
       result[:common_courses] = current_user.address_book.common_courses(user)
       result[:common_groups] = current_user.address_book.common_groups(user)
     end
-    result[:avatar_url] = avatar_url_for_user(user, blank_fallback) if options[:include_participant_avatars]
+    result[:avatar_url] = avatar_url_for_user(user) if options[:include_participant_avatars]
     result
   end
 

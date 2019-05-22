@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -103,17 +103,17 @@ describe ApplicationHelper do
 
     describe '#context_sensitive_datetime_title' do
       it "produces a string showing the local time and the course time" do
-        context = stub(time_zone: ActiveSupport::TimeZone["America/Denver"])
+        context = double(time_zone: ActiveSupport::TimeZone["America/Denver"])
         expect(context_sensitive_datetime_title(Time.now, context)).to eq "data-tooltip data-html-tooltip-title=\"Local: Mar 13 at  1:12am<br>Course: Mar 13 at  3:12am\""
       end
 
       it "only prints the text if just_text option passed" do
-        context = stub(time_zone: ActiveSupport::TimeZone["America/Denver"])
+        context = double(time_zone: ActiveSupport::TimeZone["America/Denver"])
         expect(context_sensitive_datetime_title(Time.now, context, just_text: true)).to eq "Local: Mar 13 at  1:12am<br>Course: Mar 13 at  3:12am"
       end
 
       it "uses the simple title if theres no timezone difference" do
-        context = stub(time_zone: ActiveSupport::TimeZone["America/Anchorage"])
+        context = double(time_zone: ActiveSupport::TimeZone["America/Anchorage"])
         expect(context_sensitive_datetime_title(Time.now, context, just_text: true)).to eq "Mar 13 at  1:12am"
         expect(context_sensitive_datetime_title(Time.now, context)).to eq "data-tooltip data-html-tooltip-title=\"Mar 13 at  1:12am\""
       end
@@ -124,14 +124,14 @@ describe ApplicationHelper do
 
       it 'crosses date boundaries appropriately' do
         Timecop.freeze(Time.utc(2013,3,13,7,12)) do
-          context = stub(time_zone: ActiveSupport::TimeZone["America/Denver"])
+          context = double(time_zone: ActiveSupport::TimeZone["America/Denver"])
           expect(context_sensitive_datetime_title(Time.now, context)).to eq "data-tooltip data-html-tooltip-title=\"Local: Mar 12 at 11:12pm<br>Course: Mar 13 at  1:12am\""
         end
       end
     end
 
     describe '#friendly_datetime' do
-      let(:context) { stub(time_zone: ActiveSupport::TimeZone["America/Denver"]) }
+      let(:context) { double(time_zone: ActiveSupport::TimeZone["America/Denver"]) }
 
       it 'spits out a friendly time tag' do
         tag = friendly_datetime(Time.now)
@@ -188,22 +188,6 @@ describe ApplicationHelper do
     end
   end
 
-  describe "cache_if" do
-    it "should cache the fragment if the condition is true" do
-      enable_cache do
-        cache_if(true, "t1", :expires_in => 15.minutes, :no_locale => true) { output_buffer.concat "blargh" }
-        expect(@controller.read_fragment("t1")).to eq "blargh"
-      end
-    end
-
-    it "should not cache if the condition is false" do
-      enable_cache do
-        cache_if(false, "t1", :expires_in => 15.minutes, :no_locale => true) { output_buffer.concat "blargh" }
-        expect(@controller.read_fragment("t1")).to be_nil
-      end
-    end
-  end
-
   describe "custom css/js includes" do
 
     def set_up_subaccounts
@@ -245,21 +229,21 @@ describe ApplicationHelper do
 
       context "with no custom css" do
         it "should be empty" do
-          helper.stubs(:active_brand_config).returns(nil)
+          allow(helper).to receive(:active_brand_config).and_return(nil)
           expect(helper.include_account_css).to be_nil
         end
       end
 
       context "with custom css" do
         it "should include account css" do
-          helper.stubs(:active_brand_config).returns BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
+          allow(helper).to receive(:active_brand_config).and_return BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
           output = helper.include_account_css
           expect(output).to have_tag 'link'
           expect(output).to match %r{https://example.com/path/to/overrides.css}
         end
 
         it "should include site_admin css even if there is no active brand" do
-          helper.stubs(:active_brand_config).returns nil
+          allow(helper).to receive(:active_brand_config).and_return nil
           Account.site_admin.create_brand_config!({
             css_overrides: 'https://example.com/site_admin/account.css',
             js_overrides: 'https://example.com/site_admin/account.js'
@@ -271,7 +255,7 @@ describe ApplicationHelper do
 
 
         it "should not include anything if param is set to 0" do
-          helper.stubs(:active_brand_config).returns BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
+          allow(helper).to receive(:active_brand_config).and_return BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
           params[:global_includes] = '0'
 
           output = helper.include_account_css
@@ -354,20 +338,20 @@ describe ApplicationHelper do
 
       context "with no custom js" do
         it "should be empty" do
-          helper.stubs(:active_brand_config).returns(nil)
+          allow(helper).to receive(:active_brand_config).and_return(nil)
           expect(helper.include_account_js).to be_nil
         end
       end
 
       context "with custom js" do
         it "should include account javascript" do
-          helper.stubs(:active_brand_config).returns BrandConfig.create!(js_overrides: 'https://example.com/path/to/overrides.js')
+          allow(helper).to receive(:active_brand_config).and_return BrandConfig.create!(js_overrides: 'https://example.com/path/to/overrides.js')
           output = helper.include_account_js
           expect(output).to have_tag 'script', text: %r{https:\\/\\/example.com\\/path\\/to\\/overrides.js}
         end
 
         it "should include site_admin javascript even if there is no active brand" do
-          helper.stubs(:active_brand_config).returns nil
+          allow(helper).to receive(:active_brand_config).and_return nil
           Account.site_admin.create_brand_config!({
             css_overrides: 'https://example.com/site_admin/account.css',
             js_overrides: 'https://example.com/site_admin/account.js'
@@ -383,15 +367,14 @@ describe ApplicationHelper do
           it "should just include domain root account's when there is no context or @current_user" do
             output = helper.include_account_js
             expect(output).to have_tag 'script'
-            expect(output).to match(/#{Regexp.quote('["https:\/\/example.com\/root\/account.js"].forEach')}/)
+            expect(output).to eq("<script src=\"https://example.com/root/account.js\" defer=\"defer\"></script>")
           end
 
           it "should load custom js even for high contrast users" do
             @current_user = user_factory
             user_factory.enable_feature!(:high_contrast)
             output = helper.include_account_js
-            expect(output).to have_tag 'script'
-            expect(output).to match(/#{Regexp.quote('["https:\/\/example.com\/root\/account.js"].forEach')}/)
+            expect(output).to eq("<script src=\"https://example.com/root/account.js\" defer=\"defer\"></script>")
           end
 
           it "should include granchild, child, and root when viewing the grandchild or any course or group in it" do
@@ -399,10 +382,11 @@ describe ApplicationHelper do
             group = course.groups.create!
             [@grandchild_account, course, group].each do |context|
               @context = context
-              output = helper.include_account_js
-            expect(output).to have_tag 'script'
-            expected = '["https:\/\/example.com\/root\/account.js","https:\/\/example.com\/child\/account.js","https:\/\/example.com\/grandchild\/account.js"].forEach'
-            expect(output).to match(/#{Regexp.quote(expected)}/)
+              expect(helper.include_account_js).to eq %{
+<script src="https://example.com/root/account.js" defer="defer"></script>
+<script src="https://example.com/child/account.js" defer="defer"></script>
+<script src="https://example.com/grandchild/account.js" defer="defer"></script>
+              }.strip
             end
           end
         end
@@ -448,42 +432,6 @@ describe ApplicationHelper do
       helper.instance_variable_set(:@domain_root_account, Account.default)
 
       expect(helper.help_link_name).to eq link_name
-    end
-  end
-
-  describe "hidden dialogs" do
-    before do
-      expect(hidden_dialogs).to be_empty
-    end
-
-    it "should generate empty string when there are no dialogs" do
-      str = render_hidden_dialogs
-      expect(str).to eq ''
-    end
-
-    it "should work with one hidden_dialog" do
-      hidden_dialog('my_test_dialog') { "Hello there!" }
-      str = render_hidden_dialogs
-      expect(str).to eq "<div id='my_test_dialog' style='display: none;''>Hello there!</div>"
-    end
-
-    it "should work with more than one hidden dialog" do
-      hidden_dialog('first_dialog') { "first" }
-      hidden_dialog('second_dialog') { "second" }
-      str = render_hidden_dialogs
-      expect(str).to eq "<div id='first_dialog' style='display: none;''>first</div><div id='second_dialog' style='display: none;''>second</div>"
-    end
-
-    it "should raise an error when a dialog with conflicting content is added" do
-      hidden_dialog('dialog_id') { 'content' }
-      expect { hidden_dialog('dialog_id') { 'different content' } }.to raise_error
-    end
-
-    it "should only render a dialog once when it has been added multiple times" do
-      hidden_dialog('dialog_id') { 'content' }
-      hidden_dialog('dialog_id') { 'content' }
-      str = render_hidden_dialogs
-      expect(str).to eq "<div id='dialog_id' style='display: none;''>content</div>"
     end
   end
 
@@ -573,7 +521,7 @@ describe ApplicationHelper do
       tool.save!
       @context = @group
 
-      expect(editor_buttons).to eq([{:name=>"bob", :id=>tool.id, :url=>"http://example.com", :icon_url=>"http://example.com", :canvas_icon_class => 'icon-commons', :width=>800, :height=>400}])
+      expect(editor_buttons).to eq([{:name=>"bob", :id=>tool.id, :url=>"http://example.com", :icon_url=>"http://example.com", :canvas_icon_class => 'icon-commons', :width=>800, :height=>400, :use_tray => false}])
     end
 
     it "should return hash of tools if in course" do
@@ -581,10 +529,10 @@ describe ApplicationHelper do
       tool = @course.context_external_tools.new(:name => "bob", :consumer_key => "test", :shared_secret => "secret", :url => "http://example.com")
       tool.editor_button = {:url => "http://example.com", :icon_url => "http://example.com", :canvas_icon_class => 'icon-commons'}
       tool.save!
-      controller.stubs(:group_external_tool_path).returns('http://dummy')
+      allow(controller).to receive(:group_external_tool_path).and_return('http://dummy')
       @context = @course
 
-      expect(editor_buttons).to eq([{:name=>"bob", :id=>tool.id, :url=>"http://example.com", :icon_url=>"http://example.com", :canvas_icon_class => 'icon-commons', :width=>800, :height=>400}])
+      expect(editor_buttons).to eq([{:name=>"bob", :id=>tool.id, :url=>"http://example.com", :icon_url=>"http://example.com", :canvas_icon_class => 'icon-commons', :width=>800, :height=>400, :use_tray => false}])
     end
 
     it "should not include tools from the domain_root_account for users" do
@@ -607,7 +555,7 @@ describe ApplicationHelper do
   describe "UI path checking" do
     describe "#active_path?" do
       context "when the request path is the course show page" do
-        let(:request){ stub('request', :fullpath => '/courses/2')}
+        let(:request){ double('request', :fullpath => '/courses/2')}
 
         it "returns true for paths that match" do
           expect(active_path?('/courses')).to be_truthy
@@ -623,11 +571,11 @@ describe ApplicationHelper do
       end
 
       context "when the request path is the account external tools path" do
-        let(:request){ stub('request', :fullpath => '/accounts/2/external_tools/27')}
+        let(:request){ double('request', :fullpath => '/accounts/2/external_tools/27')}
 
         before :each do
           @context = Account.default
-          controller.stubs(:controller_name).returns('external_tools')
+          allow(controller).to receive(:controller_name).and_return('external_tools')
         end
 
         it "it doesn't return true for '/accounts'" do
@@ -636,11 +584,11 @@ describe ApplicationHelper do
       end
 
       context "when the request path is the course external tools path" do
-        let(:request){ stub('request', :fullpath => '/courses/2/external_tools/27')}
+        let(:request){ double('request', :fullpath => '/courses/2/external_tools/27')}
 
         before :each do
           @context = Account.default.courses.create!
-          controller.stubs(:controller_name).returns('external_tools')
+          allow(controller).to receive(:controller_name).and_return('external_tools')
         end
 
         it "returns true for '/courses'" do
@@ -656,9 +604,9 @@ describe ApplicationHelper do
     end
   end
 
-  describe 'brand_config_for_account' do
+  describe 'brand_config_account' do
     it "handles not having @domain_root_account set" do
-      expect(helper.send(:brand_config_for_account)).to be_nil
+      expect(helper.send(:brand_config_account)).to be_nil
     end
   end
 
@@ -671,14 +619,14 @@ describe ApplicationHelper do
     end
 
     it "returns 'K12 Theme' by default for a k12 school" do
-      helper.stubs(:k12?).returns(true)
-      BrandConfig.stubs(:k12_config)
+      allow(helper).to receive(:k12?).and_return(true)
+      allow(BrandConfig).to receive(:k12_config)
       expect(helper.send(:active_brand_config)).to eq BrandConfig.k12_config
     end
 
     it "returns 'K12 Theme' if a k12 school has chosen 'canvas default' in Theme Editor" do
-      helper.stubs(:k12?).returns(true)
-      BrandConfig.stubs(:k12_config)
+      allow(helper).to receive(:k12?).and_return(true)
+      allow(BrandConfig).to receive(:k12_config)
 
       # this is what happens if you pick "Canvas Default" from the theme picker
       session[:brand_config_md5] = false
@@ -689,81 +637,528 @@ describe ApplicationHelper do
   end
 
 
-  describe "include_js_bundles" do
-    before :each do
-      helper.stubs(:js_bundles).returns([[:some_bundle], [:some_plugin_bundle, :some_plugin], [:another_bundle, nil]])
-    end
-    it "creates the correct javascript tags" do
-      helper.stubs(:use_webpack?).returns(false)
-      base_url = helper.use_optimized_js? ? '/optimized' : '/javascripts'
-      expect(helper.include_js_bundles).to eq %{
-<script src="#{base_url}/compiled/bundles/some_bundle.js"></script>
-<script src="#{base_url}/plugins/some_plugin/compiled/bundles/some_plugin_bundle.js"></script>
-<script src="#{base_url}/compiled/bundles/another_bundle.js"></script>
-      }.strip
+  describe "include_head_js" do
+    before do
+      allow(helper).to receive(:js_bundles).and_return([[:some_bundle], [:some_plugin_bundle, :some_plugin], [:another_bundle, nil]])
     end
 
-    it "creates the correct javascript tags with webpack enabled" do
-      helper.stubs(:use_webpack?).returns(true)
-      helper.stubs(:js_env).returns({
+    it "creates the correct javascript tags" do
+      allow(helper).to receive(:js_env).and_return({
         BIGEASY_LOCALE: 'nb_NO',
         MOMENT_LOCALE: 'nb',
         TIMEZONE: 'America/La_Paz',
         CONTEXT_TIMEZONE: 'America/Denver'
       })
       base_url = helper.use_optimized_js? ? 'dist/webpack-production' : 'dist/webpack-dev'
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/vendor.js').returns('vendor_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/vendor/timezone/America/La_Paz.js').returns('La_Paz_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/vendor/timezone/America/Denver.js').returns('Denver_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/vendor/timezone/nb_NO.js').returns('nb_NO_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/moment/locale/nb.js').returns('nb_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/appBootstrap.js').returns('app_bootstrap_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/common.js').returns('common_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/some_bundle.js').returns('some_bundle_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/some_plugin-some_plugin_bundle.js').returns('plugin_url')
-      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/another_bundle.js').returns('another_bundle_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/vendor.js').and_return('vendor_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:revved_url_for).with('timezone/America/La_Paz.js').and_return('La_Paz_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:revved_url_for).with('timezone/America/Denver.js').and_return('Denver_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:revved_url_for).with('timezone/nb_NO.js').and_return('nb_NO_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/moment/locale/nb.js').and_return('nb_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/appBootstrap.js').and_return('app_bootstrap_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/common.js').and_return('common_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/some_bundle.js').and_return('some_bundle_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/some_plugin-some_plugin_bundle.js').and_return('plugin_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/another_bundle.js').and_return('another_bundle_url')
 
-      expect(helper.include_js_bundles).to eq %{
-<script src="/vendor_url"></script>
-<script src="/La_Paz_url"></script>
-<script src="/Denver_url"></script>
-<script src="/nb_NO_url"></script>
-<script src="/nb_url"></script>
-<script src="/app_bootstrap_url"></script>
-<script src="/common_url"></script>
-<script src="/some_bundle_url"></script>
-<script src="/plugin_url"></script>
-<script src="/another_bundle_url"></script>
+      expect(helper.include_head_js).to eq %{
+<script src="/vendor_url" defer="defer"></script>
+<script src="/La_Paz_url" defer="defer"></script>
+<script src="/Denver_url" defer="defer"></script>
+<script src="/nb_NO_url" defer="defer"></script>
+<script src="/nb_url" defer="defer"></script>
+<script src="/app_bootstrap_url" defer="defer"></script>
+<script src="/common_url" defer="defer"></script>
+<script src="/some_bundle_url" defer="defer"></script>
+<script src="/plugin_url" defer="defer"></script>
+<script src="/another_bundle_url" defer="defer"></script>
       }.strip
     end
   end
 
-  describe "map_courses_for_menu" do
-    context "with Dashcard Reordering feature enabled" do
+  describe "include_js_bundles" do
+    before do
+      allow(helper).to receive(:js_bundles).and_return([[:some_bundle], [:some_plugin_bundle, :some_plugin], [:another_bundle, nil]])
+    end
+    it "creates the correct javascript tags" do
+      base_url = helper.use_optimized_js? ? 'dist/webpack-production' : 'dist/webpack-dev'
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/some_bundle.js').and_return('some_bundle_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/some_plugin-some_plugin_bundle.js').and_return('plugin_url')
+      allow(Canvas::Cdn::RevManifest).to receive(:webpack_url_for).with(base_url + '/another_bundle.js').and_return('another_bundle_url')
+
+      expect(helper.include_js_bundles).to eq %{
+<script src="/some_bundle_url" defer="defer"></script>
+<script src="/plugin_url" defer="defer"></script>
+<script src="/another_bundle_url" defer="defer"></script>
+      }.strip
+    end
+  end
+
+  describe "map_groups_for_planner" do
+    context "with planner enabled" do
       before(:each) do
         @account = Account.default
-        @account.enable_feature! :dashcard_reordering
-        @domain_root_account = @account
+        @account.enable_feature! :student_planner
       end
 
-      it "returns the list of courses sorted by position" do
-        course1 = @account.courses.create!
-        course2 = @account.courses.create!
-        course3 = @account.courses.create!
+      it "returns the list of groups the user belongs to" do
         user = user_model
-        course1.enroll_student(user)
-        course2.enroll_student(user)
-        course3.enroll_student(user)
-        courses = [course1, course2, course3]
-        user.dashboard_positions[course1.asset_string] = 3
-        user.dashboard_positions[course2.asset_string] = 2
-        user.dashboard_positions[course3.asset_string] = 1
-        user.save!
+        group1 = @account.groups.create! :name => 'Account group'
+        course1 = @account.courses.create!
+        group2 = course1.groups.create! :name => 'Course group'
+        group3 = @account.groups.create! :name => 'Another account group'
+        groups = [group1, group2, group3]
+
         @current_user = user
-        mapped_courses = map_courses_for_menu(courses)
-        expect(mapped_courses.map {|h| h[:id]}).to eq [course3.id, course2.id, course1.id]
+        course1.enroll_student(@current_user)
+        groups.each {|g| g.add_user(user, 'accepted', true)}
+        user_account_groups = map_groups_for_planner(groups)
+        expect(user_account_groups.map {|g| g[:id]}).to eq [group1.id, group2.id, group3.id]
       end
     end
   end
 
+  describe "tutorials_enabled?" do
+    before(:each) do
+      @domain_root_account = Account.default
+    end
+    context "with new_users_tutorial feature flag enabled" do
+      before(:each) do
+        @domain_root_account.enable_feature! :new_user_tutorial
+        @current_user = User.create!
+      end
+
+      it "returns true if the user has the flag enabled" do
+        @current_user.enable_feature!(:new_user_tutorial_on_off)
+        expect(tutorials_enabled?).to be true
+      end
+
+      it "returns false if the user has the flag disabled" do
+        @current_user.disable_feature!(:new_user_tutorial_on_off)
+        expect(tutorials_enabled?).to be false
+      end
+    end
+  end
+
+  describe "planner_enabled?" do
+    before(:each) do
+      @domain_root_account = Account.default
+    end
+
+    context "with student_planner feature flag enabled" do
+      before(:each) do
+        @domain_root_account.enable_feature! :student_planner
+      end
+
+      it "returns false when a user has no student enrollments" do
+        course_with_teacher(:active_all => true)
+        @current_user = @user
+        expect(planner_enabled?).to be false
+      end
+
+      it "returns true when there is at least one student enrollment" do
+        course_with_student(:active_all => true)
+        @current_user = @user
+        expect(planner_enabled?).to be true
+      end
+
+      it "returns true for past student enrollments" do
+        enrollment = course_with_student
+        enrollment.workflow_state = 'completed'
+        enrollment.save!
+        @current_user = @user
+        expect(planner_enabled?).to be true
+      end
+
+       it "returns true for invited student enrollments" do
+        enrollment = course_with_student
+        enrollment.workflow_state = 'invited'
+        enrollment.save!
+        @current_user = @user
+        expect(planner_enabled?).to be true
+      end
+
+      it "returns true for future student enrollments" do
+        enrollment = course_with_student
+        enrollment.start_at = 2.months.from_now
+        enrollment.end_at = 3.months.from_now
+        enrollment.workflow_state = 'active'
+        enrollment.save!
+        @course.restrict_student_future_view = true
+        @course.restrict_enrollments_to_course_dates = true
+        @course.save!
+        @current_user = @user
+        expect(planner_enabled?).to be true
+      end
+
+      it "returns false with no user" do
+        expect(planner_enabled?).to be false
+      end
+    end
+
+    context "with student_planner feature flag disabled" do
+      it "returns false" do
+        @current_user = user_factory
+        expect(planner_enabled?).to be false
+      end
+    end
+  end
+
+  describe "file_access_user" do
+    context "not on the files domain" do
+      before :each do
+        @files_domain = false
+      end
+
+      it "should return @current_user" do
+        @current_user = user_model
+        expect(file_access_user).to be @current_user
+      end
+    end
+
+    context "on the files domain" do
+      before :each do
+        @files_domain = true
+      end
+
+      it "should return access user from session" do
+        access_user = user_model
+        session['file_access_user_id'] = access_user.id
+        expect(file_access_user).to eql access_user
+      end
+
+      it "should return nil if not set" do
+        expect(file_access_user).to be nil
+      end
+    end
+  end
+
+  describe "file_access_real_user" do
+    context "not on the files domain" do
+      before :each do
+        @files_domain = false
+      end
+
+      let(:logged_in_user) { user_model }
+
+      it "should return logged_in_user" do
+        expect(file_access_real_user).to be logged_in_user
+      end
+    end
+
+    context "on the files domain" do
+      before :each do
+        @files_domain = true
+      end
+
+      it "should return real access user from session" do
+        real_access_user = user_model
+        session['file_access_real_user_id'] = real_access_user.id
+        expect(file_access_real_user).to eql real_access_user
+      end
+
+      it "should return access user from session if real access user not set" do
+        access_user = user_model
+        session['file_access_user_id'] = access_user.id
+        session['file_access_real_user_id'] = nil
+        expect(file_access_real_user).to eql access_user
+      end
+
+      it "should return real access user over access user if both set" do
+        access_user = user_model
+        real_access_user = user_model
+        session['file_access_user_id'] = access_user.id
+        session['file_access_real_user_id'] = real_access_user.id
+        expect(file_access_real_user).to eql real_access_user
+      end
+
+      it "should return nil if neither set" do
+        expect(file_access_real_user).to be nil
+      end
+    end
+  end
+
+  describe "file_access_developer_key" do
+    context "not on the files domain" do
+      before :each do
+        @files_domain = false
+      end
+
+      it "should return token's developer_key with @access_token set" do
+        user = user_model
+        developer_key = DeveloperKey.create!
+        @access_token = user.access_tokens.where(developer_key_id: developer_key).create!
+        expect(file_access_developer_key).to eql developer_key
+      end
+
+      it "should return nil without @access_token set" do
+        expect(file_access_developer_key).to be nil
+      end
+    end
+
+    context "on the files domain" do
+      before :each do
+        @files_domain = true
+      end
+
+      it "should return developer key from session" do
+        developer_key = DeveloperKey.create!
+        session['file_access_developer_key_id'] = developer_key.id
+        expect(file_access_developer_key).to eql developer_key
+      end
+
+      it "should return nil if developer key in session not set" do
+        expect(file_access_developer_key).to eql nil
+      end
+    end
+  end
+
+  describe "file_access_root_account" do
+    context "not on the files domain" do
+      before :each do
+        @domain_root_account = Account.default
+        @files_domain = false
+      end
+
+      it "should return @domain_root_account" do
+        expect(file_access_root_account).to eql Account.default
+      end
+    end
+
+    context "on the files domain" do
+      before :each do
+        @files_domain = true
+      end
+
+      it "should return root account from session" do
+        session['file_access_root_account_id'] = Account.default.id
+        expect(file_access_root_account).to eql Account.default
+      end
+
+      it "should return nil if root account in session not set" do
+        expect(file_access_root_account).to eql nil
+      end
+    end
+  end
+
+  describe "file_access_oauth_host" do
+    let(:host) { "test.host" }
+
+    context "not on the files domain" do
+      let(:request) { double("request", host_with_port: host) }
+      let(:logged_in_user) { user_model }
+
+      before :each do
+        @files_domain = false
+      end
+
+      it "should return the request's host" do
+        expect(file_access_oauth_host).to eql host
+      end
+    end
+
+    context "on the files domain" do
+      let(:logged_in_user) { user_model }
+
+      before :each do
+        @files_domain = true
+      end
+
+      it "should return the host from the session" do
+        session['file_access_oauth_host'] = host
+        expect(file_access_oauth_host).to eql host
+      end
+
+      it "should return nil if no host in the session" do
+        expect(file_access_oauth_host).to eql nil
+      end
+    end
+  end
+
+  describe "file_authenticator" do
+    before :each do
+      @domain_root_account = Account.default
+    end
+
+    context "not on the files domain, logged in" do
+      before :each do
+        @files_domain = false
+        @current_user = user_model
+      end
+
+      let(:logged_in_user) { user_model }
+      let(:current_host) { 'non-files-domain' }
+      let(:request) { double('request', host_with_port: current_host) }
+
+      it "creates an authenticator for the logged in user" do
+        expect(file_authenticator.user).to eql logged_in_user
+      end
+
+      it "creates an authenticator with the acting user" do
+        expect(file_authenticator.acting_as).to eql @current_user
+      end
+
+      it "creates an authenticator for the current host" do
+        expect(file_authenticator.oauth_host).to eql current_host
+      end
+
+      it "creates an authenticator aware of the access token if present" do
+        @access_token = logged_in_user.access_tokens.create!
+        expect(file_authenticator.access_token).to eql @access_token
+      end
+
+      it "creates an authenticator aware of the root account" do
+        expect(file_authenticator.root_account).to eql @domain_root_account
+      end
+    end
+
+    context "not on the files domain, not logged in" do
+      before :each do
+        @files_domain = false
+        @current_user = nil
+      end
+
+      let(:logged_in_user) { nil }
+      let(:current_host) { 'non-files-domain' }
+      let(:request) { double('request', host_with_port: current_host) }
+
+      it "creates a public authenticator" do
+        expect(file_authenticator.user).to be nil
+        expect(file_authenticator.acting_as).to be nil
+        expect(file_authenticator.oauth_host).to be nil
+      end
+    end
+
+    context "on the files domain with access user" do
+      let(:access_user) { user_model }
+      let(:real_access_user) { user_model }
+      let(:developer_key) { DeveloperKey.create! }
+      let(:original_host) { 'non-files-domain' }
+
+      before :each do
+        @files_domain = true
+        session['file_access_user_id'] = access_user.id
+        session['file_access_real_user_id'] = real_access_user.id
+        session['file_access_root_account_id'] = Account.default.id
+        session['file_access_developer_key_id'] = developer_key.id
+        session['file_access_oauth_host'] = original_host
+      end
+
+      let(:logged_in_user) { nil }
+      let(:current_host) { 'files-domain' }
+      let(:request) { double('request', host_with_port: current_host) }
+
+      it "creates an authenticator for the real access user" do
+        expect(file_authenticator.user).to eql real_access_user
+      end
+
+      it "creates an authenticator with the acting access user" do
+        expect(file_authenticator.acting_as).to eql access_user
+      end
+
+      it "creates an authenticator with a fake access token for the developer key from the session" do
+        expect(file_authenticator.access_token).not_to eql nil
+        expect(file_authenticator.access_token.global_developer_key_id).to eql developer_key.global_id
+      end
+
+      it "creates an authenticator with the root account from the session" do
+        expect(file_authenticator.root_account).to eql Account.default
+      end
+
+      it "creates an authenticator with the original host from the session" do
+        expect(file_authenticator.oauth_host).to be original_host
+      end
+    end
+
+    context "on the files domain without access user" do
+      before :each do
+        @files_domain = true
+        session['file_access_user_id'] = nil
+        session['file_access_real_user_id'] = nil
+      end
+
+      let(:logged_in_user) { nil }
+      let(:current_host) { 'files-domain' }
+      let(:request) { double('request', host_with_port: current_host) }
+
+      it "creates a public authenticator" do
+        authenticator = file_authenticator
+        expect(authenticator.user).to be nil
+        expect(authenticator.acting_as).to be nil
+        expect(authenticator.oauth_host).to be nil
+      end
+    end
+  end
+
+  describe "#alt_text_for_login_logo" do
+    before :each do
+      @domain_root_account = Account.default
+    end
+
+    it "returns the default value when there is no custom login logo" do
+      allow(helper).to receive(:k12?).and_return(false)
+      expect(helper.send(:alt_text_for_login_logo)).to eql "Canvas by Instructure"
+    end
+
+    it "returns the account short name when the logo is custom" do
+      Account.default.create_brand_config!(variables: {"ic-brand-Login-logo" => "test.jpg"})
+      expect(alt_text_for_login_logo).to eql "Default Account"
+    end
+  end
+
+  context "content security policy enabled" do
+
+    let(:account) { Account.create!(name: 'csp_account')}
+    let(:sub_account) { account.sub_accounts.create! }
+    let(:sub_2_account) { sub_account.sub_accounts.create! }
+    let(:headers) {{}}
+    let(:js_env) {{}}
+
+    before do
+      account.enable_feature!(:javascript_csp)
+
+      account.add_domain!("root_account.test")
+      account.add_domain!("root_account2.test")
+      sub_account.add_domain!("sub_account.test")
+      sub_2_account.add_domain!("sub_2_account.test")
+
+      allow(helper).to receive(:headers).and_return(headers)
+      allow(helper).to receive(:js_env) { |env| js_env.merge!(env) }
+    end
+
+    context "on root account" do
+      before do
+        allow(helper).to receive(:csp_context).and_return(account)
+      end
+
+      it "doesn't set the CSP report only header if not configured" do
+        helper.include_custom_meta_tags
+        expect(headers).to_not have_key('Content-Security-Policy-Report-Only')
+        expect(headers).to_not have_key('Content-Security-Policy')
+        expect(js_env).not_to have_key(:csp)
+      end
+
+      it "sets the CSP full header when active" do
+        account.enable_csp!
+
+        helper.include_custom_meta_tags
+        expect(headers['Content-Security-Policy']).to eq "frame-src 'self' localhost root_account.test root_account2.test"
+        expect(headers).to_not have_key('Content-Security-Policy-Report-Only')
+        expect(js_env[:csp]).to eq "frame-src 'self' localhost root_account.test root_account2.test; script-src 'self' 'unsafe-eval' 'unsafe-inline' localhost root_account.test root_account2.test"
+      end
+
+      it "includes the report URI" do
+        allow(helper).to receive(:csp_report_uri).and_return("; report-uri https://somewhere/")
+        helper.include_custom_meta_tags
+        expect(headers['Content-Security-Policy-Report-Only']).to eq "frame-src 'self' localhost root_account.test root_account2.test; report-uri https://somewhere/"
+      end
+
+      it "includes the report URI when active" do
+        allow(helper).to receive(:csp_report_uri).and_return("; report-uri https://somewhere/")
+        account.enable_csp!
+        helper.include_custom_meta_tags
+        expect(headers['Content-Security-Policy']).to eq "frame-src 'self' localhost root_account.test root_account2.test; report-uri https://somewhere/"
+      end
+    end
+  end
 end

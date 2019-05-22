@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 # @API Quiz Submissions
-# @beta
 #
 # API for accessing quiz submissions
 #
@@ -144,14 +143,13 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   include ::Filters::Quizzes
   include ::Filters::QuizSubmissions
 
-  before_filter :require_user, :require_context, :require_quiz
-  before_filter :require_overridden_quiz, :except => [ :index ]
-  before_filter :require_quiz_submission, :except => [ :index, :submission, :create ]
-  before_filter :prepare_service, :only => [ :create, :update, :complete ]
-  before_filter :validate_ldb_status!, :only => [ :create, :complete ]
+  before_action :require_user, :require_context, :require_quiz
+  before_action :require_overridden_quiz, :except => [ :index ]
+  before_action :require_quiz_submission, :except => [ :index, :submission, :create ]
+  before_action :prepare_service, :only => [ :create, :update, :complete ]
+  before_action :validate_ldb_status!, :only => [ :create, :complete ]
 
   # @API Get all quiz submissions.
-  # @beta
   #
   # Get a list of all submissions for this quiz. Users who can view or manage
   # grades for a course will have submissions from multiple users returned. A
@@ -201,7 +199,6 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   end
 
   # @API Get the quiz submission.
-  # @beta
   #
   # Get the submission for this quiz for the current user.
   #
@@ -224,7 +221,6 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   end
 
   # @API Get a single quiz submission.
-  # @beta
   #
   # Get a single quiz submission.
   #
@@ -248,7 +244,6 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   end
 
   # @API Create the quiz submission (start a quiz-taking session)
-  # @beta
   #
   # Start taking a Quiz by creating a QuizSubmission which you can use to answer
   # questions and submit your answers.
@@ -289,20 +284,19 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   end
 
   # @API Update student question scores and comments.
-  # @beta
   #
   # Update the amount of points a student has scored for questions they've
   # answered, provide comments for the student about their answer(s), or simply
   # fudge the total score by a specific amount of points.
   #
-  # @argument attempt [Required, Integer]
+  # @argument quiz_submissions[][attempt] [Required, Integer]
   #   The attempt number of the quiz submission that should be updated. This
   #   attempt MUST be already completed.
   #
-  # @argument fudge_points [Float]
+  # @argument quiz_submissions[][fudge_points] [Float]
   #   Amount of positive or negative points to fudge the total score by.
   #
-  # @argument questions [Hash]
+  # @argument quiz_submissions[][questions] [Hash]
   #   A set of scores and comments for each question answered by the student.
   #   The keys are the question IDs, and the values are hashes of `score` and
   #   `comment` entries. See {Appendix: Manual Scoring} for more on this
@@ -360,7 +354,6 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   end
 
   # @API Complete the quiz submission (turn it in).
-  # @beta
   #
   # Complete the quiz submission by marking it as complete and grading it. When
   # the quiz submission has been marked as complete, no further modifications
@@ -402,7 +395,6 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   end
 
   # @API Get current quiz submission times.
-  # @beta
   #
   # Get the current timing data for the quiz attempt, both the end_at timestamp
   # and the time_left parameter.
@@ -440,12 +432,15 @@ class Quizzes::QuizSubmissionsApiController < ApplicationController
   def serialize_and_render(quiz_submissions)
     quiz_submissions = [ quiz_submissions ] unless quiz_submissions.is_a? Array
 
-    render :json => quiz_submissions_json(quiz_submissions,
+    render :json => quiz_submissions_json(
+      quiz_submissions,
       @quiz,
       @current_user,
       session,
       @context,
-      Array(params[:include]))
+      Array(params[:include]),
+      params
+    )
   end
 
   def validate_ldb_status!(quiz = @quiz)

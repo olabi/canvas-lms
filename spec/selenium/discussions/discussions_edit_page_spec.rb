@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
@@ -79,6 +96,7 @@ describe "discussions" do
 
         it "should allow editing the due dates", priority: "1", test_id: 270917 do
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           due_at = Time.zone.now + 3.days
           unlock_at = Time.zone.now + 2.days
@@ -100,6 +118,7 @@ describe "discussions" do
 
         it "should add an attachment to a graded topic", priority: "1", test_id: 270918 do
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           add_attachment_and_validate do
             # should correctly save changes to the assignment
@@ -119,8 +138,10 @@ describe "discussions" do
         end
 
         it "should warn user when leaving page unsaved", priority: "1", test_id: 270919 do
+          skip_if_safari(:alert)
           title = 'new title'
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           replace_content(f('input[name=title]'), title)
           fln('Home').click
@@ -214,6 +235,7 @@ describe "discussions" do
           topic.save!
 
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           expect(f('input[type=text][name="delayed_post_at"]')).to be_displayed
 
@@ -236,6 +258,7 @@ describe "discussions" do
           topic.save!
 
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           delayed_post_at = Time.zone.now - 10.days
           lock_at = Time.zone.now - 5.days
@@ -256,10 +279,11 @@ describe "discussions" do
           topic.delayed_post_at = 5.days.from_now
           topic.lock_at         = 10.days.from_now
           topic.workflow_state  = 'active'
-          topic.locked          = nil
+          topic.locked          = false
           topic.save!
 
           get url
+          wait_for_tiny(f('textarea[name=message]'))
 
           delayed_post_at = Time.zone.now - 5.days
 

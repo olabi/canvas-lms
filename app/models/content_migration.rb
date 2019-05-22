@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,7 +37,9 @@ class ContentMigration < ActiveRecord::Base
 
   DATE_FORMAT = "%m/%d/%Y"
 
-  attr_accessor :imported_migration_items, :outcome_to_id_map, :attachment_path_id_lookup, :attachment_path_id_lookup_lower, :last_module_position
+  attr_accessor :imported_migration_items, :outcome_to_id_map, :attachment_path_id_lookup, :attachment_path_id_lookup_lower, :last_module_position, :skipped_master_course_items
+
+  has_a_broadcast_policy
 
   workflow do
     state :created
@@ -63,6 +65,23 @@ class ContentMigration < ActiveRecord::Base
     can :manage_files and can :read
   end
 
+  def trigger_live_events!
+    # Trigger live events for the source course and migration
+    Canvas::LiveEventsCallbacks.after_update(context, context.saved_changes)
+    Canvas::LiveEventsCallbacks.after_update(self, self.saved_changes)
+
+    # Trigger live events for all updated/created records
+    imported_migration_items.each do |imported_item|
+      next unless LiveEventsObserver.observed_classes.include? imported_item.class
+      next if started_at.blank? || imported_item.created_at.blank?
+      if imported_item.created_at > started_at
+        Canvas::LiveEventsCallbacks.after_create(imported_item)
+      else
+        Canvas::LiveEventsCallbacks.after_update(imported_item, imported_item.saved_changes)
+      end
+    end
+  end
+
   def set_started_at_and_finished_at
     if workflow_state_changed?
       if pre_processing? || exporting? || importing?
@@ -72,14 +91,6 @@ class ContentMigration < ActiveRecord::Base
         self.finished_at ||= Time.now.utc
       end
     end
-  end
-
-  # the stream item context is decided by calling asset.context(user), i guess
-  # to differentiate from the normal asset.context() call that may not give us
-  # the context we want. in this case, they're one and the same.
-  alias_method :original_context, :context
-  def context(user = nil)
-    self.original_context
   end
 
   def quota_context
@@ -98,6 +109,13 @@ class ContentMigration < ActiveRecord::Base
 
   def import_immediately?
     !!migration_settings[:import_immediately]
+  end
+
+  def content_export
+    if !association(:content_export).loaded? && source_course_id && Shard.shard_for(source_course_id) != self.shard
+      association(:content_export).target = Shard.shard_for(source_course_id).activate { ContentExport.where(:content_migration_id => self).first }
+    end
+    super
   end
 
   def converter_class=(c_class)
@@ -273,6 +291,7 @@ class ContentMigration < ActiveRecord::Base
     self.workflow_state = :failed
     job_progress.fail if job_progress && !skip_job_progress
     save
+    self.update_master_migration('failed') if for_master_course_import?
     resolve_content_links! # don't leave placeholders
   end
 
@@ -368,6 +387,7 @@ class ContentMigration < ActiveRecord::Base
   alias_method :export_content, :queue_migration
 
   def blocked_by_current_migration?(plugin, retry_count, expires_at)
+    return false if self.migration_type == "zip_file_importer"
     running_cutoff = Setting.get('content_migration_job_block_hours', '4').to_i.hours.ago # at some point just let the jobs keep going
 
     if self.context && self.context.content_migrations.
@@ -410,6 +430,7 @@ class ContentMigration < ActiveRecord::Base
     if !self.migration_settings.has_key?(:overwrite_quizzes)
       self.migration_settings[:overwrite_quizzes] = for_course_copy? || for_master_course_import? || (self.migration_type && self.migration_type == 'canvas_cartridge_importer')
     end
+    self.migration_settings.reverse_merge!(:prefer_existing_tools => true) if self.migration_type == 'common_cartridge_importer' # default to true
 
     check_quiz_id_prepender
   end
@@ -485,6 +506,8 @@ class ContentMigration < ActiveRecord::Base
     self.workflow_state = :importing
     self.save
 
+    Lti::Asset.opaque_identifier_for(self.context)
+
     all_files_path = nil
     begin
       data = nil
@@ -494,8 +517,20 @@ class ContentMigration < ActiveRecord::Base
 
         # copy the attachments
         source_export = ContentExport.find(self.migration_settings[:master_course_export_id])
+        if source_export.selective_export?
+          # load in existing attachments to path resolution map
+          file_mig_ids = source_export.settings[:referenced_file_migration_ids]
+          if file_mig_ids.present?
+            # ripped from copy_attachments_from_course
+            root_folder_name = Folder.root_folders(self.context).first.name + '/'
+            self.context.attachments.where(:migration_id => file_mig_ids).each do |file|
+              self.add_attachment_path(file.full_display_path.gsub(/\A#{root_folder_name}/, ''), file.migration_id)
+            end
+          end
+        end
         self.context.copy_attachments_from_course(source_export.context, :content_export => source_export, :content_migration => self)
-        MasterCourses::FolderLockingHelper.recalculate_locked_folders(self.context)
+        MasterCourses::FolderHelper.recalculate_locked_folders(self.context)
+        MasterCourses::FolderHelper.update_folder_names_and_states(self.context, source_export)
 
         data = JSON.parse(self.exported_attachment.open, :max_nesting => 50)
         data = prepare_data(data)
@@ -518,14 +553,15 @@ class ContentMigration < ActiveRecord::Base
       end
 
       migration_settings[:migration_ids_to_import] ||= {:copy=>{}}
-
-      Importers.content_importer_for(self.context_type).import_content(self.context, data, migration_settings[:migration_ids_to_import], self)
+      import!(data)
 
       if !self.import_immediately?
         update_import_progress(100)
       end
-
-      self.update_master_migration('completed') if self.for_master_course_import?
+      if self.for_master_course_import?
+        process_master_deletions(data['deletions']) if data['deletions'].present?
+        self.update_master_migration('completed')
+      end
     rescue => e
       self.workflow_state = :failed
       er_id = Canvas::Errors.capture_exception(:content_migration, e)[:error_report]
@@ -541,14 +577,42 @@ class ContentMigration < ActiveRecord::Base
   end
   alias_method :import_content_without_send_later, :import_content
 
+  def import!(data)
+    return import_quizzes_next!(data) if quizzes_next_migration?
+    Importers.content_importer_for(self.context_type).
+      import_content(
+        self.context,
+        data,
+        self.migration_settings[:migration_ids_to_import],
+        self
+      )
+  end
+
+  def quizzes_next_migration?
+    context.instance_of?(Course) && root_account &&
+      root_account.feature_enabled?(:import_to_quizzes_next) &&
+      migration_settings[:import_quizzes_next]
+  end
+
+  def import_quizzes_next!(data)
+    quizzes2_importer =
+      QuizzesNext::Importers::CourseContentImporter.new(data, self)
+    quizzes2_importer.import_content(
+      self.migration_settings[:migration_ids_to_import]
+    )
+  end
+
+  def master_migration
+    @master_migration ||= self.shard.activate { MasterCourses::MasterMigration.find(self.migration_settings[:master_migration_id]) }
+  end
+
   def update_master_migration(state)
-    master_migration = MasterCourses::MasterMigration.find(self.migration_settings[:master_migration_id])
     master_migration.update_import_state!(self, state)
   end
 
   def master_course_subscription
     return unless self.for_master_course_import?
-    @master_course_subscription ||= MasterCourses::ChildSubscription.find(self.migration_settings[:child_subscription_id])
+    @master_course_subscription ||= self.shard.activate { MasterCourses::ChildSubscription.find(self.child_subscription_id) }
   end
 
   def prepare_data(data)
@@ -573,6 +637,42 @@ class ContentMigration < ActiveRecord::Base
 
   def for_master_course_import?
     self.migration_type == 'master_course_import'
+  end
+
+  def add_skipped_item(item)
+    @skipped_master_course_items ||= Set.new
+    item = item.migration_id if item.is_a?(MasterCourses::ChildContentTag)
+    @skipped_master_course_items << item
+  end
+
+  def process_master_deletions(deletions)
+    deletions.keys.each do |klass|
+      next unless MasterCourses::CONTENT_TYPES_FOR_DELETIONS.include?(klass)
+      mig_ids = deletions[klass]
+      item_scope = case klass
+      when 'Attachment'
+        self.context.attachments.not_deleted.where(migration_id: mig_ids)
+      else
+        klass.constantize.where(context_id: self.context, context_type: 'Course', migration_id: mig_ids).
+          where.not(workflow_state: 'deleted')
+      end
+      item_scope.each do |content|
+        child_tag = master_course_subscription.content_tag_for(content)
+        skip_item = child_tag.downstream_changes.any? && !content.editing_restricted?(:any)
+        if content.is_a?(AssignmentGroup) && !skip_item && content.assignments.active.exists?
+          skip_item = true # don't delete an assignment group if an assignment is left (either they added one or changed one so it was skipped)
+        end
+
+        if skip_item
+          Rails.logger.debug("skipping deletion sync for #{content.asset_string} due to downstream changes #{child_tag.downstream_changes}")
+          add_skipped_item(child_tag)
+        else
+          Rails.logger.debug("syncing deletion of #{content.asset_string} from master course")
+          content.skip_downstream_changes! if content.respond_to?(:skip_downstream_changes!)
+          content.destroy
+        end
+      end
+    end
   end
 
   def check_cross_institution
@@ -750,14 +850,24 @@ class ContentMigration < ActiveRecord::Base
     end
   end
 
+  def use_global_identifiers?
+    if self.content_export
+      self.content_export.global_identifiers?
+    elsif self.source_course
+      self.source_course.content_exports.temp_record.can_use_global_identifiers?
+    else
+      false
+    end
+  end
+
   # strips out the "id_" prepending the migration ids in the form
   # also converts arrays of migration ids (or real ids for course exports) into the old hash format
-  def self.process_copy_params(hash, for_content_export=false, return_asset_strings=false)
+  def self.process_copy_params(hash, for_content_export: false, return_asset_strings: false, global_identifiers: false)
     return {} if hash.blank?
     process_key = if return_asset_strings
       ->(asset_string) { asset_string }
     else
-      ->(asset_string) { CC::CCHelper.create_key(asset_string) }
+      ->(asset_string) { CC::CCHelper.create_key(asset_string, global: global_identifiers) }
     end
     new_hash = {}
 
@@ -841,16 +951,16 @@ class ContentMigration < ActiveRecord::Base
 
   def handle_import_in_progress_notice
     return unless context.is_a?(Course) && is_set?(migration_settings[:import_in_progress_notice])
-    if (new_record? || (workflow_state_changed? && %w{created queued}.include?(workflow_state_was))) &&
+    if (just_created || (saved_change_to_workflow_state? && %w{created queued}.include?(workflow_state_before_last_save))) &&
         %w(pre_processing pre_processed exporting importing).include?(workflow_state)
       context.add_content_notice(:import_in_progress, 4.hours)
-    elsif workflow_state_changed? && %w(pre_process_error exported imported failed).include?(workflow_state)
+    elsif saved_change_to_workflow_state? && %w(pre_process_error exported imported failed).include?(workflow_state)
       context.remove_content_notice(:import_in_progress)
     end
   end
 
   def check_for_blocked_migration
-    if self.workflow_state_changed? && %w(pre_process_error exported imported failed).include?(workflow_state)
+    if self.saved_change_to_workflow_state? && %w(pre_process_error exported imported failed).include?(workflow_state)
       if self.context && (next_cm = self.context.content_migrations.where(:workflow_state => 'queued').order(:id).first)
         job_id = next_cm.job_progress.try(:delayed_job_id)
         if job_id && (job = Delayed::Job.where(:id => job_id, :locked_at => nil).first)
@@ -860,4 +970,38 @@ class ContentMigration < ActiveRecord::Base
       end
     end
   end
+
+  def notification_link_anchor
+    "!/blueprint/blueprint_subscriptions/#{self.child_subscription_id}/#{id}"
+  end
+
+  set_broadcast_policy do |p|
+    p.dispatch :blueprint_content_added
+    p.to { context.participating_admins }
+    p.whenever { |record|
+      record.changed_state_to(:imported) && record.for_master_course_import? &&
+        record.master_migration && record.master_migration.send_notification?
+    }
+  end
+
+  def self.expire_days
+    Setting.get('content_migrations_expire_after_days', '30').to_i
+  end
+
+  def self.expire?
+    ContentMigration.expire_days > 0
+  end
+
+  def expired?
+    return false unless ContentMigration.expire?
+    created_at < ContentMigration.expire_days.days.ago
+  end
+
+  scope :expired, -> {
+    if ContentMigration.expire?
+      where('created_at < ?', ContentMigration.expire_days.days.ago)
+    else
+      none
+    end
+  }
 end

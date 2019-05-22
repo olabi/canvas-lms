@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../shared_examples_common'
 
 shared_examples_for "settings basic tests" do |account_type|
@@ -37,19 +54,19 @@ shared_examples_for "settings basic tests" do |account_type|
     end
 
     it "should delete an account admin", priority: "1", test_id: pick_test_id(account_type, sub_account: 249781, root_account: 251031) do
+      skip_if_safari(:alert)
       admin_id = add_account_admin
       scroll_page_to_top # to get the flash alert out of the way
       f("#enrollment_#{admin_id} .remove_account_user_link").click
       driver.switch_to.alert.accept
       wait_for_ajax_requests
-      expect(AccountUser.where(id: admin_id)).not_to be_exists
+      expect(AccountUser.active.where(id: admin_id)).not_to be_exists
     end
   end
 
   context "account settings" do
     def click_submit
-      submit_form("#account_settings")
-      wait_for_ajax_requests
+      wait_for_new_page_load { submit_form("#account_settings") }
     end
 
     before(:each) do

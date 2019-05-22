@@ -1,10 +1,26 @@
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // Catches specified key events and calls the provided function
 // when they occur.  Can use text or key codes, passed in as a
 // space-separated string.
-define([
-  'jquery' /* jQuery, $ */,
-  'jquery.instructure_date_and_time' /* datepicker */
-], function($) {
+import $ from 'jquery'
+import './jquery.instructure_date_and_time'
 
 $.fn.keycodes = function(options, fn) {
   /* Based loosely on Tzury Bar Yochay's js-hotkeys:
@@ -79,5 +95,3 @@ $.fn.keycodes = function(options, fn) {
   return this;
 };
 $.fn.keycodes.defaults = {ignore: ":input,object,embed", keyCodes: ""};
-
-});

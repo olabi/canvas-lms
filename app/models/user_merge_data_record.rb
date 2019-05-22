@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,9 @@
 #
 class UserMergeDataRecord < ActiveRecord::Base
   belongs_to :previous_user, class_name: 'User'
-  belongs_to :user_merge_data
-  belongs_to :context, polymorphic: [:account_user, :enrollment, :pseudonym,:user_observer,
-                                     :attachment, :communication_channel, :user_service]
+  belongs_to :merge_data, class_name: 'UserMergeData', inverse_of: :records
+  belongs_to :context, polymorphic: [:account_user, :enrollment, :pseudonym, :user_observer, :user_observation_link,
+                                     :attachment, :communication_channel, :user_service,
+                                     :submission, {quiz_submission: 'Quizzes::QuizSubmission'}]
 
 end

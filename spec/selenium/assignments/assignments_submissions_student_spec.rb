@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/files_common'
 require_relative '../helpers/submissions_common'
@@ -24,15 +41,16 @@ describe "submissions" do
       user_session(@student)
     end
 
-    it "should let a student submit a text entry", priority: "1", test_id: 56015 do
+    it "should let a student submit a text entry", :xbrowser, priority: "1", test_id: 56015 do
+      skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
       @assignment.update_attributes(submission_types: "online_text_entry")
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
 
       f(".submit_assignment_link").click
-      driver.execute_script "tinyMCE.activeEditor.setContent('text')"
+      type_in_tiny("#submission_body", 'text')
       f('button[type="submit"]').click
 
-      expect(f("#sidebar_content")).to include_text("Turned In!")
+      expect(f("#sidebar_content")).to include_text("Submitted!")
       expect(f("#content")).not_to contain_css(".error_text")
     end
 
@@ -41,9 +59,9 @@ describe "submissions" do
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
 
       f(".submit_assignment_link").click
-      f('button[type="submit"]').click
-
-      expect(fj(".error_text")).to be
+      f("[aria-label='Rich Content Editor'] #submission_body_ifr")
+      f('#submit_assignment_tabs button[type="submit"]').click
+      expect(f(".error_text")).to be
     end
 
     it "should not break when you open and close the media comment dialog", priority: "1", test_id: 237020 do
@@ -75,6 +93,7 @@ describe "submissions" do
     end
 
     it "should not allow blank media submission", priority: "1", test_id: 237021 do
+      skip_if_safari(:alert)
       stub_kaltura
       #pending("failing because it is dependant on an external kaltura system")
 
@@ -97,7 +116,7 @@ describe "submissions" do
       f('#submission_comment').send_keys("hello comment")
       expect_new_page_load { f('#submit_file_button').click }
 
-      expect(f('#sidebar_content .header')).to include_text "Turned In!"
+      expect(f('#sidebar_content .header')).to include_text "Submitted!"
       expect(f('.details')).to include_text "testfile1"
       @submission = @assignment.reload.submissions.where(user_id: @student).first
       expect(@submission.submission_type).to eq 'online_upload'
@@ -106,6 +125,7 @@ describe "submissions" do
     end
 
     it "should not allow a user to submit a file-submission assignment without attaching a file", priority: "1", test_id: 237023 do
+      skip_if_safari(:alert)
       @assignment.submission_types = 'online_upload'
       @assignment.save!
 
@@ -174,7 +194,7 @@ describe "submissions" do
       # when
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
       # expect
-      expect(f('#sidebar_content .details')).to include_text "Not Turned In!"
+      expect(f('#sidebar_content .details')).to include_text "Not Submitted!"
       expect(f('.submit_assignment_link')).to include_text "Submit Assignment"
     end
 
@@ -187,8 +207,8 @@ describe "submissions" do
       # when
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
       # expect
-      expect(f('#sidebar_content .details')).not_to include_text "Turned In!"
-      expect(f('#sidebar_content .details')).not_to include_text "Not Turned In!"
+      expect(f('#sidebar_content .details')).not_to include_text "Submitted!"
+      expect(f('#sidebar_content .details')).not_to include_text "Not Submitted!"
       expect(f("#content")).not_to contain_css('.submit_assignment_link')
     end
 
@@ -214,31 +234,33 @@ describe "submissions" do
       f('.submit_assignment_link').click
       assignment_form = f('#submit_online_text_entry_form')
       wait_for_tiny(assignment_form)
-
-      submit_form(assignment_form)
+      submission = @assignment.submissions.find_by!(user_id: @student)
 
       # it should not actually submit and pop up an error message
+      expect { submit_form(assignment_form) }.not_to change { submission.reload.updated_at }
+      expect(submission.reload.body).to be nil
       expect(ff('.error_box')[1]).to include_text('Required')
 
-      expect(Submission.count).to eq 0
-
       # now make sure it works
-      type_in_tiny('#submission_body', 'now it is not blank')
-      submit_form(assignment_form)
-      expect { Submission.count }.to become 1
+      body_text = 'now it is not blank'
+      type_in_tiny('#submission_body', body_text)
+      expect { submit_form(assignment_form) }.to change { submission.reload.updated_at }
+      expect(submission.reload.body).to eq "<p>#{body_text}</p>"
     end
 
     it "should not allow a submission with only comments", priority: "1", test_id: 237027 do
+      skip_if_safari(:alert)
       @assignment.update_attributes(:submission_types => "online_text_entry")
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
       f('.submit_assignment_link').click
-      assignment_form = f('#submit_online_text_entry_form')
-      replace_content(assignment_form.find_element(:id, 'submission_comment'), 'this should not be able to be submitted for grading')
-      submit_form("#submit_online_text_entry_form")
+
+      expect(f('#submission_body_ifr')).to be_displayed
+      replace_content(f('#submit_online_text_entry_form').find_element(:id, 'submission_comment'), 'this should not be able to be submitted for grading')
+      submission = @assignment.submissions.find_by!(user_id: @student)
 
       # it should not actually submit and pop up an error message
+      expect { submit_form("#submit_online_text_entry_form") }.not_to change { submission.reload.updated_at }
       expect(ff('.error_box')[1]).to include_text('Required')
-      expect(Submission.count).to eq 0
 
       # navigate off the page and dismiss the alert box to avoid problems
       # with other selenium tests
@@ -349,17 +371,17 @@ describe "submissions" do
         wait_for_animations
 
         # traverse the tree
-        f('#uploaded_files > ul > li.folder > .sign').click
-        expect(f('#uploaded_files > ul > li.folder .file .name')).to be_displayed
-        f('#uploaded_files > ul > li.folder .file .name').click
+        f('li[aria-label="My files"] button').click
+        f('li[aria-label="html-editing-test.html"] button').click
 
         expect_new_page_load { f('#submit_file_button').click }
 
-        expect(f('.details .header')).to include_text "Turned In!"
+        expect(f('.details .header')).to include_text "Submitted!"
         expect(f('.details')).to include_text "html-editing-test.html"
       end
 
       it "should not allow a user to submit a file-submission assignment from previously uploaded files with an illegal file extension", priority: "1", test_id: 237031 do
+        skip_if_safari(:alert)
         FILENAME = "hello-world.sh"
         FIXTURE_FN = "files/#{FILENAME}"
 
@@ -378,9 +400,9 @@ describe "submissions" do
         wait_for_animations
 
         # traverse the tree
-        f('#uploaded_files > ul > li.folder > .sign').click
-        expect(f('#uploaded_files > ul > li.folder .file .name')).to be_displayed
-        f('#uploaded_files > ul > li.folder .file .name').click
+        f('li[aria-label="My files"] button').click
+        f('li[aria-label="'+FILENAME+'"] button').click
+
         f('#submit_file_button').click
 
         # Make sure the flash message is being displayed
@@ -393,6 +415,45 @@ describe "submissions" do
         driver.switch_to.default_content
       end
     end
+
+    describe "using lti tool for submission" do
+      def create_submission_tool
+        tool = @course.context_external_tools.create!(
+          name: 'submission tool',
+          url: 'https://example.com/lti',
+          consumer_key: 'key',
+          shared_secret: 'secret',
+          settings: {
+            homework_submission: {
+              enabled: true
+            }
+          }
+        )
+      end
+
+      it "should load submission lti tool on clicking tab" do
+        tool = create_submission_tool
+        @assignment.update_attributes(submission_types: "online_upload")
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+
+        f(".submit_assignment_link").click
+        tool_tab = f("a[href='#submit_from_external_tool_form_#{tool.id}']")
+        expect(tool_tab).to include_text("submission tool")
+        tool_tab.click
+        expect(f("iframe[src^='/courses/#{@course.id}/external_tools/#{tool.id}/resource_selection?launch_type=homework_submission']")).to be_displayed
+      end
+
+      it "should load submission lti tool on kb-nav to tab" do
+        tool = create_submission_tool
+        @assignment.update_attributes(submission_types: "online_upload")
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+
+        f(".submit_assignment_link").click
+        f('a.submit_online_upload_option').send_keys :arrow_right
+        expect(f("iframe[src^='/courses/#{@course.id}/external_tools/#{tool.id}/resource_selection?launch_type=homework_submission']")).to be_displayed
+      end
+    end
+
   end
 
   context 'Excused assignment' do
@@ -416,7 +477,7 @@ describe "submissions" do
 
       it 'indicates as excused on the submission details page', priority: "1", test_id: 201937 do
          get "/courses/#{@course.id}/assignments/#{assignment.id}/submissions/#{@student.id}"
-        expect(f("#content .submission_details .published_grade")).to include_text 'Excused'
+        expect(f("#content .submission_details .entered_grade")).to include_text 'Excused'
       end
     end
 

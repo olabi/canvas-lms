@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,10 +17,15 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
+require File.expand_path(File.dirname(__FILE__) + '/../../lti2_spec_helper')
+
 require_dependency "lti/tool_proxy_service"
 
 module Lti
   describe ToolProxyService do
+    include_context 'lti2_spec_helper'
+
+    let(:tool_proxy_service) { ToolProxyService.new }
 
     describe '#process_tool_proxy_json' do
 
@@ -30,7 +35,7 @@ module Lti
 
 
       it "creates the product_family if it doesn't exist" do
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         pf = tool_proxy.product_family
         expect(pf.vendor_code).to eq 'acme.com'
         expect(pf.product_code).to eq 'assessment-tool'
@@ -42,8 +47,8 @@ module Lti
       end
 
       it "associates the DeveloperKey with the product_family when creating" do
-        dev_key = DeveloperKey.create(api_key:'testapikey')
-        tool_proxy = subject.process_tool_proxy_json(
+        dev_key = DeveloperKey.create(api_key:'testapikey', vendor_code: 'acme.com')
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(
           json: tool_proxy_fixture,
           context: account,
           guid: tool_proxy_guid,
@@ -66,19 +71,19 @@ module Lti
         pf.vendor_name = 'Acme'
         pf.root_account = account.root_account
         pf.save!
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         expect(tool_proxy.product_family.id).to eq pf.id
       end
 
       it "matches DeveloperKeys when looking for matching product family" do
-        dev_key = DeveloperKey.create(api_key:'testapikey')
+        dev_key = DeveloperKey.create(api_key:'testapikey', vendor_code: 'acme.com')
         pf = ProductFamily.new
         pf.vendor_code = 'acme.com'
         pf.product_code = 'assessment-tool-no-dev-key'
         pf.vendor_name = 'Acme'
         pf.root_account = account.root_account
         pf.save!
-        tool_proxy = subject.process_tool_proxy_json(
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(
           json: tool_proxy_fixture,
           context: account,
           guid: tool_proxy_guid,
@@ -87,7 +92,7 @@ module Lti
       end
 
       it "creates the resource handlers" do
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         rh = tool_proxy.resources.find{|r| r.resource_type_code == 'asmt'}
         expect(rh.name).to eq 'Acme Assessment'
         expect(rh.description).to eq 'An interactive assessment using the Acme scale.'
@@ -110,7 +115,7 @@ module Lti
       end
 
       it "creates the message_handlers" do
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         resource_handler = tool_proxy.resources.find{|r| r.resource_type_code == 'asmt'}
         mh = resource_handler.message_handlers.first
         expect(mh.message_type).to eq 'basic-lti-launch-request'
@@ -119,8 +124,14 @@ module Lti
         expect(mh.parameters).to eq [{'name' => 'discipline', 'fixed' => 'chemistry'}]
       end
 
+      it "associates the message handlers with the tool proxy" do
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        expected_message_handlers = tool_proxy.resources.map(&:message_handlers).flatten
+        expect(tool_proxy.message_handlers).to match_array expected_message_handlers
+      end
+
       it "creates default message handlers" do
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         resource_handler = tool_proxy.resources.find{|r| r.resource_type_code == 'instructure.com:default'}
 
         expect(resource_handler.name).to eq 'Acme Assessments'
@@ -133,28 +144,48 @@ module Lti
       end
 
       it 'creates a tool proxy biding' do
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         expect(tool_proxy.bindings.count).to eq 1
         binding = tool_proxy.bindings.first
         expect(binding.context).to eq account
       end
 
       it 'creates a tool setting for the tool proxy if custom is defined' do
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         expect(tool_proxy.tool_settings.count).to eq 1
         expect(tool_proxy.tool_settings.first.custom).to eq({"customerId"=>"394892759526"})
+      end
+
+      it 'updates a tool setting for the tool proxy if custom is defined' do
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+        tp.custom = {"customerId"=>"bar"}
+        expect{
+          tool_proxy_service.process_tool_proxy_json(json: tp.to_json, context: account, guid: tool_proxy_guid, tool_proxy_to_update: tool_proxy)
+        }.to change{tool_proxy.reload.tool_settings.first.custom}.from({"customerId"=>"394892759526"}).to({"customerId"=>"bar"})
+      end
+
+      it 'updates a tool setting  by merging' do
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+        tp.custom = {"foo"=>"bar"}
+        expect{
+          tool_proxy_service.process_tool_proxy_json(json: tp.to_json, context: account, guid: tool_proxy_guid, tool_proxy_to_update: tool_proxy)
+        }.to change{tool_proxy.reload.tool_settings.first.custom}
+               .from({"customerId"=>"394892759526"})
+               .to({"customerId"=>"394892759526", "foo"=>"bar"})
       end
 
       it 'does not create a tool setting for the tool proxy if custom is not defined' do
         tool_proxy = JSON.parse(tool_proxy_fixture)
         tool_proxy.delete('custom')
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy.to_json, context: account, guid: tool_proxy_guid)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy.to_json, context: account, guid: tool_proxy_guid)
         expect(tool_proxy.tool_settings.count).to eq 0
       end
 
       it 'creates a tool_proxy' do
-        SecureRandom.stubs(:uuid).returns('my_uuid')
-        tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+        allow(SecureRandom).to receive(:uuid).and_return('my_uuid')
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
         expect(tool_proxy.shared_secret).to eq 'ThisIsASecret!'
         expect(tool_proxy.guid).to eq tool_proxy_guid
         expect(tool_proxy.product_version).to eq '10.3'
@@ -186,7 +217,7 @@ module Lti
         end
 
         it 'creates default placements when none are specified' do
-          tool_proxy = subject.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
+          tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tool_proxy_fixture, context: account, guid: tool_proxy_guid)
           rh = tool_proxy.resources.first
           expect(rh.message_handlers.first.placements).to include_placements %w(assignment_selection link_selection)
         end
@@ -194,7 +225,7 @@ module Lti
         it "doesn't include defaults placements when one is provided" do
           tp_json = JSON.parse(tool_proxy_fixture)
           tp_json['tool_profile']['resource_handler'][0]['message'][0]['enabled_capability'] = ['Canvas.placements.courseNavigation']
-          tool_proxy = subject.process_tool_proxy_json(json: tp_json.to_json, context: account, guid: tool_proxy_guid)
+          tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tp_json.to_json, context: account, guid: tool_proxy_guid)
           rh = tool_proxy.resources.first
           expect(rh.message_handlers.first.placements).to only_include_placement "course_navigation"
         end
@@ -202,7 +233,7 @@ module Lti
         it "adds placements from message_handler enabled_capabilities to message_hanlder" do
           tp_json = JSON.parse(tool_proxy_fixture)
           tp_json['tool_profile']['resource_handler'][0]['message'][0]['enabled_capability'] = ['Canvas.placements.courseNavigation']
-          tool_proxy = subject.process_tool_proxy_json(json: tp_json.to_json, context: account, guid: tool_proxy_guid)
+          tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tp_json.to_json, context: account, guid: tool_proxy_guid)
           rh = tool_proxy.resources.first
           expect(rh.message_handlers.count).to eq 1
           expect(rh.message_handlers.first.placements).to only_include_placement "course_navigation"
@@ -212,8 +243,8 @@ module Lti
           tp_json = JSON.parse(tool_proxy_fixture)
           tp_json['tool_profile']['resource_handler'][0]['message'][0]['enabled_capability'] = ['Canvas.placements.invalid']
           begin
-            tool_proxy = subject.process_tool_proxy_json(json: tp_json.to_json, context: account, guid: tool_proxy_guid)
-          rescue Lti::ToolProxyService::InvalidToolProxyError => proxy_error
+            tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tp_json.to_json, context: account, guid: tool_proxy_guid)
+          rescue Lti::Errors::InvalidToolProxyError => proxy_error
             puts proxy_error.message
           end
           expect(tool_proxy).to eq nil
@@ -225,8 +256,8 @@ module Lti
       it 'rejects tool proxies that have extra capabilities' do
         tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
         tp.tool_profile.resource_handlers.first.messages.first.enabled_capability = ['extra_capability']
-        expect { subject.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(ToolProxyService::InvalidToolProxyError, 'Invalid Capabilities') do |exception|
-          expect(JSON.parse(exception.to_json)).to eq({"invalid_capabilities"=>["extra_capability"], "error"=>"Invalid Capabilities"})
+        expect { tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(Lti::Errors::InvalidToolProxyError, 'Invalid Capabilities') do |exception|
+          expect(exception.as_json).to eq({invalid_capabilities: ["extra_capability"], "error" => "Invalid Capabilities"})
         end
 
       end
@@ -234,36 +265,127 @@ module Lti
       it 'rejects tool proxies that have extra services' do
         tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
         tp.security_contract.services.first.action = ['DELETE']
-        expect { subject.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(ToolProxyService::InvalidToolProxyError, 'Invalid Services') do |exception|
-          expect(JSON.parse(exception.to_json)).to eq({"invalid_services"=>[{"id"=>"ToolProxy.collection", "actions"=>["DELETE"]}], "error"=>"Invalid Services"})
+        expect { tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(Lti::Errors::InvalidToolProxyError, 'Invalid Services') do |exception|
+          expect(exception.as_json).to eq({invalid_services: [{id: "ToolProxy.collection", actions: ["DELETE"]}], "error" => "Invalid Services"})
         end
       end
 
       it 'rejects tool proxies that have extra variables' do
         tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
         tp.tool_profile.resource_handlers.first.messages.first.parameter = [IMS::LTI::Models::Parameter.new(name:'extra_test', variable: 'Custom.Variable')]
-        expect { subject.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(ToolProxyService::InvalidToolProxyError, 'Invalid Capabilities')do |exception|
-          expect(JSON.parse(exception.to_json)).to eq({"invalid_capabilities"=>["Custom.Variable"], "error"=>"Invalid Capabilities"})
+        expect { tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(Lti::Errors::InvalidToolProxyError, 'Invalid Capabilities')do |exception|
+          expect(exception.as_json).to eq({invalid_capabilities: ["Custom.Variable"], "error" => "Invalid Capabilities"})
         end
       end
 
       it 'rejects tool proxies that are missing a shared secret' do
         tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
         tp.security_contract.shared_secret = nil
-        expect { subject.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(ToolProxyService::InvalidToolProxyError, 'Invalid SecurityContract')do |exception|
-          expect(JSON.parse(exception.to_json)).to eq({"invalid_security_contract"=>["shared_secret"], "error"=>"Invalid SecurityContract"})
+        expect { tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }.to raise_error(Lti::Errors::InvalidToolProxyError, 'Invalid SecurityContract')do |exception|
+          expect(exception.as_json).to eq({invalid_security_contract: [:shared_secret], "error" => "Invalid SecurityContract"})
         end
       end
 
-      it 'creates a split secret' do
+      context 'vendor developer keys' do
+        let(:valid_dev_key) { DeveloperKey.create!(vendor_code: 'acme.com') }
+        let(:mismatch_dev_key) { DeveloperKey.create!(vendor_code: 'different_vendor') }
+
+        it 'rejects tool proxies if vendor has developer key but does not use it in registration' do
+          valid_dev_key
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          expect do
+            tool_proxy_service.process_tool_proxy_json(json: tp.as_json,
+                                                       context: account,
+                                                       guid: tool_proxy_guid)
+          end.to raise_error(Lti::Errors::InvalidToolProxyError, 'Developer key mismatch')
+        end
+
+        it 'rejects tool proxies if vendor has developer key but uses a different developer key' do
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          expect do
+            valid_dev_key
+            tool_proxy_service.process_tool_proxy_json(json: tp.as_json,
+                                                       context: account,
+                                                       guid: tool_proxy_guid,
+                                                       developer_key: mismatch_dev_key)
+          end.to raise_error(Lti::Errors::InvalidToolProxyError, 'Developer key mismatch')
+        end
+
+        it 'rejects tool proxies if vendor does not match the developer key being used' do
+          valid_dev_key
+          mismatch_dev_key
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          tp.tool_profile.product_instance.product_info.product_family.vendor.code = 'different_vendor'
+          expect do
+            tool_proxy_service.process_tool_proxy_json(json: tp.as_json,
+                                                       context: account,
+                                                       guid: tool_proxy_guid,
+                                                       developer_key: valid_dev_key)
+          end.to raise_error(Lti::Errors::InvalidToolProxyError, 'Developer key mismatch')
+        end
+
+        it 'rejects tool proxies if vendor does not have a developer key but attempts to use one' do
+          valid_dev_key
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          tp.tool_profile.product_instance.product_info.product_family.vendor.code = 'different_vendor'
+          expect do
+            tool_proxy_service.process_tool_proxy_json(json: tp.as_json,
+                                                       context: account,
+                                                       guid: tool_proxy_guid,
+                                                       developer_key: valid_dev_key)
+          end.to raise_error(Lti::Errors::InvalidToolProxyError, 'Developer key mismatch')
+        end
+
+        it 'accepts tool proxies if vendor has no developer key and no developer key is provided' do
+          valid_dev_key
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          tp.tool_profile.product_instance.product_info.product_family.vendor.code = 'different_vendor'
+          expect do
+            tool_proxy_service.process_tool_proxy_json(json: tp.as_json,
+                                                       context: account,
+                                                       guid: tool_proxy_guid)
+          end.not_to raise_error
+        end
+
+        it 'accepts tool proxies if vendor has developer key and it is used in registration' do
+          valid_dev_key
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          expect do
+            tool_proxy_service.process_tool_proxy_json(json: tp.as_json,
+                                                       context: account,
+                                                       guid: tool_proxy_guid,
+                                                       developer_key: valid_dev_key)
+          end.not_to raise_error
+        end
+
+        it 'gives a descriptive error message if there is a developer key mismatch' do
+          tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+          expect { tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid, developer_key: mismatch_dev_key) }.to raise_error do |e|
+            expect(e.as_json).to eq({"error" =>"Developer key mismatch"})
+          end
+        end
+      end
+
+      it 'creates a split secret whith the depricated Oauth.splitSecret' do
         tp_half_secret = SecureRandom.hex(64)
         tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
         tp.enabled_capability = ['OAuth.splitSecret']
         tp.security_contract.shared_secret = nil
         tp.security_contract.tp_half_shared_secret = tp_half_secret
-        tool_proxy = subject.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid)
-        expect(subject.tc_half_secret).to_not be_nil
-        expect(tool_proxy.shared_secret).to eq(subject.tc_half_secret + tp_half_secret)
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid)
+        expect(tool_proxy_service.tc_half_secret).to_not be_nil
+        expect(tool_proxy.shared_secret).to eq(tool_proxy_service.tc_half_secret + tp_half_secret)
+      end
+
+      it 'creates a split secret whith Security.splitSecret' do
+        tp_half_secret = SecureRandom.hex(64)
+        tp = IMS::LTI::Models::ToolProxy.new.from_json(tool_proxy_fixture)
+        tp.enabled_capability = ['Security.splitSecret']
+        tp.security_contract.shared_secret = nil
+        tp.security_contract.tp_half_shared_secret = tp_half_secret
+        tool_proxy = tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid)
+        expect(tool_proxy_service.tc_half_secret).to_not be_nil
+        expect(tool_proxy.shared_secret).to eq(tool_proxy_service.tc_half_secret + tp_half_secret)
       end
 
       it 'requires the "OAuth.splitSecret" capability for split secret' do
@@ -272,16 +394,64 @@ module Lti
         tp.enabled_capability = []
         tp.security_contract.shared_secret = nil
         tp.security_contract.tp_half_shared_secret = tp_half_secret
-        expect { subject.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }
-          .to raise_error(ToolProxyService::InvalidToolProxyError, 'Invalid SecurityContract') do |exception|
-          expect(JSON.parse(exception.to_json)).to eq({
-                                                        "invalid_security_contract" => [
-                                                          "shared_secret",
-                                                          "tp_half_shared_secret"
+        expect { tool_proxy_service.process_tool_proxy_json(json: tp.as_json, context: account, guid: tool_proxy_guid) }
+          .to raise_error(Lti::Errors::InvalidToolProxyError, 'Invalid SecurityContract') do |exception|
+          expect(exception.as_json).to eq({
+                                                        invalid_security_contract:  [
+                                                          :shared_secret,
+                                                          :tp_half_shared_secret
                                                         ],
-                                                        "error"=>"Invalid SecurityContract"
+                                                        "error" => "Invalid SecurityContract"
                                                       })
         end
+      end
+    end
+
+    describe '#recreate_missing_subscriptions' do
+      before do
+        message_handler.update!(
+          capabilities: [Lti::ResourcePlacement::SIMILARITY_DETECTION_LTI2]
+        )
+        message_handler.dup.update!(message_type: 'content-item')
+      end
+
+      it 'recreats subscriptions for each message handler' do
+        expect(AssignmentConfigurationToolLookup).to receive(:send_later_enqueue_args).twice
+
+        ToolProxyService.recreate_missing_subscriptions(tool_proxy)
+      end
+    end
+
+    describe '#delete_subscriptions' do
+      let(:assignment) { course.assignments.create!(name: 'banana') }
+      let(:assignment_two) do
+        assignment_two = assignment.dup
+        assignment_two.update_attributes(lti_context_id: SecureRandom.uuid)
+        assignment_two
+      end
+      let(:subscription_id) { SecureRandom.uuid }
+      let(:stub_response) { double(code: 200, body: '{}', parsed_response: {'Id' => subscription_id}, ok?: true) }
+      let(:sub_service_double) { class_double(Services::LiveEventsSubscriptionService).as_stubbed_const }
+
+      before(:each) do
+        allow(sub_service_double).to receive_messages(create_tool_proxy_subscription: stub_response)
+        allow(sub_service_double).to receive_messages(available?: true)
+        assignment.tool_settings_tool = message_handler
+        assignment_two.tool_settings_tool = message_handler
+        assignment.save!
+        assignment_two.save!
+      end
+
+      it 'deletes all subscriptions for the spcified tool proxy' do
+        expect(sub_service_double).to receive(:destroy_tool_proxy_subscription).twice
+        tool_proxy_service.delete_subscriptions_for(tool_proxy)
+        run_jobs
+      end
+
+      it 'deletes the correct subscriptions for the specified tool proxy' do
+        expect(sub_service_double).to receive(:destroy_tool_proxy_subscription).twice.with(tool_proxy, subscription_id)
+        tool_proxy_service.delete_subscriptions_for(tool_proxy)
+        run_jobs
       end
     end
   end

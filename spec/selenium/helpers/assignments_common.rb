@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/groups_common')
 
@@ -79,15 +96,14 @@ module AssignmentsCommon
   end
 
   def submit_assignment_form
-    expect_new_page_load { f('#edit_assignment_form .btn-primary[type=submit]').click }
-    wait_for_ajaximations
+    wait_for_new_page_load { f('#edit_assignment_form .btn-primary[type=submit]').click }
   end
 
   def stub_freezer_plugin(frozen_atts = nil)
     frozen_atts ||= {
         "assignment_group_id" => "true"
     }
-    PluginSetting.stubs(:settings_for_plugin).returns(frozen_atts)
+    allow(PluginSetting).to receive(:settings_for_plugin).and_return(frozen_atts)
   end
 
   def frozen_assignment(group)
@@ -112,8 +128,8 @@ module AssignmentsCommon
   end
 
   def manually_create_assignment(assignment_title = 'new assignment')
-    get "/courses/#{@course.id}/assignments"
-    expect_new_page_load { f('.new_assignment').click }
+    # directly navigate via url
+    get "/courses/#{@course.id}/assignments/new"
     replace_content(f('#assignment_name'), assignment_title)
   end
 
@@ -136,7 +152,7 @@ module AssignmentsCommon
     @section1 = @course.course_sections.create!(:name => 'Section A')
     @section2 = @course.course_sections.create!(:name => 'Section B')
     @course.student_enrollments.each do |enrollment|
-      Score.where(enrollment_id: enrollment).delete_all
+      Score.where(enrollment_id: enrollment).each(&:destroy_permanently!)
       enrollment.destroy_permanently! # get rid of existing student enrollments, mess up section enrollment
     end
     # Overridden lock dates for 2nd section - different dates, but still in future

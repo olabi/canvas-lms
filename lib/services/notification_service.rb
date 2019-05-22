@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014-2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require 'aws-sdk'
+require 'aws-sdk-sqs'
 
 module Services
   class NotificationService

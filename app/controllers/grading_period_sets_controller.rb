@@ -1,15 +1,29 @@
-class GradingPeriodSetsController < ApplicationController
-  include ::Filters::GradingPeriods
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
+class GradingPeriodSetsController < ApplicationController
   before_action :require_user
   before_action :get_context
-  before_action :check_feature_flag
   before_action :check_manage_rights, except: [:index]
   before_action :check_read_rights, except: [:update, :create, :destroy]
 
   def index
     paginated_sets = Api.paginate(
-      GradingPeriodGroup.for(@context),
+      GradingPeriodGroup.for(@context).order(:id),
       self,
       api_v1_account_grading_period_sets_url
     )
@@ -42,7 +56,13 @@ class GradingPeriodSetsController < ApplicationController
   end
 
   def update
+    old_term_ids = grading_period_set.enrollment_terms.pluck(:id)
     grading_period_set.enrollment_terms = enrollment_terms
+    # we need to recompute scores for enrollment terms that were removed since the line above
+    # will not run callbacks for the removed enrollment terms
+    EnrollmentTerm.where(id: old_term_ids - enrollment_terms.map(&:id)).each do |term|
+      term.recompute_course_scores_later(strand_identifier: "GradingPeriodGroup:#{grading_period_set.global_id}")
+    end
 
     respond_to do |format|
       if grading_period_set.update(set_params)
@@ -74,7 +94,7 @@ class GradingPeriodSetsController < ApplicationController
   end
 
   def set_params
-    params.require(:grading_period_set).permit(:title)
+    params.require(:grading_period_set).permit(:title, :weighted, :display_totals_for_all_grading_periods)
   end
 
   def check_read_rights
@@ -84,16 +104,6 @@ class GradingPeriodSetsController < ApplicationController
   def check_manage_rights
     render_json_unauthorized and return unless @context.root_account?
     render_json_unauthorized and return unless @context.grants_right?(@current_user, :manage)
-  end
-
-  def paginate_for(grading_period_sets)
-    paginated_sets, meta = Api.jsonapi_paginate(
-      grading_period_sets,
-      self,
-      api_v1_account_grading_period_sets_url
-    )
-    meta[:primaryCollection] = 'grading_period_sets'
-    [paginated_sets, meta]
   end
 
   def serialize_json_api(grading_period_sets, meta = {})

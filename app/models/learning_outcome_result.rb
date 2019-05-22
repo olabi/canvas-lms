@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,11 +42,24 @@ class LearningOutcomeResult < ActiveRecord::Base
   def calculate_percent!
     scale_data = scale_params
     if needs_scale?(scale_data) && self.score && self.possible
-      self.percent = (calculate_by_scale(scale_data)).round(4)
+      self.percent = calculate_by_scale(scale_data).round(4)
     elsif self.score && self.possible
-      self.percent = self.score.to_f / self.possible.to_f
+      self.percent = percentage
     end
     self.percent = nil if self.percent && !self.percent.to_f.finite?
+  end
+
+  def percentage
+    if self.possible.to_f > 0
+      self.score.to_f / self.possible.to_f
+    elsif parent_has_mastery?
+      # the parent should always have a mastery score, if it doesn't
+      # it means something is broken with the outcome and it will need to
+      # be corrected. If percent is nil on an Outcome Result associated with
+      # a Quiz, it will cause a 500 error on the learning mastery gradebook in
+      # the get_aggregates method in RollupScoreAggregatorHelper
+      self.score.to_f / parent_outcome.mastery_points.to_f
+    end
   end
 
   def assignment
@@ -54,6 +67,8 @@ class LearningOutcomeResult < ActiveRecord::Base
       self.association_object
     elsif self.artifact.is_a?(RubricAssessment)
       self.artifact.rubric_association.association_object
+    elsif self.association_object.is_a? Quizzes::Quiz
+      self.association_object.assignment
     else
       nil
     end
@@ -96,10 +111,10 @@ class LearningOutcomeResult < ActiveRecord::Base
   scope :for_user, lambda { |user| where(:user_id => user) }
   scope :custom_ordering, lambda { |param|
     orders = {
-      'recent' => "assessed_at DESC",
-      'highest' => "score DESC",
-      'oldest' => "score ASC",
-      'default' => "assessed_at DESC"
+      'recent' => {:assessed_at => :desc},
+      'highest' => {:score => :desc},
+      'oldest' => {:score => :asc},
+      'default' => {:assessed_at => :desc}
     }
     order_clause = orders[param] || orders['default']
     order(order_clause)
@@ -108,6 +123,16 @@ class LearningOutcomeResult < ActiveRecord::Base
   scope :for_association, lambda { |association| where(:association_type => association.class.to_s, :association_id => association.id) }
   scope :for_associated_asset, lambda { |associated_asset| where(:associated_asset_type => associated_asset.class.to_s, :associated_asset_id => associated_asset.id) }
   scope :active, lambda { where("content_tags.workflow_state <> 'deleted'").joins(:alignment) }
+  # rubocop:disable Metrics/LineLength
+  scope :exclude_muted_associations, -> {
+    joins("LEFT JOIN #{RubricAssociation.quoted_table_name} rassoc ON rassoc.id = learning_outcome_results.association_id AND learning_outcome_results.association_type = 'RubricAssociation'").
+      joins("LEFT JOIN #{Assignment.quoted_table_name} ra ON ra.id = rassoc.association_id AND rassoc.association_type = 'Assignment' AND rassoc.purpose = 'grading'").
+      joins("LEFT JOIN #{Quizzes::Quiz.quoted_table_name} ON quizzes.id = learning_outcome_results.association_id AND learning_outcome_results.association_type = 'Quizzes::Quiz'").
+      joins("LEFT JOIN #{Assignment.quoted_table_name} qa ON qa.id = quizzes.assignment_id").
+      joins("LEFT JOIN #{Assignment.quoted_table_name} sa ON sa.id = learning_outcome_results.association_id AND learning_outcome_results.association_type = 'Assignment'").
+      where('(ra.muted IS NULL AND qa.muted IS NULL AND sa.muted IS NULL) OR ra.muted IS FALSE OR qa.muted IS FALSE OR sa.muted IS FALSE')
+  }
+  # rubocop:enable Metrics/LineLength
 
   private
 
@@ -127,7 +152,7 @@ class LearningOutcomeResult < ActiveRecord::Base
     scale_points = (self.possible / scale_percent) - self.possible
     scale_cutoff = self.possible - (self.possible * alignment_mastery)
     percent_to_scale = (self.score + scale_cutoff) - self.possible
-    if percent_to_scale > 0
+    if percent_to_scale > 0 && scale_cutoff > 0
       score_adjustment = (percent_to_scale / scale_cutoff) * scale_points
       scaled_score = self.score + score_adjustment
       (scaled_score / self.possible) * scale_percent
@@ -139,11 +164,19 @@ class LearningOutcomeResult < ActiveRecord::Base
   def scale_params
     parent_mastery = precise_mastery_percent
     alignment_mastery = self.alignment.mastery_score
-    if parent_mastery && alignment_mastery
+    return unless parent_mastery && alignment_mastery
+    if parent_mastery > 0 && alignment_mastery > 0
       { scale_percent: parent_mastery / alignment_mastery,
-        alignment_mastery: alignment_mastery
-      }
+        alignment_mastery: alignment_mastery }
     end
+  end
+
+  def parent_has_mastery?
+    parent_outcome&.mastery_points.to_f > 0
+  end
+
+  def parent_outcome
+    self.learning_outcome
   end
 
   def needs_scale?(scale_data)
@@ -153,8 +186,7 @@ class LearningOutcomeResult < ActiveRecord::Base
   def precise_mastery_percent
     # the outcome's mastery percent is rounded to 2 places. This is normally OK
     # but for scaling it's too imprecise and can lead to inaccurate calculations
-    parent_outcome = self.learning_outcome
-    return unless parent_outcome.try(:mastery_points)
+    return unless parent_has_mastery? && parent_outcome.points_possible > 0
     parent_outcome.mastery_points.to_f / parent_outcome.points_possible.to_f
   end
 end

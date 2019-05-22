@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 # @API Quiz Submission Questions
-# @beta
 #
 # API for answering and flagging questions in a quiz-taking session.
 #
@@ -43,7 +42,8 @@
 #         },
 #         "answers": {
 #           "description": "The possible answers for this question when those possible answers are necessary.  The presence of this parameter is dependent on permissions.",
-#           "type": "array"
+#           "type": "array",
+#           "items": {"type": "string"}
 #         }
 #       }
 #     }
@@ -52,13 +52,12 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
   include Api::V1::QuizSubmissionQuestion
   include ::Filters::QuizSubmissions
 
-  before_filter :require_user, :require_quiz_submission, :export_scopes
-  before_filter :require_question, only: [ :show, :flag, :unflag ]
-  before_filter :prepare_service, only: [ :answer, :flag, :unflag ]
-  before_filter :validate_ldb_status!, only: [ :answer, :flag, :unflag ]
+  before_action :require_user, :require_quiz_submission, :export_scopes
+  before_action :require_question, only: [ :show, :flag, :unflag ]
+  before_action :prepare_service, only: [ :answer, :flag, :unflag ]
+  before_action :validate_ldb_status!, only: [ :answer, :flag, :unflag ]
 
   # @API Get all quiz submission questions.
-  # @beta
   #
   # Get a list of all the question records for this quiz submission.
   #
@@ -94,7 +93,6 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
   end
 
   # @API Answering questions
-  # @beta
   #
   # Provide or update an answer to one or more QuizQuestions.
   #
@@ -136,7 +134,7 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
       reject! 'you are not allowed to update questions for this quiz submission', 403
     end
 
-    answers = params.fetch(:quiz_questions, []).reduce({}) do |hsh, p|
+    answers = params.to_unsafe_h.fetch(:quiz_questions, []).reduce({}) do |hsh, p|
       if p[:id].present?
         hsh[p[:id].to_i] = p[:answer] || []
       end
@@ -147,7 +145,10 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
     quiz_questions = @quiz.quiz_questions.where(id: answers.keys)
 
     record = quiz_questions.reduce({}) do |hsh, quiz_question|
+      question_data = @quiz_submission.quiz_data.find { |qd| qd[:id] == quiz_question.id }
+
       serializer = serializer_for quiz_question
+      serializer.override_question_data(question_data) if question_data.present?
       serialization_rc = serializer.serialize(answers[quiz_question.id])
 
       unless serialization_rc.valid?
@@ -163,7 +164,6 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
   end
 
   # @API Flagging a question.
-  # @beta
   #
   # Set a flag on a quiz question to indicate that you want to return to it
   # later.
@@ -196,7 +196,6 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
   end
 
   # @API Unflagging a question.
-  # @beta
   #
   # Remove the flag that you previously set on a quiz question after you've
   # returned to it.

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../../../spec/spec_helper')
 
 require 'soap/rpc/driver'
@@ -30,7 +47,7 @@ describe "Respondus SOAP API", type: :request do
     streamHandler = soap.proxy.streamhandler
     method_args = [userName, password, context, *(args.map(&:last))]
     streamHandler.capture(soap, method, *method_args) do |s_body, s_headers|
-      post "/api/respondus/soap", s_body, s_headers
+      post "/api/respondus/soap", params: s_body, headers: s_headers
       response
     end
   end
@@ -234,8 +251,8 @@ Implemented for: Canvas LMS}
       self.workflow_state = 'imported'
       self.migration_settings[:imported_assets] = ["quizzes:quiz_xyz"]
     end
-    ContentMigration.stubs(:new).returns(mock_migration)
-    ContentMigration.stubs(:find).with(mock_migration.id).returns(mock_migration)
+    allow(ContentMigration).to receive(:new).and_return(mock_migration)
+    allow(ContentMigration).to receive(:find).with(mock_migration.id).and_return(mock_migration)
 
     status, details, context, item_id = soap_request(
       'PublishServerItem', 'nobody@example.com', 'asdfasdf', context,
@@ -258,21 +275,17 @@ Implemented for: Canvas LMS}
                                               '', ['itemType', 'course'],
                                               ['itemID', @course.to_param],
                                               ['clearState', ''])
-      expect(status).to eq "Success"
-
       @mock_migration = ContentMigration.create!(context: @course)
       def @mock_migration.export_content
         self.workflow_state = 'importing'
       end
-      ContentMigration.stubs(:new).returns(@mock_migration)
-      ContentMigration.stubs(:find).with(@mock_migration.id).returns(@mock_migration)
+      allow(ContentMigration).to receive(:new).and_return(@mock_migration)
+      allow(ContentMigration).to receive(:find).with(@mock_migration.id).and_return(@mock_migration)
 
       status, details, context, item_id = soap_request(
         'PublishServerItem', 'nobody@example.com', 'asdfasdf', context,
         ['itemType', 'quiz'], ['itemName', 'my quiz'], ['uploadType', 'zipPackage'],
         ['fileName', 'import.zip'], ['fileData', 'pretend this is a zip file'])
-      expect(status).to eq "Success"
-      expect(item_id).to eq 'pending'
       @token = context
     end
 

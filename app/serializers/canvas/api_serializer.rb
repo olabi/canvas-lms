@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas
   # Canvas extensions to the base AMS. All instances of this class require a
   # Controller instance to operate.
@@ -58,7 +75,7 @@ module Canvas
     alias_method :user, :scope
     alias_method :current_user, :user
 
-    def_delegators :@controller, :stringify_json_ids?, :polymorphic_url,
+    def_delegators :@controller, :polymorphic_url,
       :accepts_jsonapi?, :session, :context
 
     # See ActiveModel::Serializer's documentation for options.
@@ -83,6 +100,10 @@ module Canvas
       unless controller
         raise ArgumentError.new("You must pass a controller to APISerializer!")
       end
+    end
+
+    def stringify_json_ids?
+      @controller.send(:stringify_json_ids?)
     end
 
     # Overriding to allow for "links" hash.

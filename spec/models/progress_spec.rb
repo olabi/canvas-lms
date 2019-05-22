@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -51,6 +51,18 @@ describe Progress do
       progress.process_job(Jerbs, :fail)
       run_jobs
       expect(progress.reload).to be_failed
+    end
+
+    it "should default to low priority" do
+      job = progress.process_job(Jerbs, :succeed, {}, :flag)
+      expect(job.priority).to eq Delayed::LOW_PRIORITY
+    end
+
+    context "with high priority" do
+      it "should be set to high priortiy" do
+        job = progress.process_job(Jerbs, :succeed, { priority: Delayed::HIGH_PRIORITY }, :flag)
+        expect(job.priority).to eq Delayed::HIGH_PRIORITY
+      end
     end
   end
 end

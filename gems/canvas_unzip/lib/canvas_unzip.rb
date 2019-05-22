@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,6 +20,13 @@ require 'fileutils'
 require 'canvas_mimetype_fu'
 require 'rubygems/package'
 require 'zlib'
+
+module SkipStrictOctCheck
+  def strict_oct(str)
+    str.oct
+  end
+end
+Gem::Package::TarHeader.singleton_class.prepend(SkipStrictOctCheck) # jeez who the heck thought it was a good idea to use rubygems code for this
 
 class CanvasUnzip
 
@@ -59,7 +66,7 @@ class CanvasUnzip
   #     :filename_too_long => [list of entries],
   #     :unknown_compression_method => [list of entries] }
 
-  def self.extract_archive(archive_filename, dest_folder = nil, limits = nil, &block)
+  def self.extract_archive(archive_filename, dest_folder = nil, limits: nil, nested_dir: nil, &block)
     warnings = {}
     limits ||= default_limits(File.size(archive_filename))
     bytes_left = limits.maximum_bytes
@@ -79,7 +86,9 @@ class CanvasUnzip
       else
         raise FileLimitExceeded if files_left <= 0
         begin
-          f_path = File.join(dest_folder, entry.name)
+          name = entry.name
+          name = name.sub(nested_dir, '') if nested_dir # pretend the dir doesn't exist
+          f_path = File.join(dest_folder, name)
           entry.extract(f_path, false, bytes_left) do |size|
             bytes_left -= size
             raise SizeLimitExceeded if bytes_left < 0
@@ -104,6 +113,9 @@ class CanvasUnzip
     file = File.open(archive_filename)
     mime_type = File.mime_type?(file)
 
+    # on some systems `file` fails to recognize a zip file with no entries; fall back on using the extension
+    mime_type = File.mime_type?(archive_filename) if mime_type == 'application/octet-stream'
+
     if ['application/x-gzip', 'application/gzip'].include? mime_type
       file = Zlib::GzipReader.new(file)
       mime_type = 'application/x-tar' # it may not actually be a tar though, so rescue if there's a problem
@@ -127,7 +139,7 @@ class CanvasUnzip
         raise UnknownArchiveType, "invalid tar"
       end
     else
-      raise UnknownArchiveType, "unknown mime type #{mime_type}"
+      raise UnknownArchiveType, "unknown mime type #{mime_type} for archive #{File.basename(archive_filename)}"
     end
   end
 
@@ -190,6 +202,7 @@ class CanvasUnzip
         raise DestinationFileExists, "Destination '#{dest_path}' already exists"
       end
 
+      digest = Digest::MD5.new
       ::File.open(dest_path, "wb") do |os|
         if type == :zip
           entry.get_input_stream do |is|
@@ -197,16 +210,19 @@ class CanvasUnzip
             buf = ''
             while buf = is.sysread(::Zip::Decompressor::CHUNK_SIZE, buf)
               os << buf
+              digest.update(buf)
               yield(buf.size) if block_given?
             end
           end
         elsif type == :tar
           while buf = entry.read(BUFFER_SIZE)
             os << buf
+            digest.update(buf)
             yield(buf.size) if block_given?
           end
         end
       end
+      digest.hexdigest
     end
 
     # forces name to UTF-8, converting from fallback_encoding if it isn't UTF-8 to begin with

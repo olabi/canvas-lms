@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "common"
 require_relative "helpers/context_modules_common"
 require_relative "helpers/quizzes_common"
@@ -80,7 +97,7 @@ describe "context modules" do
       expect(f("#progression_student_#{@students[3].id}_module_#{@module2.id} .status").text).to include("Locked")
     end
 
-    it "should show progression to individual students" do
+    it "should show progression to individual students", priority: "1", test_id: 251029 do
       user_session(@students[1])
       get "/courses/#{@course.id}/modules/progressions"
       expect(f("#progression_students")).not_to be_displayed
@@ -260,6 +277,7 @@ describe "context modules" do
     end
 
     it "should show student progress once discussion-contribute requirement is met", priority: "1", test_id: 126693 do
+      make_full_screen
       @discussion_1 = @course.assignments.create!(name: "Discuss!", points_possible: "5", submission_types: "discussion_topic")
       tag = @module1.add_item({id: @discussion_1.id, type: 'assignment'})
       add_requirement({tag.id => {type: 'must_contribute'}})
@@ -270,10 +288,11 @@ describe "context modules" do
       type_in_tiny 'textarea', 'something to submit'
       f('button[type="submit"]').click
       validate_access_to_module
+      resize_screen_to_normal
     end
 
     it "should show student progress once wiki page-view requirement is met", priority: "1", test_id: 126700 do
-      @wiki_page = @course.wiki.wiki_pages.create!(title: 'Wiki Page')
+      @wiki_page = @course.wiki_pages.create!(title: 'Wiki Page')
       tag = @module1.add_item(id: @wiki_page.id, type: 'wiki_page')
       add_requirement({tag.id => {type: 'must_view'}})
       wait_for_ajaximations
@@ -282,7 +301,7 @@ describe "context modules" do
     end
 
     it "should show student progress once wiki page-contribute requirement is met", priority: "1", test_id: 126699 do
-      @wiki_page = @course.wiki.wiki_pages.create(title: "Wiki_page", editing_roles: "public", notify_of_update: true)
+      @wiki_page = @course.wiki_pages.create(title: "Wiki_page", editing_roles: "public", notify_of_update: true)
       tag = @module1.add_item(id: @wiki_page.id, type: 'wiki_page')
       add_requirement({tag.id => {type: 'must_contribute'}})
       get "/courses/#{@course.id}/pages/#{@wiki_page.title}/edit"

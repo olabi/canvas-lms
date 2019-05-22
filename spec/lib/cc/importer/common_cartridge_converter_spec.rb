@@ -1,4 +1,21 @@
 # coding: utf-8
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../cc_spec_helper')
 
 require 'nokogiri'
@@ -17,9 +34,7 @@ describe "Standard Common Cartridge importing" do
     @course = course_factory
     @migration = ContentMigration.create(:context => @course)
     @migration.migration_settings[:migration_ids_to_import] = {:copy => {}}
-    enable_cache do
-      Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
-    end
+    Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
   end
 
   it "should import webcontent" do
@@ -216,14 +231,12 @@ describe "Standard Common Cartridge importing" do
     end
 
     it "should import webcontent" do
-      expect(@course.attachments.count).to eq 20
       expect(@course.attachments.active.count).to eq 10
       mig_ids = %w{I_00001_R I_00006_Media I_media_R f3 f4 I_00003_R_IMAGERESOURCE 7acb90d1653008e73753aa2cafb16298 6a35b0974f59819404dc86d48fe39fc3}
       mig_ids.each do |mig_id|
         atts = @course.attachments.where(migration_id: mig_id).to_a
-        expect(atts.length).to eq 2
-        expect(atts.any?{|a|a.file_state = 'deleted'}).to eq true
-        expect(atts.any?{|a|a.file_state = 'available'}).to eq true
+        expect(atts.length).to eq 1
+        expect(atts.first.file_state).to eq 'available'
       end
     end
 
@@ -280,7 +293,7 @@ describe "Standard Common Cartridge importing" do
       expect(@course.context_external_tools.first.migration_id).to eq "I_00011_R"
       expect(@course.context_modules.count).to eq 1
       expect(@course.context_modules.first.migration_id).to eq 'I_00000'
-      expect(@course.wiki.wiki_pages.count).to eq 0
+      expect(@course.wiki_pages.count).to eq 0
       expect(@course.discussion_topics.count).to eq 1
       expect(@course.discussion_topics.first.migration_id).to eq 'I_00006_R'
     end
@@ -436,11 +449,11 @@ describe "More Standard Common Cartridge importing" do
     @copy_to.name = "alt name"
     @copy_to.course_code = "alt name"
 
-    @migration = Object.new
-    @migration.stubs(:to_import).returns(nil)
-    @migration.stubs(:context).returns(@copy_to)
-    @migration.stubs(:import_object?).returns(true)
-    @migration.stubs(:add_imported_item)
+    @migration = ContentMigration.new
+    allow(@migration).to receive(:to_import).and_return(nil)
+    allow(@migration).to receive(:context).and_return(@copy_to)
+    allow(@migration).to receive(:import_object?).and_return(true)
+    allow(@migration).to receive(:add_imported_item)
   end
 
   it "should properly handle top-level resource references" do
@@ -544,7 +557,6 @@ describe "More Standard Common Cartridge importing" do
     XML
 
     doc = Nokogiri::XML(resources)
-    @converter.unzipped_file_path = 'testing/'
     @converter.get_all_resources(doc)
     expect(@converter.resources['a1'][:href]).to eq 'a1/a1.html'
     expect(@converter.resources['w1'][:files].first[:href]).to eq 'w1/w1.html'
@@ -590,9 +602,7 @@ describe "LTI tool combination" do
     @migration = ContentMigration.create(:context => @course)
     @migration.migration_type = "common_cartridge_importer"
     @migration.migration_settings[:migration_ids_to_import] = {:copy => {}}
-    enable_cache do
-      Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
-    end
+    Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
   end
 
   it "should combine lti tools in cc packages when possible" do
@@ -630,9 +640,7 @@ describe "other cc files" do
       :base_download_dir=>unzipped_file_path, :content_migration => @migration)
     converter.export
     @course_data = converter.course.with_indifferent_access
-    enable_cache do
-      Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
-    end
+    Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
   end
 
   describe "cc assignment extensions" do
@@ -660,6 +668,30 @@ describe "other cc files" do
     end
   end
 
+  describe "cc optional html file to page conversation" do
+    it "should do some possibly broken converting" do
+      Account.default.enable_feature!(:common_cartridge_page_conversion)
+      import_cc_file("cc_file_to_page_test.zip")
+      img = @course.attachments.where(:migration_id => "I_00001_R_1").first
+
+      page = @course.wiki_pages.where(:migration_id => "I_00001_R").first
+      expect(page.title).to eq "Some kind of file or page thingy"
+      expect(page.body).to match_ignoring_whitespace("<p>THis is an image or something <img src=\"/courses/#{@course.id}/files/#{img.id}/preview\"></p>")
+
+      tag = @course.context_module_tags.first
+      expect(tag.content).to eq page
+    end
+
+    it "should just bring them over as files without the feature" do
+      import_cc_file("cc_file_to_page_test.zip")
+      expect(@course.wiki_pages.count).to eq 0
+
+      att = @course.attachments.where(:migration_id => "I_00001_R").first
+      tag = @course.context_module_tags.first
+      expect(tag.content).to eq att
+    end
+  end
+
   describe "cc pattern match questions" do
     it "should produce a warning" do
       next unless Qti.qti_enabled?
@@ -676,6 +708,13 @@ describe "other cc files" do
       expect(issues.any?{|i| i.include?("This package includes APIP file(s)")}).to be_truthy
       expect(issues.any?{|i| i.include?("This package includes IWB file(s)")}).to be_truthy
       expect(issues.any?{|i| i.include?("This package includes EPub3 file(s)")}).to be_truthy
+    end
+  end
+
+  describe "cc syllabus intendeduse" do
+    it "should import" do
+      import_cc_file("cc_syllabus.zip")
+      expect(@course.reload.syllabus_body).to include("<p>beep beep</p>")
     end
   end
 end

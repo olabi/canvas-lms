@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,15 +12,14 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!users',
-  'jquery' /* $ */,
-  'jquery.instructure_misc_plugins' /* confirmDelete */
-], function(I18n, $) {
+import I18n from 'i18n!users'
+import $ from 'jquery'
+import './jquery.instructure_misc_plugins' /* confirmDelete */
+
 $(function(){
   $(".courses .course,.groups .group").bind('focus mouseover', function(event) {
     $(this).find(".info").addClass('info_hover');
@@ -41,4 +40,3 @@ $(function(){
     });
   });
 })
-});

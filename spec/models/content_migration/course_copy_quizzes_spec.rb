@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -307,7 +324,6 @@ describe ContentMigration do
       q1 = @copy_from.quizzes.create!(:title => 'quiz1')
       bank = different_course.assessment_question_banks.create!(:title => 'bank')
       bank2 = @copy_from.account.assessment_question_banks.create!(:title => 'bank2')
-      bank2.assessment_question_bank_users.create!(:user => @user)
       bank3 = different_account.assessment_question_banks.create!(:title => 'bank3')
       group = q1.quiz_groups.create!(:name => "group", :pick_count => 3, :question_points => 5.0)
       group.assessment_question_bank = bank
@@ -346,6 +362,23 @@ describe ContentMigration do
       # we don't copy over deleted questions at all, not even marked as deleted
       expect(bank2.assessment_questions.active.size).to eq 2
       expect(bank2.assessment_questions.size).to eq 2
+    end
+
+    it "should not restore deleted questions when restoring a bank" do
+      bank = @copy_from.assessment_question_banks.create!(:title => 'bank')
+      q1 = bank.assessment_questions.create!(:question_data => {'question_name' => 'test question', 'question_type' => 'essay_question'})
+      q2 = bank.assessment_questions.create!(:question_data => {'question_name' => 'test question 2', 'question_type' => 'essay_question'})
+
+      run_course_copy
+
+      bank_to = @copy_to.assessment_question_banks.where(:migration_id => mig_id(bank)).first
+      bank_to.destroy
+      q2.destroy
+
+      run_course_copy
+
+      expect(bank_to.reload).to be_active
+      expect(bank_to.assessment_questions.active.count).to eq 1
     end
 
     it "should not copy plain text question comments as html" do
@@ -426,6 +459,17 @@ describe ContentMigration do
 
     end
 
+    it "should copy nil values for hide_results" do
+      q = @copy_from.quizzes.create!(:hide_results => "always")
+      run_course_copy
+      q_to = @copy_to.quizzes.where(:migration_id => mig_id(q)).first
+      expect(q_to.hide_results).to eq "always"
+
+      q.update_attribute(:hide_results, nil)
+      run_course_copy
+      expect(q_to.reload.hide_results).to be_nil
+    end
+
     it "should leave file references in AQ context as-is on copy" do
       @bank = @copy_from.assessment_question_banks.create!(:title => 'Test Bank')
       @attachment = attachment_with_context(@copy_from)
@@ -458,6 +502,7 @@ describe ContentMigration do
       att3 = Attachment.create!(:filename => 'testing.jpg', :display_name => "testing.jpg", :uploaded_data => StringIO.new('test this'), :folder => root, :context => @copy_from)
       att4 = Attachment.create!(:filename => 'sub_test.jpg', :display_name => "sub_test.jpg", :uploaded_data => StringIO.new('sub_folder'), :folder => folder, :context => @copy_from)
       qtext = <<-HTML.strip
+sad file ref: <img src="%s">
 File ref:<img src="/courses/%s/files/%s/download">
 different file ref: <img src="/courses/%s/%s">
 subfolder file ref: <img src="/courses/%s/%s">
@@ -470,7 +515,7 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
                     :question_name => "test fun",
                     :name => "test fun",
                     :points_possible => 10,
-                    :question_text => qtext % [@copy_from.id, att.id, @copy_from.id, "file_contents/course%20files/test.jpg", @copy_from.id, "file_contents/course%20files/folder%201/sub_test.jpg"],
+                    :question_text => qtext % ["/files/#{att.id}", @copy_from.id, att.id, @copy_from.id, "file_contents/course%20files/test.jpg", @copy_from.id, "file_contents/course%20files/folder%201/sub_test.jpg"],
                     :answers =>
                             [{:migration_id => "QUE_1016_A1", :html => %{File ref:<img src="/courses/#{@copy_from.id}/files/#{att3.id}/download">}, :comments_html =>'<i>comment</i>', :text => "", :weight => 100, :id => 8080},
                              {:migration_id => "QUE_1017_A2", :html => "<strong>html answer 2</strong>", :comments_html =>'<i>comment</i>', :text => "", :weight => 0, :id => 2279}]}.with_indifferent_access
@@ -488,8 +533,50 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
 
       q_to = @copy_to.quizzes.first
       qq_to = q_to.active_quiz_questions.first
-      expect(qq_to.question_data[:question_text]).to match_ignoring_whitespace(qtext % [@copy_to.id, att_2.id, @copy_to.id, "files/#{att2_2.id}/preview", @copy_to.id, "files/#{att4_2.id}/preview"])
+      expect(qq_to.question_data[:question_text]).to match_ignoring_whitespace(qtext % ["/courses/#{@copy_to.id}/files/#{att_2.id}/preview", @copy_to.id, att_2.id, @copy_to.id, "files/#{att2_2.id}/preview", @copy_to.id, "files/#{att4_2.id}/preview"])
       expect(qq_to.question_data[:answers][0][:html]).to match_ignoring_whitespace(%{File ref:<img src="/courses/#{@copy_to.id}/files/#{att3_2.id}/download">})
+    end
+
+    it "should correctly copy quiz question mathml equation image references" do
+      qtext = <<-HTML.strip
+        equation: <p>
+          <img class="equation_image" title="\\sum" src="/equation_images/%255Csum"
+            alt="LaTeX: \\sum" data-equation-content="\\sum" x-canvaslms-safe-mathml="&lt;math xmlns=&quot;http://www.w3.org/1998/Math/MathML&quot;&gt;
+              &lt;mo&gt;&amp;#x2211;&lt;!-- &sum; --&gt;&lt;/mo&gt;&lt;/math&gt;" />
+        </p>
+      HTML
+      data = {'question_name' => 'test question 1', 'question_type' => 'essay_question', 'question_text' => qtext}
+
+      q1 = @copy_from.quizzes.create!(:title => 'quiz1')
+      qq = q1.quiz_questions.create!(:question_data => data)
+
+      run_course_copy
+
+      q_to = @copy_to.quizzes.where(:migration_id => mig_id(q1)).first
+      qq_to = q_to.active_quiz_questions.first
+      expect(qq_to.question_data[:question_text]).to match_ignoring_whitespace(qq.question_data[:question_text])
+    end
+
+    it "should do more terrible equation stuff" do
+      qtext = <<-HTML.strip
+            hmm: <p><img class="equation_image"
+      data-equation-content="h\\left( x \\right) = \\left\\{ {\\begin{array}{*{20}{c}}
+      {{x^2} + 4x - 1}&amp;{{\\rm{for}}}&amp;{ - 7 \\le x \\le - 1}\\\\
+      { - 3x + p}&amp;{{\\rm{for}}}&amp;{ - 1 &lt; x \\le 6}
+      \\end{array}} \\right." />
+      HTML
+
+      data = {'question_name' => 'test question 1', 'question_type' => 'essay_question', 'question_text' => qtext}
+
+      q1 = @copy_from.quizzes.create!(:title => 'quiz1')
+      qq = q1.quiz_questions.create!(:question_data => data)
+
+      run_course_copy
+
+      q_to = @copy_to.quizzes.where(:migration_id => mig_id(q1)).first
+      qq_to = q_to.active_quiz_questions.first
+
+      expect(qq_to.question_data['question_text']).to match_ignoring_whitespace(qq.question_data['question_text'])
     end
 
     it "should copy all html fields in assessment questions" do
@@ -737,6 +824,26 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
       expect(answer["numerical_answer_type"]).to eq "precision_answer"
       expect(answer["approximate"]).to eq 0.0042
       expect(answer["precision"]).to eq 3
+    end
+
+    it "should copy large precision answers for numeric questions" do
+      q = @copy_from.quizzes.create!(:title => "blah")
+      data = {:question_type => "numerical_question",
+        :question_text => "how many problems does QTI cause?",
+        :answers => [{
+          :text => "answer_text", :weight => 100,
+          :numerical_answer_type => "precision_answer",
+          :answer_approximate => 99000000, :answer_precision => 2
+        }]}.with_indifferent_access
+      q.quiz_questions.create!(:question_data => data)
+
+      run_course_copy
+
+      q2 = @copy_to.quizzes.where(migration_id: mig_id(q)).first
+      answer = q2.quiz_questions[0].question_data["answers"][0]
+      expect(answer["numerical_answer_type"]).to eq "precision_answer"
+      expect(answer["approximate"]).to eq 99000000
+      expect(answer["precision"]).to eq 2
     end
 
     it "should copy range answers for numeric questions" do
@@ -1000,6 +1107,19 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
       expect(q2.question_data['answers'].first['comments_html']).to eq text
     end
 
+    it "should copy neutral feedback for file upload questions" do
+      q = @copy_from.quizzes.create!(:title => "q")
+      data = {"question_type" => "file_upload_question", 'name' => 'test question', "neutral_comments_html" => "<i>comment</i>", "neutral_comments" => "comment"}
+      qq = q.quiz_questions.create!(:question_data => data)
+
+      run_course_copy
+
+      q2 = @copy_to.quizzes.first
+      qq2 = q2.quiz_questions.first
+      expect(qq2.question_data['neutral_comments_html']).to eq data['neutral_comments_html']
+      expect(qq2.question_data['neutral_comments']).to eq data['neutral_comments']
+    end
+
     describe "assignment overrides" do
       before :once do
         @quiz_plain = @copy_from.quizzes.create!(title: 'my quiz')
@@ -1033,9 +1153,23 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
       run_course_copy
 
       run_course_copy # run it twice
-      
+
       aq_to = @copy_to.assessment_questions.where(:migration_id => mig_id(aq)).first
       expect(aq_to.data['question_type']).to eq "multiple_choice_question"
+    end
+
+    it "should not remove outer tags with style tags from questions" do
+      html = "<p style=\"text-align: center;\">This is aligned to the center</p>"
+      q = @copy_from.quizzes.create!(:title => "q")
+      data = {'question_name' => 'test question', 'question_type' => 'essay_question',
+        'question_text' => html}
+      qq = q.quiz_questions.create!(:question_data => data)
+
+      run_course_copy
+
+      q_to = @copy_to.quizzes.where(:migration_id => mig_id(q)).first
+      qq_to = q_to.quiz_questions.first
+      expect(qq_to.question_data[:question_text]).to eq html
     end
   end
 end

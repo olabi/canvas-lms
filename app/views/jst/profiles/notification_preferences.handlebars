@@ -3,6 +3,17 @@
     <span><i class='{{icon}}' /> {{title}}</span>
   {{/each}}
 </div>
+{{#if showObservedNames.available}}
+  <div class="user-preference">
+    <label class="checkbox" for="show-name-observers">
+      {{checkbox showObservedNames.name
+        id="show-name-observers"
+        class="user-pref-check"
+        checked=showObservedNames.on}}
+      {{showObservedNames.label}}
+    </label>
+  </div>
+{{/if}}
 
 {{#each eventGroups}}
   <table cellspacing="0"
@@ -31,7 +42,11 @@
         <tr>
           <th class="comm-event" scope="row">
             <div class="row-title-cell">
-              <span class="category-name show-popover"
+              <span class="screenreader-only">
+                  {{{title}}}
+                  {{{description}}}
+              </span>
+              <span class="category-name show-popover" tabindex="0" aria-hidden="true"
                     title="<div class='popover-title'>{{title}}</div>
                            <div class='popover-content'>
                              <p>{{description}}</p>

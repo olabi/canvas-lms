@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,18 +17,33 @@
 #
 module Lti
   class AppLaunchCollator
-    def self.scopes(context, placements)
-      [
-        ContextExternalTool.all_tools_for(context).placements(*placements),
-        MessageHandler.for_context(context).has_placements(*placements)
-          .by_message_types('basic-lti-launch-request')
-      ]
+    def self.external_tools_for(context, placements, options={})
+      tools_options = {}
+      if options[:current_user]
+        tools_options[:current_user] = options[:current_user]
+        tools_options[:user] = options[:current_user]
+      end
+      if options[:only_visible]
+        tools_options[:only_visible] = options[:only_visible]
+        tools_options[:session] = options[:session] if options[:session]
+        tools_options[:visibility_placements] = placements
+      end
+
+      ContextExternalTool.all_tools_for(context, tools_options).placements(*placements)
     end
 
-    def self.bookmarked_collection(context, placements)
-      external_tools, message_handlers = scopes(context, placements)
+    def self.message_handlers_for(context, placements)
+      MessageHandler.for_context(context).has_placements(*placements)
+        .by_message_types('basic-lti-launch-request')
+    end
+
+    def self.bookmarked_collection(context, placements, options={})
+      external_tools = external_tools_for(context, placements, options)
       external_tools = BookmarkedCollection.wrap(ExternalToolNameBookmarker, external_tools)
+
+      message_handlers = message_handlers_for(context, placements)
       message_handlers = BookmarkedCollection.wrap(MessageHandlerNameBookmarker, message_handlers)
+
       BookmarkedCollection.merge(
         ['external_tools', external_tools],
         ['message_handlers', message_handlers]
@@ -35,7 +51,8 @@ module Lti
     end
 
     def self.any?(context, placements)
-      external_tools, message_handlers = scopes(context, placements)
+      external_tools = external_tools_for(context, placements)
+      message_handlers = message_handlers_for(context, placements)
       external_tools.exists? || message_handlers.exists?
     end
 
@@ -65,7 +82,7 @@ module Lti
         if tool.has_placement?(p)
           definition[:placements][p.to_sym] = {
             message_type: tool.extension_setting(p, :message_type) || tool.extension_default_value(p, :message_type),
-            url: tool.extension_setting(p, :url) || tool.extension_default_value(p, :url),
+            url: tool.extension_setting(p, :url) || tool.extension_default_value(p, :url) || tool.extension_default_value(p, :target_link_uri),
             title: tool.label_for(p, I18n.locale || I18n.default_locale.to_s),
           }
           if p.to_sym == :resource_selection || definition[:placements][p.to_sym][:message_type] == 'ContentItemSelection'

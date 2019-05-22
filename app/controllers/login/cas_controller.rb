@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,8 +23,8 @@ class Login::CasController < ApplicationController
 
   protect_from_forgery except: :destroy, with: :exception
 
-  before_filter :forbid_on_files_domain
-  before_filter :run_login_hooks, :check_sa_delegated_cookie, :fix_ms_office_redirects, only: :new
+  before_action :forbid_on_files_domain
+  before_action :run_login_hooks, :fix_ms_office_redirects, only: :new
 
   delegate :client, to: :aac
 
@@ -37,6 +37,9 @@ class Login::CasController < ApplicationController
 
   def create
     logger.info "Attempting CAS login with ticket #{params[:ticket]} in account #{@domain_root_account.id}"
+    # only record further information if we're the first incoming ticket to fill out debugging info
+    debugging = aac.debug_set(:ticket_received, params[:ticket], overwrite: false) if aac.debugging?
+
     st = CASClient::ServiceTicket.new(params[:ticket], cas_login_url)
     begin
       default_timeout = Setting.get('cas_timelimit', 5.seconds.to_s).to_f
@@ -48,12 +51,14 @@ class Login::CasController < ApplicationController
       end
     rescue => e
       logger.warn "Failed to validate CAS ticket: #{e.inspect}"
+      aac.debug_set(:validate_service_ticket, t("Failed to validate CAS ticket: %{error}", error: e)) if debugging
       flash[:delegated_message] = t("There was a problem logging in at %{institution}",
                                     institution: @domain_root_account.display_name)
       return redirect_to login_url
     end
 
     if st.is_valid?
+      aac.debug_set(:validate_service_ticket, t("Validated ticket for %{username}", username: st.user)) if debugging
       reset_session_for_login
 
       pseudonym = @domain_root_account.pseudonyms.for_auth_configuration(st.user, aac)
@@ -64,7 +69,6 @@ class Login::CasController < ApplicationController
         @domain_root_account.pseudonym_sessions.create!(pseudonym, false)
         session[:cas_session] = params[:ticket]
         session[:login_aac] = aac.id
-        pseudonym.claim_cas_ticket(params[:ticket])
 
         successful_login(pseudonym.user, pseudonym)
       else
@@ -74,7 +78,14 @@ class Login::CasController < ApplicationController
         redirect_to unknown_user_url
       end
     else
-      logger.warn "Failed CAS login attempt."
+      if debugging
+        if st.failure_code || st.failure_message
+          aac.debug_set(:validate_service_ticket, t("CAS server rejected ticket: %{message} (%{code})", message: st.failure_message, code: st.failure_code))
+        else
+          aac.debug_set(:validate_service_ticket, t("CAS server rejected ticket."))
+        end
+      end
+      logger.warn "Failed CAS login attempt. (#{st.failure_code}: #{st.failure_message})"
       flash[:delegated_message] = t("There was a problem logging in at %{institution}",
                                     institution: @domain_root_account.display_name)
       redirect_to login_url
@@ -86,14 +97,14 @@ class Login::CasController < ApplicationController
   def destroy
     if !Canvas.redis_enabled?
       # NOT SUPPORTED without redis
-      return render text: "NOT SUPPORTED", status: :method_not_allowed
+      return render plain: "NOT SUPPORTED", status: :method_not_allowed
     elsif params['logoutRequest'] &&
         (match = params['logoutRequest'].match(CAS_SAML_LOGOUT_REQUEST))
       # we *could* validate the timestamp here, but the whole request is easily spoofed anyway, so there's no
       # point. all the security is in the ticket being secret and non-predictable
-      return render text: "OK", status: :ok if Pseudonym.expire_cas_ticket(match[:session_index])
+      return render plain: "OK", status: :ok if Pseudonym.expire_cas_ticket(match[:session_index])
     end
-    render text: "NO SESSION FOUND", status: :not_found
+    render plain: "NO SESSION FOUND", status: :not_found
   end
 
   protected
@@ -106,6 +117,6 @@ class Login::CasController < ApplicationController
   end
 
   def cas_login_url
-    url_for({ controller: 'login/cas', action: :new }.merge(params.slice(:id)))
+    url_for({ controller: 'login/cas', action: :new }.merge(params.permit(:id).to_unsafe_h))
   end
 end

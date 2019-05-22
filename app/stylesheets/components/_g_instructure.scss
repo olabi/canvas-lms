@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "pages/turnitin.scss";
 @import "base/environment";
 
@@ -11,7 +29,7 @@
   display: none;
   position: fixed;
   top: 10px;
-  left: 50px;
+  #{direction(left)}: 50px;
   z-index: 9999;
   background-color: #fff;
   border: 2px solid #888;
@@ -26,7 +44,7 @@
 #fixed_bottom, #flash_message_holder {
   position: fixed;
   z-index: 100000;
-  left: 0;
+  #{direction(left)}: 0;
   width: 100%;
 }
 
@@ -62,7 +80,7 @@
   li:not(.ic-flash-info, .ic-flash-success, .ic-flash-warning, .ic-flash-error) {
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
     border-bottom-color: rgba(0, 0, 0, 0.5);
-    padding: 4px 40px 4px 8px;
+    padding: direction-sides(4px 40px 4px 8px);
     min-height: 20px;
     vertical-align: middle;
     text-align: center;
@@ -79,7 +97,7 @@
     }
     .close_link {
       position: absolute;
-      right: 10px;
+      #{direction(right)}: 10px;
       top: 50%;
       width: 20px;
       height: 20px;
@@ -91,7 +109,7 @@
     i {
       display: inline-block;
       vertical-align: middle;
-      margin-right: 0;
+      margin-#{direction(right)}: 0;
       width: 20px;
       height: 20px;
       background-image: url(/images/check_16.png);
@@ -127,16 +145,9 @@
     margin-bottom: 1em;
   }
   table:not([cellpadding]) {
-    margin-left: 5px;
+    margin-#{direction(left)}: 5px;
     td {
       padding: 2px;
-    }
-  }
-  .enhanceable_content {
-    &.ui-accordion {
-      .ui-accordion-header {
-        margin-bottom: 1px;
-      }
     }
   }
 }
@@ -164,7 +175,8 @@
     padding: 0px 10px;
     border-bottom: 1px solid #aaa;
     font-size: 1.2em;
-    @include border-top-radius(4px);
+    border-top-#{direction(right)}-radius: 4px;
+    border-top-#{direction(left)}-radius: 4px;
   }
   .body {
     width: auto;
@@ -179,7 +191,7 @@
   padding: 5px 10px;
   position: absolute;
   top: 5px;
-  left: 0px;
+  #{direction(left)}: 0px;
   background-color: #fe8;
   border: 2px solid #FBAD00;
   border-radius: 5px;
@@ -207,7 +219,7 @@
   ul.item_list {
     margin-top: 0;
     list-style-type: none;
-    margin-left: 15px;
+    margin-#{direction(left)}: 15px;
     &.limit_height {
       max-height: 150px;
       overflow: auto;
@@ -238,7 +250,7 @@
   table.courses {
     width: 100%;
     td {
-      padding: 5px 5px 10px 10px;
+      padding: direction-sides(5px 5px 10px 10px);
       background-color: #eee;
       color: #888;
       .name {
@@ -273,7 +285,7 @@
 
     .event-details,
     .todo-details {
-      padding-right: $ic-sp;
+      padding-#{direction(right)}: $ic-sp;
       flex: 1;
       min-width: 1px;
       overflow: hidden;
@@ -283,22 +295,22 @@
         content: "";
         position: absolute;
         top: 0;
-        right: 0;
+        #{direction(right)}: 0;
         height: 100%;
         width: $ic-sp;
         background: linear-gradient(
-          to right, rgba(255, 255, 255, 0) 0%,
+          to direction(right), rgba(255, 255, 255, 0) 0%,
           rgba(255, 255, 255, 1) 80%);
       }
     }
 
     .todo-details {
       // gets more padding/width to accommodate close X button
-      padding-right: $ic-sp * 2.5;
+      padding-#{direction(right)}: $ic-sp * 2.5;
       &:after {
         width: $ic-sp * 2.5;
         background: linear-gradient(
-          to right, rgba(255, 255, 255, 0) 0%,
+          to direction(right), rgba(255, 255, 255, 0) 0%,
           rgba(255, 255, 255, 1) 50%);
       }
     }
@@ -318,12 +330,17 @@
   .events_list {
     margin-bottom: $ic-sp * 1.5;
     .event-list-view-calendar {
-      float: right;
+      float: direction(right);
       @include fontSize(12px);
       font-weight: normal;
       &[class*=icon-]:before, &[class^=icon-]:before {
         @include fontSize(16px);
         vertical-align: middle;
+      }
+      &:focus {
+        outline: 1px solid var(--ic-link-color-darkened-10);
+        outline-offset: -1px;
+        padding: 2px;
       }
     }
   }
@@ -353,7 +370,7 @@
 table.summary {
   width: auto;
   th, caption {
-    text-align: left;
+    text-align: direction(left);
   }
   th, td, caption {
     padding: $ic-sp/2;
@@ -369,7 +386,7 @@ table.summary {
   table.subtable {
     th, td {
       border-top: 0;
-      padding: 1px 5px 1px 0;
+      padding: direction-sides(1px 5px 1px 0);
       font-size: 0.8em;
     }
   }
@@ -401,12 +418,12 @@ table.formtable td {
   }
   .details {
     font-size: 0.8em;
-    margin: 0 0 0 10px;
+    margin: direction-sides(0 0 0 10px);
   }
   .info {
-    clear: left;
+    clear: direction(left);
     font-size: 0.8em;
-    margin: 0 0 5px 10px;
+    margin: direction-sides(0 0 5px 10px);
     .links {
       color: #eee;
       a {
@@ -450,7 +467,7 @@ span.hint {
 .formError {
   color: $ic-color-danger;
   font-size: 0.8em;
-  padding-left: 15px;
+  padding-#{direction(left)}: 15px;
 }
 
 .nobr {
@@ -461,10 +478,10 @@ span.hint {
   font-size: 0.8em;
   .name {
     font-weight: bold;
-    margin-left: 10px;
+    margin-#{direction(left)}: 10px;
   }
   .date {
-    margin-left: 5px;
+    margin-#{direction(left)}: 5px;
   }
   .message {
     font-size: 1.5em;
@@ -483,7 +500,7 @@ body .disabled_link {
 .error_box {
   position: absolute;
   top: -1000px;
-  left: -100px;
+  #{direction(left)}: -100px;
   z-index: 11;
   max-width: 200px;
   min-width: 100px;
@@ -499,13 +516,13 @@ body .disabled_link {
   .error_bottom {
     position: absolute;
     bottom: 0;
-    left: 4px;
+    #{direction(left)}: 4px;
   }
 }
 
 .datetime_suggest {
   font-size: 0.8em;
-  padding-left: 10px;
+  padding-#{direction(left)}: 10px;
   color: $ic-dim-helper-text;
 }
 
@@ -526,19 +543,18 @@ body .disabled_link {
 
 ul.notification_list {
   line-height: 1.7em;
-  padding-left: 10px;
+  padding-#{direction(left)}: 10px;
   margin-bottom: 20px;
 }
 
 ul.group_list {
   line-height: 1.7em;
-  padding-left: 10px;
+  padding-#{direction(left)}: 10px;
   margin-bottom: 20px;
 }
 
 $wizard-icon-size: 120px;
 $wizard-bg-color: $ic-color-dark;
-$wizard-highlight-color: $ic-brand-primary;
 
 @keyframes icon-slide-down {
   from {
@@ -563,7 +579,7 @@ $wizard-highlight-color: $ic-brand-primary;
   z-index: 111;
   position: fixed;
   bottom: 0;
-  left: 0;
+  #{direction(left)}: 0;
   width: 100%;
   display: none;
   h3, .h3 {
@@ -584,16 +600,16 @@ $wizard-highlight-color: $ic-brand-primary;
     @include clearfix;
     box-shadow: 0 0 10px #333;
     .links {
-      float: right;
+      float: direction(right);
     }
     .wizard_options {
-      float: left;
+      float: direction(left);
       width: 40%;
-      padding-right: 20px;
+      padding-#{direction(right)}: 20px;
       position: relative;
     }
     .wizard_details {
-      float: left;
+      float: direction(left);
       width: 43%;
       display: none;
       border: 1px solid #aaa;
@@ -613,8 +629,8 @@ $wizard-highlight-color: $ic-brand-primary;
     }
     .wizard_options_list {
       list-style-type: none;
-      margin: 0 10px 0 0;
-      padding-left: 5px;
+      margin: direction-sides(0 10px 0 0);
+      padding-#{direction(left)}: 5px;
       li {
         line-height: 1.8em;
       }
@@ -799,7 +815,7 @@ $wizard-highlight-color: $ic-brand-primary;
           &.selected {
             background: rgba($ic-color-light, 0.1);
             a.header {
-              border-left-color: $ic-brand-primary;
+              border-#{direction(left)}-color: var(--ic-brand-primary);
             }
           }
           &.completed {
@@ -812,17 +828,17 @@ $wizard-highlight-color: $ic-brand-primary;
             display: flex;
             width: 100%;
             align-items: center;
-            padding: 8px ($ic-sp * 3) 8px ($ic-sp * 3);
+            padding: direction-sides(8px ($ic-sp * 3) 8px ($ic-sp * 3));
             color: $ic-color-light;
             text-decoration: none;
             background: url("/images/wizard-todo-unchecked.svg") no-repeat $ic-sp 50%;
             background-size: 16px 16px;
             line-height: 1.2;
-            border-left: ($ic-sp / 3) solid transparent;
+            border-#{direction(left)}: ($ic-sp / 3) solid transparent;
             @include breakpoint(desktop) {
               background-position: ($ic-sp * 2) 50%;
               background-size: ($ic-sp * 2) ($ic-sp * 2);
-              padding-left: $ic-sp * 5;
+              padding-#{direction(left)}: $ic-sp * 5;
             }
           }
         }
@@ -926,7 +942,7 @@ $wizard-highlight-color: $ic-brand-primary;
     margin: 0;
     > .tag {
       display: block;
-      float: left;
+      float: direction(left);
       border: 1px solid #ccc;
       border-radius: 3px;
       background-color: #cdf;
@@ -945,7 +961,7 @@ $wizard-highlight-color: $ic-brand-primary;
 
 .hidden-readable {
   position: absolute;
-  left: -100000px;
+  #{direction(left)}: -100000px;
   top: auto;
   width: 1px;
   height: 1px;
@@ -971,7 +987,7 @@ $wizard-highlight-color: $ic-brand-primary;
         font-size: 1.2em;
         color: #248;
         font-family: courier, monospace;
-        text-align: right;
+        text-align: direction(right);
       }
     }
   }
@@ -993,8 +1009,8 @@ $wizard-highlight-color: $ic-brand-primary;
 }
 
 .communication_message {
-  margin: 0 0.5em 0.5em 0.5em;
-  padding: 0 0 0.5em 0;
+  margin: 0 0.5em 0.5em;
+  padding: 0 0 0.5em;
   width: auto;
   color: #000;
   border-bottom: 1px solid #ddd;
@@ -1008,30 +1024,30 @@ $wizard-highlight-color: $ic-brand-primary;
       _height: 25px;
       color: #666;
       .header_title {
-        float: left;
+        float: direction(left);
       }
       .header_icon {
-        float: left;
+        float: direction(left);
         padding-top: 5px;
         &.announcement_header_icon {
           display: none;
         }
       }
       .title {
-        margin-left: 10px;
+        margin-#{direction(left)}: 10px;
         font-size: 1em;
         font-weight: bold;
         // :color #444
 
       }
       .sub_title {
-        margin-left: 30px;
+        margin-#{direction(left)}: 30px;
         line-height: 0.8em;
       }
       .context_code {
         font-size: 0.8em;
-        padding-right: 5px;
-        padding-left: 0;
+        padding-#{direction(right)}: 5px;
+        padding-#{direction(left)}: 0;
       }
       .context_name {
         font-size: 0.8em;
@@ -1041,8 +1057,8 @@ $wizard-highlight-color: $ic-brand-primary;
       }
       .points_possible {
         font-size: 0.8em;
-        padding-right: 5px;
-        padding-left: 0;
+        padding-#{direction(right)}: 5px;
+        padding-#{direction(left)}: 0;
       }
       .podcast {
         display: none;
@@ -1052,29 +1068,29 @@ $wizard-highlight-color: $ic-brand-primary;
         font-size: 0.8em;
       }
       .post_date {
-        float: right;
-        padding-right: 10px;
+        float: direction(right);
+        padding-#{direction(right)}: 10px;
         font-size: 0.8em;
         padding-top: 0.2em;
         .new-and-total-badge {
-          float: right;
+          float: direction(right);
         }
       }
       .under_links {
-        float: right;
-        clear: right;
-        padding-right: 10px;
+        float: direction(right);
+        clear: direction(right);
+        padding-#{direction(right)}: 10px;
         font-size: 0.8em;
         a {
           color: inherit;
         }
       }
       .link_box {
-        float: right;
+        float: direction(right);
         width: 60px;
-        text-align: right;
+        text-align: direction(right);
         min-height: 10px;
-        margin-right: 5px;
+        margin-#{direction(right)}: 5px;
         a {
           opacity: 0;
           &:hover, &:focus {
@@ -1084,11 +1100,11 @@ $wizard-highlight-color: $ic-brand-primary;
       }
     }
     &.content {
-      padding: 5px 5px 1px 50px;
+      padding: direction-sides(5px 5px 1px 50px);
       color: #444;
       .links {
-        text-align: right;
-        margin-right: 2.5em;
+        text-align: direction(right);
+        margin-#{direction(right)}: 2.5em;
         display: block;
         font-size: 0.8em;
         color: #888;
@@ -1106,13 +1122,13 @@ $wizard-highlight-color: $ic-brand-primary;
         padding-top: 5px;
       }
       .status {
-        text-align: right;
+        text-align: direction(right);
         font-size: 0.8em;
       }
       .original_post_date {
-        text-align: right;
+        text-align: direction(right);
         font-size: 0.8em;
-        padding-right: 44px;
+        padding-#{direction(right)}: 44px;
         color: #888;
       }
       .statistics {
@@ -1128,7 +1144,7 @@ $wizard-highlight-color: $ic-brand-primary;
           }
           &.stats {
             vertical-align: top;
-            padding: 5px 0 5px 10px;
+            padding: direction-sides(5px 0 5px 10px);
             border-bottom: 1px solid #eee;
             .answer {
               .text {
@@ -1166,16 +1182,13 @@ $wizard-highlight-color: $ic-brand-primary;
       font-size: 1.5em;
       text-align: center;
     }
-    &.subcontent {
-      /* :border-left 1px solid #ddd */
-    }
   }
   &.pinned_notification {
     border: 1px solid #bbb;
     background: #ffb;
     .header {
       .links {
-        float: right;
+        float: direction(right);
         font-size: 0.8em;
       }
     }
@@ -1189,20 +1202,20 @@ $wizard-highlight-color: $ic-brand-primary;
     .header {
       .podcast {
         display: block;
-        float: right;
+        float: direction(right);
         opacity: 0.7;
       }
     }
   }
   a.disable_item_link {
     visibility: hidden;
-    float: right;
-    margin-right: 6px;
+    float: direction(right);
+    margin-#{direction(right)}: 6px;
   }
   // use less padding on ones that are a boostrap .alert
   //(like enrollment invitation and account notifications)
   &.alert div.content {
-    padding-left: 35px;
+    padding-#{direction(left)}: 35px;
   }
 }
 
@@ -1255,12 +1268,12 @@ $wizard-highlight-color: $ic-brand-primary;
 .communication_message.conversation {
   .submission {
     ul {
-      margin: 0 10px 10px 0;
+      margin: direction-sides(0 10px 10px 0);
       padding: 0;
     }
     li {
       padding: 2px 5px;
-      margin: 0 0 2px 0;
+      margin: 0 0 2px;
       list-style: none;
       background: #e8e8e8;
     }
@@ -1269,14 +1282,14 @@ $wizard-highlight-color: $ic-brand-primary;
       padding: 0;
     }
     .score {
-      float: right;
-      padding-right: 10px;
+      float: direction(right);
+      padding-#{direction(right)}: 10px;
     }
   }
 }
 
 .communication_sub_message {
-  margin: 0 2.5em 2px 0em;
+  margin: direction-sides(0 2.5em 2px 0em);
   padding: 0;
   width: auto;
   color: #000;
@@ -1289,11 +1302,11 @@ $wizard-highlight-color: $ic-brand-primary;
       border-width: 0px;
       color: #999;
       .link_box {
-        float: right;
+        float: direction(right);
         width: 60px;
-        text-align: right;
+        text-align: direction(right);
         min-height: 10px;
-        margin-right: 5px;
+        margin-#{direction(right)}: 5px;
         opacity: 0.5;
         a {
           visibility: hidden;
@@ -1306,15 +1319,15 @@ $wizard-highlight-color: $ic-brand-primary;
         }
       }
       .header_title {
-        float: left;
+        float: direction(left);
       }
       .user_name {
-        padding-left: 5px;
+        padding-#{direction(left)}: 5px;
         white-space: nowrap;
       }
       .post_date {
-        float: right;
-        padding-right: 10px;
+        float: direction(right);
+        padding-#{direction(right)}: 10px;
         font-size: 0.9em;
         padding-top: 0.2em;
       }
@@ -1323,13 +1336,13 @@ $wizard-highlight-color: $ic-brand-primary;
       }
     }
     &.content {
-      padding: 1px 5px 1px 30px;
+      padding: direction-sides(1px 5px 1px 30px);
       color: #444;
       .less_important {
         color: #888;
         display: block;
-        text-align: right;
-        padding-right: 20px;
+        text-align: direction(right);
+        padding-#{direction(right)}: 20px;
       }
       a.textarea {
         display: block;
@@ -1356,13 +1369,13 @@ $wizard-highlight-color: $ic-brand-primary;
     }
     &.behavior_content {
       color: #999;
-      padding: 2px 5px 2px 30px;
+      padding: direction-sides(2px 5px 2px 30px);
       a {
         color: #888;
       }
     }
     &.footer {
-      float: right;
+      float: direction(right);
     }
   }
   &.toggled_communication_sub_message {
@@ -1375,7 +1388,7 @@ $wizard-highlight-color: $ic-brand-primary;
         display: inline;
         color: inherit;
         padding: 0;
-        margin-right: 15px;
+        margin-#{direction(right)}: 15px;
         border-width: 0;
         &:hover,
         &:focus {
@@ -1457,7 +1470,7 @@ html > body .new_activity_message form textarea {
 
 .notification_list {
   li a {
-    padding-left: 20px;
+    padding-#{direction(left)}: 20px;
     background-image: url(/images/other_icon.png);
     background-repeat: no-repeat;
     background-position: left center;
@@ -1486,12 +1499,12 @@ html > body .new_activity_message form textarea {
 }
 
 .module_legend {
-  float: right;
-  clear: right;
+  float: direction(right);
+  clear: direction(right);
   border: 1px solid #ccc;
   min-width: 200px;
   margin-bottom: 5px;
-  margin-left: 10px;
+  margin-#{direction(left)}: 10px;
   &.module_legend_locked {
     .title {
       display: none;
@@ -1511,7 +1524,7 @@ html > body .new_activity_message form textarea {
     padding: 2px 5px;
   }
   .content {
-    padding: 5px 20px 5px 10px;
+    padding: direction-sides(5px 20px 5px 10px);
     max-height: 50px;
     overflow: auto;
     ul {
@@ -1530,7 +1543,7 @@ html > body .new_activity_message form textarea {
     }
   }
   .footer {
-    text-align: right;
+    text-align: direction(right);
     font-size: 0.8em;
   }
   .context_module_item {
@@ -1541,7 +1554,7 @@ html > body .new_activity_message form textarea {
         img {
           visibility: hidden;
         }
-        background: url(/images/pass.png) no-repeat left top;
+        background: url(/images/pass.png) no-repeat direction(left) top;
         &:hover {
           img {
             visibility: visible;
@@ -1573,9 +1586,9 @@ body > #ui-datepicker-div {
       }
     }
     .ui-icon {
-      float: left;
+      float: direction(left);
       margin-top: 0.2em;
-      margin-right: 2px;
+      margin-#{direction(right)}: 2px;
     }
   }
 }
@@ -1592,9 +1605,9 @@ body > #ui-datepicker-div {
 
 #sequence_details {
   .sequence_list {
-    margin-left: 10px;
+    margin-#{direction(left)}: 10px;
     li {
-      padding-left: 20px;
+      padding-#{direction(left)}: 20px;
       background: url(/images/ball.png) no-repeat center left;
       &.prev, &.next {
         font-size: 0.9em;
@@ -1617,8 +1630,8 @@ body > #ui-datepicker-div {
 body.padless-content .ic-Layout-contentMain,
 .ic-Layout-contentMain.padless {
   #sequence_footer {
-    margin-left: 10px;
-    margin-right: 10px;
+    margin-#{direction(left)}: 10px;
+    margin-#{direction(right)}: 10px;
     padding-top: 0;
   }
 }
@@ -1640,14 +1653,14 @@ body.padless-content .ic-Layout-contentMain,
     }
   }
   .next {
-    float: right;
+    float: direction(right);
   }
   .prev {
-    float: left;
+    float: direction(left);
   }
   .all {
-    clear: right;
-    float: right;
+    clear: direction(right);
+    float: direction(right);
   }
 }
 
@@ -1672,7 +1685,7 @@ body.padless-content .ic-Layout-contentMain,
       }
       &.locked_requirement {
         .description {
-          padding-left: $ic-sp*2;
+          padding-#{direction(left)}: $ic-sp*2;
         }
         a {
           color: $ic-color-medium;
@@ -1683,7 +1696,7 @@ body.padless-content .ic-Layout-contentMain,
       cursor: pointer;
       h3 {
         display: inline-block;
-        padding-left: $ic-sp;
+        padding-#{direction(left)}: $ic-sp;
       }
       ul {
         display: none;
@@ -1701,12 +1714,12 @@ form.user_content_post_form {
 }
 
 #change_calendar_version_link_holder {
-  float: right !important;
+  float: direction(right) !important;
   background: none !important;
 }
 
 #change_calendar_version_link_holder a, .dashboard-toggle a {
-  margin-right: 10px;
+  margin-#{direction(right)}: 10px;
   padding: 1px 10px;
   border-radius: 3px;
   @include vertical-gradient(#0abdff, #008fd6);
@@ -1749,7 +1762,7 @@ form.user_content_post_form {
   >*:not(.ic-alert-masquerade-student-view) {
     i {
       vertical-align: middle;
-      margin-right: 10px;
+      margin-#{direction(right)}: 10px;
     }
     b {
       line-height: 28px;
@@ -1758,7 +1771,7 @@ form.user_content_post_form {
   }
   .fixed_warning {
     background-color: #FDD;
-    border-width: 2px 0 0 0;
+    border-width: 2px 0 0;
     border-style: solid;
     border-color: black;
     padding: 15px;
@@ -1784,20 +1797,38 @@ form.user_content_post_form {
 
 .nav-badge {
   @include ic-badge-maker;
-  float: right;
+  float: direction(right);
 }
 
 .unread-grade {
-  float: left;
+  float: direction(left);
   display: inline-block;
   line-height: 8px;
   width: 8px;
   margin-top: 6px;
-  margin-left: -16px;
+  margin-#{direction(left)}: -16px;
   background-color: #06a9ee;
   border-radius: 4px;
 }
 
 .clear {
   clear: both;
+}
+
+.ic-Error-page {
+  text-align: center;
+  h1 {
+    margin-top: 3rem;
+  }
+  .ic-Error-img
+  {
+    margin-top: 2rem;
+    max-width: 350px;
+  }
+  .ic-Error-form {
+    text-align: #{direction(left)};
+    max-width: 410px;
+    margin-#{direction(left)}: auto;
+    margin-#{direction(right)}: auto;
+  }
 }

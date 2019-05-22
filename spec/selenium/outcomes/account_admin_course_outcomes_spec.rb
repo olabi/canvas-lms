@@ -1,4 +1,20 @@
 # encoding: utf-8
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/outcome_common')
@@ -19,10 +35,15 @@ describe "account admin outcomes" do
 
     it "should be able to manage course rubrics" do
       get "/courses/#{@course.id}/outcomes"
-      expect_new_page_load do
-        f('#popoverMenu button').click
-        f('[data-reactid*="manage-rubrics"]').click
-      end
+      expect_new_page_load { f('.manage_rubrics').click }
+      # this was originally added in OUT-465. It will eventually be moved over
+      # into the below popover menu, so leaving the blow code in place for
+      # when that happens
+
+      # expect_new_page_load do
+      #   f('#popoverMenu button').click
+      #   f('[data-reactid*="manage-rubrics"]').click
+      # end
 
       expect(f('.add_rubric_link')).to be_displayed
     end
@@ -42,6 +63,7 @@ describe "account admin outcomes" do
       end
 
       it "should delete a learning outcome", priority: "1", test_id: 250232 do
+        skip_if_safari(:alert)
         should_delete_a_learning_outcome
       end
 
@@ -69,6 +91,7 @@ describe "account admin outcomes" do
       end
 
       it "should delete an outcome group", priority: "2", test_id: 250238 do
+        skip_if_safari(:alert)
         should_delete_an_outcome_group
       end
     end
@@ -83,6 +106,7 @@ describe "account admin outcomes" do
       end
 
       it "should expand/collapse outcome groups", priority: "2", test_id: 114338 do
+        skip_if_safari(:alert)
         import_state_standart_into_account
 
         back_button = f(".go_back")
@@ -131,9 +155,7 @@ describe "account admin outcomes" do
     end
 
     def click_on_state_standards
-      top_level_groups = ff(".outcome-level .outcome-group")
-      expect(top_level_groups.count).to eq 3
-      top_level_groups[1].click
+      fj(".outcome-level .outcome-group:eq(1)").click
       wait_for_ajaximations
     end
 
@@ -143,6 +165,8 @@ describe "account admin outcomes" do
       expect(driver.switch_to.alert).not_to be nil
       driver.switch_to.alert.accept
       wait_for_ajaximations
+      run_jobs
+      wait_for_no_such_element { f(".ui-dialog") }
     end
 
     def expand_child_folders(counter, back_button)

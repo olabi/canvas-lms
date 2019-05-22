@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,15 +21,15 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 describe StreamItemInstance do
   describe ".update_all" do
     it "raises an exception to warn about necessary cache invalidation" do
-      expect { StreamItemInstance.update_all }.to raise_error
+      expect { StreamItemInstance.update_all }.to raise_error("Using update_all will break things, use update_all_with_invalidation instead.")
     end
   end
 
   describe ".update_all_with_invalidation" do
      it "invalidates stream item cache keys and runs update_all (the original)" do
        # expect
-       StreamItemCache.expects(:invalidate_context_stream_item_key).twice
-       StreamItemInstance.expects(:original_update_all).with('updates')
+       expect(StreamItemCache).to receive(:invalidate_context_stream_item_key).twice
+       expect(StreamItemInstance).to receive(:original_update_all).with('updates')
        # when
        StreamItemInstance.update_all_with_invalidation(['code_1', 'code_2'],
                                                        'updates')

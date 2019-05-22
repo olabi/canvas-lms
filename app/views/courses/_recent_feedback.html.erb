@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <li style="<%= hidden if is_hidden %>" class="event">
 
 <%
@@ -7,10 +25,9 @@
   grade = nil
   score = nil
 
-  # current user needs to be in the cache key to bust the cache when they change course nicknames
-  cache(['recent_feedback_render3', @current_user, recent_feedback || 'blank_feedback', Time.zone.utc_offset].cache_key) do
-    context = recent_feedback.context
+  cache(['recent_feedback_render3', @current_user&.course_nickname_hash, recent_feedback || 'blank_feedback', Time.zone.utc_offset].cache_key) do
     assignment = recent_feedback.assignment
+    context = recent_feedback.assignment.context
     url = context_url(context, :context_assignment_submission_url, :assignment_id => recent_feedback.assignment_id, :id=>@current_user.id)
     grade = readable_grade(recent_feedback)
     score = recent_feedback.score
@@ -32,7 +49,7 @@
     <div class="event-details">
       <% if comment && comment.media_comment? %>
         <% kaltura_thumbnail_url = CanvasKaltura::ClientV3.new.thumbnail_url(comment.media_comment_id, :width => 50, :height => 35, :bgcolor => "F3F4F5") %>
-        <img src="<%= kaltura_thumbnail_url %>" style="max-width: 50px; max-height: 35px; float: right; padding-left: 3px;" alt=""/>
+        <img src="<%= kaltura_thumbnail_url %>" style="max-width: 50px; max-height: 35px; float: <%= direction('right') %>; padding-<%= direction('left') %>: 3px;" alt=""/>
       <% end %>
       <b class="event-details__title recent_feedback_title">
         <%= recent_feedback.assignment.title %>
@@ -54,5 +71,4 @@
   <div class="clear"></div>
 
 <% end %>
-
 </li>

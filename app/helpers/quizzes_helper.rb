@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -66,7 +66,7 @@ module QuizzesHelper
     if score.nil?
       '_'
     else
-      round_if_whole(score.to_f.round(precision)).to_s
+      I18n.n(round_if_whole(score.to_f.round(precision)))
     end
   end
 
@@ -399,7 +399,7 @@ module QuizzesHelper
     html = hash_get(hash, "#{field}_html".to_sym)
 
     if html
-      sanitize(html)
+      UserContent.escape(Sanitize.clean(html, CanvasSanitize::SANITIZE))
     else
       hash_get(hash, field)
     end
@@ -478,6 +478,8 @@ module QuizzesHelper
           HTML
         end
       end
+
+      s['aria-label'] = I18n.t("Multiple dropdowns, read surrounding text")
     end
     doc.to_s.html_safe
   end
@@ -686,4 +688,14 @@ module QuizzesHelper
     @quiz.quiz_type == "survey" ? "" : round_if_whole(@quiz.points_possible)
   end
 
+  def label_for_question_type(question_type)
+    case question_type.question_type
+    when 'short_answer_question'
+      I18n.t('Fill in the blank answer')
+    when 'numerical_question', 'calculated_question'
+      I18n.t('Numerical answer')
+    else
+      I18n.t('Answer field')
+    end
+  end
 end

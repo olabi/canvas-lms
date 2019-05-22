@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'active_support'
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 
@@ -8,19 +25,19 @@ describe Quizzes::QuizRegrader::AttemptVersion do
   end
 
   let(:question_group) do
-    stub(:pick_count => 1, :question_points => 25)
+    double(:pick_count => 1, :question_points => 25)
   end
 
   let(:question_regrades) do
     1.upto(3).each_with_object({}) do |i, hash|
-      hash[i] = stub(:quiz_question  => stub(:id => i, :question_data => {:id => i}, :quiz_group => question_group),
+      hash[i] = double(:quiz_question  => double(:id => i, :question_data => {:id => i}, :quiz_group => question_group),
                      :question_data  => {:id => i},
                      :regrade_option => regrade_options[i])
     end
   end
 
-  let(:quiz_data) do
-    question_regrades.map {|id, q| q.quiz_question.question_data.dup }
+  let(:questions) do
+    question_regrades.values.map { |q| q.quiz_question.question_data.dup }
   end
 
   let(:submission_data) do
@@ -28,9 +45,9 @@ describe Quizzes::QuizRegrader::AttemptVersion do
   end
 
   let(:submission) do
-    stub(:score                 => 0,
+    double(:score                 => 0,
          :score_before_regrade  => 1,
-         :quiz_data             => quiz_data,
+         :questions             => questions,
          :score=                => nil,
          :score_before_regrade= => nil,
          :submission_data       => submission_data,
@@ -38,7 +55,7 @@ describe Quizzes::QuizRegrader::AttemptVersion do
   end
 
   let(:version) do
-    stub(:model => submission)
+    double(:model => submission)
   end
 
   let(:attempt_version) do
@@ -60,22 +77,22 @@ describe Quizzes::QuizRegrader::AttemptVersion do
 
     it "assigns the model and saves the version" do
       submission_data.each do |answer|
-        answer_stub = stub
-        answer_stub.expects(:regrade!).once.returns(1)
-        Quizzes::QuizRegrader::Answer.expects(:new).returns answer_stub
+        answer_stub = double
+        expect(answer_stub).to receive(:regrade!).once.and_return(1)
+        expect(Quizzes::QuizRegrader::Answer).to receive(:new).and_return answer_stub
       end
 
       # submission data isn't called if not included in question_regrades
       submission_data << {:question_id => 4}
-      Quizzes::QuizRegrader::Answer.expects(:new).with(submission_data.last, nil).never
+      expect(Quizzes::QuizRegrader::Answer).to receive(:new).with(submission_data.last, nil).never
 
-      submission.expects(:score=).with(3)
-      submission.expects(:score_before_regrade).returns nil
-      submission.expects(:score_before_regrade=).with(0)
-      submission.expects(:quiz_data=)
+      expect(submission).to receive(:score=).with(3)
+      expect(submission).to receive(:score_before_regrade).and_return nil
+      expect(submission).to receive(:score_before_regrade=).with(0)
+      expect(submission).to receive(:quiz_data=)
 
-      version.expects(:model=)
-      version.expects(:save!)
+      expect(version).to receive(:model=)
+      expect(version).to receive(:save!)
 
       attempt_version.regrade!
     end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,22 +32,23 @@ describe "discussion_topics" do
     @group.users << @user
 
     get "/groups/#{@group.id}/discussion_topics/#{@topic.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
 
-    post "/groups/#{@group.id}/discussion_entries", :discussion_entry => { :discussion_topic_id => @topic.id, :message => "frist!!1" }
+    post "/groups/#{@group.id}/discussion_entries", params: {:discussion_entry => { :discussion_topic_id => @topic.id, :message => "frist!!1" }}
     expect(response).to be_redirect
 
     get "/groups/#{@group.id}/discussion_topics/#{@topic.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
   end
 
   it "should not allow concluded students to update topic" do
-    student_enrollment = course_with_student(:course => @course, :user => @user, :active_enrollment => true)
+    student_enrollment = course_with_student(:course => @course, :active_all => true)
     @topic = DiscussionTopic.new(:context => @course, :title => "will this work?", :user => @user)
     @topic.save!
-    expect(@topic.grants_right?(@user, :update))
+    expect(@topic.grants_right?(@user, :update)).to be
     student_enrollment.send("conclude")
-    expect(!@topic.grants_right?(@user, :update))
+    AdheresToPolicy::Cache.clear
+    expect(@topic.grants_right?(@user, :update)).not_to be
   end
 
   it "should allow teachers to edit concluded students topics" do
@@ -55,9 +56,10 @@ describe "discussion_topics" do
     student_enrollment = course_with_student(:course => @course, :user => @student, :active_enrollment => true)
     @topic = DiscussionTopic.new(:context => @course, :title => "will this work?", :user => @student)
     @topic.save!
-    expect(@topic.grants_right?(@teacher, :update))
+    expect(@topic.grants_right?(@teacher, :update)).to be
     student_enrollment.send("conclude")
-    expect(@topic.grants_right?(@teacher, :update))
+    AdheresToPolicy::Cache.clear
+    expect(@topic.grants_right?(@teacher, :update)).to be
   end
 
   it "should show speed grader button" do
@@ -65,7 +67,7 @@ describe "discussion_topics" do
     discussion_assignment
 
     get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
     doc = Nokogiri::XML(response.body)
     expect(doc.at_css('.admin-links .icon-speed-grader')).not_to be_nil
   end
@@ -77,9 +79,8 @@ describe "discussion_topics" do
     @assignment.save
 
     get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
     doc = Nokogiri::XML(response.body)
     expect(doc.at_css('.admin-links .icon-peer-review')).not_to be_nil
   end
-
 end

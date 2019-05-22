@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Lti
   class LtiOutboundAdapter
     cattr_writer :consumer_instance_class
@@ -40,40 +57,42 @@ module Lti
       lti_account = Lti::LtiAccountCreator.new(@context, @tool).convert
 
       @tool_launch = LtiOutbound::ToolLaunch.new(
-          {
-              url: launch_url,
-              link_code: link_code,
-              return_url: return_url,
-              resource_type: resource_type,
-              selected_html: selected_html,
-              outgoing_email_address: HostUrl.outgoing_email_address,
-              context: lti_context,
-              user: lti_user,
-              tool: lti_tool,
-              account: lti_account,
-              variable_expander: variable_expander,
-              link_params: link_params
-          }
+        {
+            url: launch_url,
+            link_code: link_code,
+            return_url: return_url,
+            resource_type: resource_type,
+            selected_html: selected_html,
+            outgoing_email_address: HostUrl.outgoing_email_address,
+            context: lti_context,
+            user: lti_user,
+            tool: lti_tool,
+            account: lti_account,
+            variable_expander: variable_expander,
+            link_params: link_params
+        }
       )
       self
     end
 
-    def generate_post_payload
+    def generate_post_payload(assignment: nil)
       raise('Called generate_post_payload before calling prepare_tool_launch') unless @tool_launch
       hash = @tool_launch.generate(@overrides)
+      hash[:ext_lti_assignment_id] = assignment&.lti_context_id if assignment&.lti_context_id.present?
       Lti::Security.signed_post_params(
         hash,
         @tool_launch.url,
         @tool.consumer_key,
         @tool.shared_secret,
-        @root_account.feature_enabled?(:disable_lti_post_only) || @tool.extension_setting(:oauth_compliant))
+        disable_post_only?
+      )
     end
 
     def generate_post_payload_for_assignment(assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)
       raise('Called generate_post_payload_for_assignment before calling prepare_tool_launch') unless @tool_launch
       lti_assignment = Lti::LtiAssignmentCreator.new(assignment, encode_source_id(assignment)).convert
       @tool_launch.for_assignment!(lti_assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)
-      generate_post_payload
+      generate_post_payload(assignment: assignment)
     end
 
     def generate_post_payload_for_homework_submission(assignment)
@@ -83,9 +102,9 @@ module Lti
       generate_post_payload
     end
 
-    def launch_url
+    def launch_url(post_only: false)
       raise('Called launch_url before calling prepare_tool_launch') unless @tool_launch
-      @tool_launch.url
+      post_only && !disable_post_only? ? @tool_launch.url.split('?').first : @tool_launch.url
     end
 
     # this is the lis_result_sourcedid field in the launch, and the
@@ -95,12 +114,17 @@ module Lti
     # ensures that only this launch of the tool can modify the score.
     def encode_source_id(assignment)
       @tool.shard.activate do
-        payload = [@tool.id, @context.id, assignment.id, @user.id].join('-')
-        "#{payload}-#{Canvas::Security.hmac_sha1(payload)}"
+        if @root_account.feature_enabled?(:encrypted_sourcedids)
+          BasicLTI::Sourcedid.new(@tool, @context, assignment, @user).to_s
+        else
+          payload = [@tool.id, @context.id, assignment.id, @user.id].join('-')
+          "#{payload}-#{Canvas::Security.hmac_sha1(payload)}"
+        end
       end
     end
 
     private
+
     def default_launch_url(resource_type = nil)
       resource_type ? @tool.extension_setting(resource_type, :url) : @tool.url
     end
@@ -109,6 +133,8 @@ module Lti
       @tool.opaque_identifier_for(@context)
     end
 
-
+    def disable_post_only?
+      @root_account.feature_enabled?(:disable_lti_post_only) || @tool.extension_setting(:oauth_compliant)
+    end
   end
 end

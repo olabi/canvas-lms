@@ -31,13 +31,17 @@ class TestUserApi
   end
 end
 
+def default_avatar_url
+  "http://www.example.com/images/messages/avatar-50.png"
+end
+
 describe "User Profile API", type: :request do
   before :once do
     @admin = account_admin_user
     @admin_lti_user_id = Lti::Asset.opaque_identifier_for(@admin)
     course_with_student(:user => user_with_pseudonym(:name => 'Student', :username => 'pvuser@example.com'))
     @student.pseudonym.update_attribute(:sis_user_id, 'sis-user-id')
-    @student_lti_user_id = Lti::Asset.opaque_identifier_for(@student)
+    Lti::Asset.opaque_identifier_for(@student)
     @user = @admin
     Account.default.tap { |a| a.enable_service(:avatars) }.save
     user_with_pseudonym(:user => @user)
@@ -62,12 +66,13 @@ describe "User Profile API", type: :request do
       'name' => 'new guy',
       'sortable_name' => 'guy, new',
       'short_name' => 'new guy',
+      'sis_user_id' => nil,
       'login_id' => nil,
       'integration_id' => nil,
       'primary_email' => nil,
       'title' => nil,
       'bio' => nil,
-      'avatar_url' => new_user.gravatar_url(50, nil, request),
+      'avatar_url' => default_avatar_url,
       'time_zone' => 'Etc/UTC',
       'locale' => nil
     })
@@ -83,16 +88,18 @@ describe "User Profile API", type: :request do
       'name' => 'User',
       'sortable_name' => 'User',
       'short_name' => 'User',
+      'sis_user_id' => nil,
       'integration_id' => nil,
       'primary_email' => 'nobody@example.com',
       'login_id' => 'nobody@example.com',
-      'avatar_url' => @admin.gravatar_url(50, nil, request),
+      'avatar_url' => default_avatar_url,
       'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@admin.uuid}.ics" },
       'lti_user_id' => @admin_lti_user_id,
       'title' => nil,
       'bio' => nil,
       'time_zone' => 'Etc/UTC',
-      'locale' => nil
+      'locale' => nil,
+      'effective_locale' => 'en'
     })
   end
 
@@ -110,13 +117,14 @@ describe "User Profile API", type: :request do
       'integration_id' => nil,
       'primary_email' => 'pvuser@example.com',
       'login_id' => 'pvuser@example.com',
-      'avatar_url' => @student.gravatar_url(50, nil, request),
+      'avatar_url' => default_avatar_url,
       'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" },
-      'lti_user_id' => @student_lti_user_id,
+      'lti_user_id' => @student.lti_context_id,
       'title' => nil,
       'bio' => nil,
       'time_zone' => 'Etc/UTC',
-      'locale' => 'es'
+      'locale' => 'es',
+      'effective_locale' => 'es'
     })
   end
 
@@ -132,14 +140,24 @@ describe "User Profile API", type: :request do
       'integration_id' => nil,
       'primary_email' => 'pvuser@example.com',
       'login_id' => 'pvuser@example.com',
-      'avatar_url' => @student.gravatar_url(50, nil, request),
+      'avatar_url' => default_avatar_url,
       'calendar' => { 'ics' => "http://www.example.com/feeds/calendars/user_#{@student.uuid}.ics" },
-      'lti_user_id' => @student_lti_user_id,
+      'lti_user_id' => @student.lti_context_id,
       'title' => nil,
       'bio' => nil,
       'time_zone' => 'Etc/UTC',
-      'locale' => nil
+      'locale' => nil,
+      'effective_locale' => 'en'
     })
+  end
+
+  it "respects :read_email_addresses permission" do
+    RoleOverride.create!(:context => Account.default, :permission => 'read_email_addresses',
+                         :role => Role.get_built_in_role('AccountAdmin'), :enabled => false)
+    json = api_call(:get, "/api/v1/users/#{@student.id}/profile",
+             :controller => "profile", :action => "settings", :user_id => @student.to_param, :format => 'json')
+    expect(json['id']).to eq @student.id
+    expect(json['primary_email']).to be_nil
   end
 
   it "should return this user's avatars, if allowed" do

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module CanvasPartman
   class PartitionManager
     class ByDate < PartitionManager
@@ -10,19 +27,57 @@ module CanvasPartman
             create_partition(min)
             min += 1.send(base_class.partitioning_interval)
           end
+          create_partition(min)
         end
 
         ensure_partitions(advance_partitions)
       end
 
-      def ensure_partitions(advance = 1)
+      def migrate_data_to_partitions(batch_size: 1000, timeout: nil)
+        start_time = Time.now
+        loop do
+          return false if timeout && (start_time + timeout) < Time.now
+
+          id_dates = base_class.from("ONLY #{base_class.quoted_table_name}").
+            order(base_class.partitioning_field).
+            limit(batch_size).
+            pluck(:id, base_class.partitioning_field)
+          break if id_dates.empty?
+
+          id_dates.group_by{|id, date| generate_name_for_partition(date)}.each do |partition_table, part_id_dates|
+            base_class.connection.execute(<<-SQL)
+              WITH x AS (
+                DELETE FROM ONLY #{base_class.quoted_table_name}
+                WHERE id IN (#{part_id_dates.map(&:first).join(', ')})
+                RETURNING *
+              ) INSERT INTO #{base_class.connection.quote_table_name(partition_table)} SELECT * FROM x
+            SQL
+          end
+        end
+        true
+      end
+
+      def ensure_partitions(advance=1)
+        ensure_or_check_partitions(advance, true)
+      end
+
+      def partitions_created?(advance=1)
+        ensure_or_check_partitions(advance, false)
+      end
+
+      def ensure_or_check_partitions(advance, create_partitions)
         current = Time.now.utc.send("beginning_of_#{base_class.partitioning_interval.to_s.singularize}")
         (advance + 1).times do
           unless partition_exists?(current)
-            create_partition(current)
+            if create_partitions
+              create_partition(current)
+            else
+              return false
+            end
           end
           current += 1.send(base_class.partitioning_interval)
         end
+        true
       end
 
       def prune_partitions(number_to_keep = 6)
@@ -50,6 +105,8 @@ module CanvasPartman
 
       def table_regex
         @table_regex ||= case base_class.partitioning_interval
+                         when :weeks
+                           /^#{Regexp.escape(base_class.table_name)}_(?<year>\d{4,})_(?<week>\d{2,})$/.freeze
                          when :months
                            /^#{Regexp.escape(base_class.table_name)}_(?<year>\d{4,})_(?<month>\d{1,2})$/.freeze
                          when :years
@@ -70,11 +127,20 @@ SQL
       def date_from_partition_name(name)
         match = table_regex.match(name)
         return nil unless match
-        Time.utc(*match[1..-1])
+        if base_class.partitioning_interval == :weeks
+          Time.utc(match[:year]).beginning_of_week + (match[:week].to_i - 1).weeks
+        else
+          Time.utc(*match[1..-1])
+        end
       end
 
       def generate_date_constraint_range(date)
         case base_class.partitioning_interval
+        when :weeks
+          [
+            0.week.from_now(date).beginning_of_week,
+            1.week.from_now(date).beginning_of_week
+          ]
         when :months
           [
             0.month.from_now(date).beginning_of_month,

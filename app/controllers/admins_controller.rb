@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,7 +37,7 @@
 #           "description": "The user the role is assigned to. See the Users API for details.",
 #           "$ref": "User"
 #         },
-#         "status": {
+#         "workflow_state": {
 #           "description": "The status of the account role/user assignment.",
 #           "type": "string",
 #           "example": "deleted"
@@ -45,8 +45,8 @@
 #       }
 #    }
 class AdminsController < ApplicationController
-  before_filter :require_user
-  before_filter :get_context
+  before_action :require_user
+  before_action :get_context
 
   include Api::V1::Admin
 
@@ -57,28 +57,30 @@ class AdminsController < ApplicationController
   # @argument user_id [Required, Integer]
   #   The id of the user to promote.
   #
-  # @argument role [String] (deprecated)
-  #   The user's admin relationship with the account will be created with the
-  #   given role. Defaults to 'AccountAdmin'.
+  # @argument role [String]
+  #   [DEPRECATED] The user's admin relationship with the account will be
+  #   created with the given role. Defaults to 'AccountAdmin'.
   #
   # @argument role_id [Integer]
   #   The user's admin relationship with the account will be created with the
   #   given role. Defaults to the built-in role for 'AccountAdmin'.
   #
-  # @argument send_confirmation [Boolean] Send a notification email to
+  # @argument send_confirmation [Boolean]
+  #   Send a notification email to
   #   the new admin if true. Default is true.
   #
   # @returns Admin
   def create
     user = api_find(User, params[:user_id])
-    raise(ActiveRecord::RecordNotFound, "Couldn't find User with API id '#{params[:user_id]}'") unless user.find_pseudonym_for_account(@context.root_account, true)
+    raise(ActiveRecord::RecordNotFound, "Couldn't find User with API id '#{params[:user_id]}'") unless SisPseudonym.for(user, @context, type: :implicit, require_sis: false)
 
     require_role
     admin = @context.account_users.where(user_id: user.id, role_id: @role.id).first_or_initialize
+    admin.workflow_state = 'active'
 
     return unless authorized_action(admin, @current_user, :create)
 
-    if admin.new_record?
+    if admin.new_record? || admin.workflow_state_changed?
       if admin.save
         # if they don't provide it, or they explicitly want it
         if params[:send_confirmation].nil? ||
@@ -100,9 +102,9 @@ class AdminsController < ApplicationController
   #
   # Remove the rights associated with an account admin role from a user.
   #
-  # @argument role [String] (Deprecated)
-  #   Account role to remove from the user. Defaults to 'AccountAdmin'. Any
-  #   other account role must be specified explicitly.
+  # @argument role [String]
+  #   [DEPRECATED] Account role to remove from the user. Defaults to
+  #   'AccountAdmin'. Any other account role must be specified explicitly.
   #
   # @argument role_id [Integer]
   #   The user's admin relationship with the account will be created with the
@@ -121,7 +123,7 @@ class AdminsController < ApplicationController
 
   # @API List account admins
   #
-  # List the admins in the account
+  # A paginated list of the admins in the account
   #
   # @argument user_id[] [[Integer]]
   #   Scope the results to those with user IDs equal to any of the IDs specified here.
@@ -130,7 +132,7 @@ class AdminsController < ApplicationController
   def index
     if authorized_action(@context, @current_user, :manage_account_memberships)
       user_ids = api_find_all(User, Array(params[:user_id])).pluck(:id) if params[:user_id]
-      scope = @context.account_users
+      scope = @context.account_users.active
       scope = scope.where(user_id: user_ids) if user_ids
       route = polymorphic_url([:api_v1, @context, :admins])
       admins = Api.paginate(scope.order(:id), self, route)
@@ -142,7 +144,9 @@ class AdminsController < ApplicationController
 
   def require_role
     @role = Role.get_role_by_id(params[:role_id]) if params[:role_id]
-    @role ||= @context.get_account_role_by_name(params[:role]) if params[:role]
-    @role ||= Role.get_built_in_role("AccountAdmin")
+    @context.shard.activate do
+      @role ||= @context.get_account_role_by_name(params[:role]) if params[:role]
+      @role ||= Role.get_built_in_role("AccountAdmin")
+    end
   end
 end

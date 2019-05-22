@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2016 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,11 +12,11 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([], function() {
-  var tabIdFromElement = function(el) {
+
+export function tabIdFromElement (el) {
     var tabIdStr = el.id;
     if (tabIdStr) {
       var tabId = tabIdStr.replace(/^nav_edit_tab_id_/, '');
@@ -29,8 +29,3 @@ define([], function() {
     }
     return null;
   }
-
-  return {
-    'tabIdFromElement': tabIdFromElement
-  };
-});

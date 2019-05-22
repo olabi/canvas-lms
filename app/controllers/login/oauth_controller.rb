@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,7 +35,7 @@ class Login::OauthController < Login::OauthBaseController
 
   def create
     @aac = @domain_root_account.authentication_providers.active.find(params[:id])
-    raise ActiveRecord::RecordNotFound unless @aac.is_a?(AccountAuthorizationConfig::Oauth)
+    raise ActiveRecord::RecordNotFound unless @aac.is_a?(AuthenticationProvider::Oauth)
 
     oauth_state = session.delete(:oauth)
     request_token = OAuth::RequestToken.new(@aac.consumer,

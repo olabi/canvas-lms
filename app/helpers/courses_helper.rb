@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -99,14 +99,37 @@ module CoursesHelper
          submission.assignment.respond_to?(:points_possible)
          score_out_of_points_possible(submission.grade, submission.assignment.points_possible)
       else
-        submission.grade.to_s.capitalize
+        i18n_grade(submission.grade, submission.grading_type).to_s
       end
-    else
-      nil
     end
   end
 
   def skip_custom_role?(cr)
     cr[:count] == 0 && cr[:workflow_state] == 'inactive'
+  end
+
+  def user_type(course, user, enrollments = nil)
+    enrollment = enrollments ? enrollments[user.id] : course.enrollments.find_by(user: user)
+
+    if enrollment.nil?
+      return course.account_membership_allows(user) ? "admin" : nil
+    end
+
+    type = enrollment.type.remove(/Enrollment/).downcase
+    type = "student" if %w/studentview observer/.include?(type)
+
+    type
+  end
+
+  def why_cant_i_enable_master_course(course)
+    return nil if MasterCourses::MasterTemplate.is_master_course?(course)
+
+    if MasterCourses::ChildSubscription.is_child_course?(course)
+      t('Course is already associated with a blueprint')
+    elsif course.student_enrollments.not_fake.exists?
+      t("Cannot have a blueprint course with students")
+    else
+      nil
+    end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
+
 # @API Users
 # @subtopic Course Nicknames
 #
@@ -49,7 +50,7 @@
 #     }
 #
 class CourseNicknamesController < ApplicationController
-  before_filter :require_user
+  before_action :require_user
 
   # @API List course nicknames
   #

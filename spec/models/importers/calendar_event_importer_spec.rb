@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -120,7 +120,7 @@ describe Importers::CalendarEventImporter do
     end
 
     it "handles web_links" do
-      migration_course.expects(:external_url_hash).returns('value' => {'url' => 'http://example.com', 'name' => 'example link'})
+      expect(migration_course).to receive(:external_url_hash).and_return('value' => {'url' => 'http://example.com', 'name' => 'example link'})
       result = attachment_suffix('web_link', 'value')
       expect(result).to include 'example link'
       expect(result).to include 'http://example.com'

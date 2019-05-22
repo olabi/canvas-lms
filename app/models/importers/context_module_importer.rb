@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -98,22 +115,25 @@ module Importers
       item.migration_id = hash[:migration_id]
       migration.add_imported_item(item)
       item.name = hash[:title] || hash[:description]
+      item.mark_as_importing!(migration)
       if hash[:workflow_state] == 'unpublished'
-        item.workflow_state = 'unpublished' if item.new_record? || item.deleted? # otherwise leave it alone
+        item.workflow_state = 'unpublished' if item.new_record? || item.deleted? || migration.for_master_course_import? # otherwise leave it alone
       else
         item.workflow_state = 'active'
       end
 
       position = hash[:position] || hash[:order]
-      if item.new_record? && migration.try(:last_module_position) # try to import new modules after current ones instead of interweaving positions
+      if (item.new_record? || item.workflow_state_was == 'deleted') && migration.try(:last_module_position) # try to import new modules after current ones instead of interweaving positions
         position = migration.last_module_position + (position || 1)
       end
       item.position = position
       item.context = context
-      item.unlock_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:unlock_at]) if hash[:unlock_at]
-      item.start_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:start_at]) if hash[:start_at]
-      item.end_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:end_at]) if hash[:end_at]
-      item.require_sequential_progress = hash[:require_sequential_progress] if hash[:require_sequential_progress]
+
+      if hash.has_key?(:unlock_at) && (migration.for_master_course_import? || hash[:unlock_at].present?)
+        item.unlock_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:unlock_at])
+      end
+
+      item.require_sequential_progress = hash[:require_sequential_progress] if hash.has_key?(:require_sequential_progress)
       item.requirement_count = hash[:requirement_count] if hash[:requirement_count]
 
       if hash[:prerequisites]
@@ -125,12 +145,12 @@ module Importers
             end
           end
         end
-        item.prerequisites = preqs if preqs.length > 0
+        item.prerequisites = preqs if preqs.length > 0 || migration.for_master_course_import?
       end
       item.save!
 
       item_map = {}
-      @item_migration_position = item.content_tags.not_deleted.map(&:position).compact.max || 0
+      item.item_migration_position ||= item.content_tags.not_deleted.pluck(:position).compact.max
 
       items = hash[:items] || []
       items = items.map{|item| self.flatten_item(item, 0)}.flatten
@@ -146,7 +166,8 @@ module Importers
         end
       end
 
-      item.content_tags.where.not(:migration_id => imported_migration_ids).destroy_all # clear out missing items afterwards
+      item.content_tags.where.not(:migration_id => nil).
+        where.not(:migration_id => imported_migration_ids).destroy_all # clear out missing items afterwards
 
       if hash[:completion_requirements]
         c_reqs = []
@@ -175,6 +196,8 @@ module Importers
       existing_item ||= context_module.content_tags.where(migration_id: hash[:migration_id]).first if hash[:migration_id]
       existing_item ||= ContentTag.new(:context_module => context_module, :context => context)
 
+      is_new_record = existing_item.new_record?
+
       existing_item.mark_as_importing!(migration)
       migration.add_imported_item(existing_item)
 
@@ -182,7 +205,7 @@ module Importers
       hash[:indent] = [hash[:indent] || 0, level].max
       resource_class = linked_resource_type_class(hash[:linked_resource_type])
       if resource_class == WikiPage
-        wiki = context_module.context.wiki.wiki_pages.where(migration_id: hash[:linked_resource_id]).first if hash[:linked_resource_id]
+        wiki = context_module.context.wiki_pages.where(migration_id: hash[:linked_resource_id]).first if hash[:linked_resource_id]
         if wiki
           item = context_module.add_item({
             :title => wiki.title.presence || hash[:title] || hash[:linked_resource_title],
@@ -302,15 +325,24 @@ module Importers
         item_map[hash[:migration_id]] = item if hash[:migration_id]
         item.migration_id = hash[:migration_id]
         item.new_tab = hash[:new_tab]
-        item.position = (context_module.item_migration_position ||= context_module.content_tags.not_deleted.map(&:position).compact.max || 0)
+
+        if is_new_record && (!hash[:position] || context_module.item_migration_position) # we're adding new items to an existing module - append on the end
+          context_module.item_migration_position ||= 0
+          context_module.item_migration_position += 1
+          item.position = context_module.item_migration_position
+        elsif hash[:position]
+          item.position = hash[:position]
+        end
+
+        item.mark_as_importing!(migration)
         if hash[:workflow_state]
           if item.sync_workflow_state_to_asset?
             item.workflow_state = item.asset_workflow_state if item.deleted? && hash[:workflow_state] != 'deleted'
-          elsif !['active', 'published'].include?(item.workflow_state)
+          elsif !['active', 'published'].include?(item.workflow_state) || migration.for_master_course_import?
             item.workflow_state = hash[:workflow_state]
           end
         end
-        context_module.item_migration_position += 1
+
         item.save!
         items << item
       end

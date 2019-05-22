@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,21 +22,21 @@ describe Pseudonym do
 
   it "should create a new instance given valid attributes" do
     user_model
-    factory_with_protected_attributes(Pseudonym, valid_pseudonym_attributes)
+    expect{factory_with_protected_attributes(Pseudonym, valid_pseudonym_attributes)}.to change(Pseudonym, :count).by(1)
   end
 
   it "should allow single character usernames" do
     user_model
     pseudonym_model
     @pseudonym.unique_id = 'c'
-    @pseudonym.save!
+    expect(@pseudonym.save).to be true
   end
 
   it "should allow a username that starts with a special character" do
     user_model
     pseudonym_model
     @pseudonym.unique_id = '+c'
-    @pseudonym.save!
+    expect(@pseudonym.save).to be true
   end
 
   it "should allow apostrophes in usernames" do
@@ -79,14 +79,14 @@ describe Pseudonym do
 
   it "should share a root_account_id with its account" do
     pseudonym = Pseudonym.new
-    pseudonym.stubs(:account).returns(stub(root_account_id: 1, id: 2))
+    allow(pseudonym).to receive(:account).and_return(double(root_account_id: 1, id: 2))
 
     expect(pseudonym.root_account_id).to eq 1
   end
 
   it "should use its account_id as a root_account_id if its account has no root" do
     pseudonym = Pseudonym.new
-    pseudonym.stubs(:account).returns(stub(root_account_id: nil, id: 1))
+    allow(pseudonym).to receive(:account).and_return(double(root_account_id: nil, id: 1))
 
     expect(pseudonym.root_account_id).to eq 1
   end
@@ -185,18 +185,35 @@ describe Pseudonym do
     end
 
     it "should gracefully handle unreachable LDAP servers" do
-      Net::LDAP.any_instance.expects(:bind_as).raises(Net::LDAP::LdapError, "no connection to server")
+      expect_any_instance_of(Net::LDAP).to receive(:bind_as).and_raise(Net::LDAP::LdapError, "no connection to server")
       expect{ @pseudonym.ldap_bind_result('blech') }.not_to raise_error
       expect(ErrorReport.last.message).to eql("no connection to server")
-      Net::LDAP.any_instance.expects(:bind_as).returns(true)
+    end
+
+    it "passes a success result through" do
+      expect_any_instance_of(Net::LDAP).to receive(:bind_as).and_return(true)
       expect(@pseudonym.ldap_bind_result('yay!')).to be_truthy
     end
 
     it "should set last_timeout_failure on LDAP servers that timeout" do
-      Net::LDAP.any_instance.expects(:bind_as).once.raises(Timeout::Error, "timed out")
+      expect_any_instance_of(Net::LDAP).to receive(:bind_as).once.and_raise(Timeout::Error, "timed out")
       expect(@pseudonym.ldap_bind_result('test')).to be_falsey
       expect(ErrorReport.last.message).to match(/timed out/)
       expect(@aac.reload.last_timeout_failure).to be > 1.minute.ago
+    end
+
+    it "only checks an explicit LDAP provider" do
+      aac2 = @pseudonym.account.authentication_providers.create!(auth_type: 'ldap')
+      @pseudonym.update_attribute(:authentication_provider, aac2)
+      expect_any_instantiation_of(@aac).to receive(:ldap_bind_result).never
+      expect(aac2).to receive(:ldap_bind_result).and_return(42)
+      expect(@pseudonym.ldap_bind_result('stuff')).to eq 42
+    end
+
+    it "doesn't even check LDAP for a Canvas pseudonym" do
+      @pseudonym.update_attribute(:authentication_provider, @pseudonym.account.canvas_authentication_provider)
+      expect_any_instantiation_of(@aac).to receive(:ldap_bind_result).never
+      expect(@pseudonym.ldap_bind_result('stuff')).to eq nil
     end
   end
 
@@ -208,10 +225,10 @@ describe Pseudonym do
 
   it "should not attempt validating a blank password" do
     pseudonym_model
-    @pseudonym.expects(:sis_ssha).never
+    expect(@pseudonym).to receive(:sis_ssha).never
     @pseudonym.valid_ssha?('')
 
-    @pseudonym.expects(:ldap_bind_result).never
+    expect(@pseudonym).to receive(:ldap_bind_result).never
     @pseudonym.valid_ldap_credentials?('')
   end
 
@@ -219,21 +236,6 @@ describe Pseudonym do
     before :once do
       user_model
       pseudonym_model
-    end
-
-    it "should offer login as the unique id" do
-      expect(@pseudonym.login).to eql(@pseudonym.unique_id)
-    end
-
-    it "should be able to set the login" do
-      @pseudonym.login = 'another'
-      expect(@pseudonym.login).to eql('another')
-      expect(@pseudonym.unique_id).to eql('another')
-    end
-
-    it "should know if the login changed" do
-      @pseudonym.login = 'another'
-      expect(@pseudonym.login_changed?).to be_truthy
     end
 
     it "should offer the user code as the user's uuid" do
@@ -326,10 +328,10 @@ describe Pseudonym do
       Account.default.authentication_providers.create!(:auth_type => 'ldap')
       @pseudonym.reload
 
-      @pseudonym.stubs(:valid_ldap_credentials?).returns(false)
+      allow(@pseudonym).to receive(:valid_ldap_credentials?).and_return(false)
       expect(@pseudonym.valid_arbitrary_credentials?('qwertyuiop')).to be_falsey
 
-      @pseudonym.stubs(:valid_ldap_credentials?).returns(true)
+      allow(@pseudonym).to receive(:valid_ldap_credentials?).and_return(true)
       expect(@pseudonym.valid_arbitrary_credentials?('anything')).to be_truthy
     end
   end
@@ -339,17 +341,17 @@ describe Pseudonym do
       specs_require_sharding
       let_once(:account2) { @shard1.activate { Account.create! } }
 
-      it "should only query pertinent shards" do
-        Pseudonym.expects(:associated_shards).with('abc').returns([@shard1])
-        Pseudonym.expects(:active).once.returns(Pseudonym.none)
-        GlobalLookups.stubs(:enabled?).returns(true)
+      it "should only query the pertinent shard" do
+        expect(Pseudonym).to receive(:associated_shards).with('abc').and_return([@shard1])
+        expect(Pseudonym).to receive(:active).once.and_return(Pseudonym.none)
+        allow(GlobalLookups).to receive(:enabled?).and_return(true)
         Pseudonym.authenticate({ unique_id: 'abc', password: 'def' }, [Account.default.id, account2])
       end
 
-      it "should only query pertinent shards" do
-        Pseudonym.expects(:associated_shards).with('abc').returns([Shard.default, @shard1])
-        Pseudonym.expects(:active).twice.returns(Pseudonym.none)
-        GlobalLookups.stubs(:enabled?).returns(true)
+      it "should query all pertinent shards" do
+        expect(Pseudonym).to receive(:associated_shards).with('abc').and_return([Shard.default, @shard1])
+        expect(Pseudonym).to receive(:active).twice.and_return(Pseudonym.none)
+        allow(GlobalLookups).to receive(:enabled?).and_return(true)
         Pseudonym.authenticate({ unique_id: 'abc', password: 'def' }, [Account.default.id, account2])
       end
     end
@@ -357,41 +359,28 @@ describe Pseudonym do
 
   context 'cas' do
     let!(:cas_ticket) { CanvasUuid::Uuid.generate_securish_uuid }
-    let!(:redis_key) { "cas_session:#{cas_ticket}" }
+    let!(:redis_key) { "cas_session_slo:#{cas_ticket}" }
 
     before(:once) do
       user_with_pseudonym
-
-      Canvas.redis.stubs(:redis_enabled?).returns(true)
-      Canvas.redis.stubs(:ttl).returns(1.day)
     end
 
-    it 'should claim a cas ticket' do
-      Canvas.redis.expects(:expire).with(redis_key, 1.day).returns(false).once
-      Canvas.redis.expects(:set).with(redis_key, @pseudonym.global_id, { ex: 1.day, nx: true, raw: true }).once
-      @pseudonym.claim_cas_ticket(cas_ticket)
-    end
-
-    it 'should refresh a cas ticket' do
-      Canvas.redis.expects(:expire).with(redis_key, 1.day).returns(true).once
-      Canvas.redis.expects(:setex).never
-      @pseudonym.claim_cas_ticket(cas_ticket)
+    before do
+      allow(Canvas.redis).to receive(:redis_enabled?).and_return(true)
+      allow(Canvas.redis).to receive(:ttl).and_return(1.day)
     end
 
     it 'should check cas ticket expiration' do
-      Canvas.redis.expects(:get).with(redis_key, raw: true).returns(@pseudonym.global_id.to_s)
+      expect(Canvas.redis).to receive(:get).with(redis_key).and_return(nil)
       expect(@pseudonym.cas_ticket_expired?(cas_ticket)).to be_falsey
 
-      Canvas.redis.expects(:get).with(redis_key, raw: true).returns(Pseudonym::CAS_TICKET_EXPIRED)
+      expect(Canvas.redis).to receive(:get).with(redis_key).and_return(true)
       expect(@pseudonym.cas_ticket_expired?(cas_ticket)).to be_truthy
     end
 
     it 'should expire a cas ticket' do
-      Canvas.redis.expects(:getset).once.returns(@pseudonym.global_id.to_s)
+      expect(Canvas.redis).to receive(:set).once.and_return(true)
       expect(Pseudonym.expire_cas_ticket(cas_ticket)).to be_truthy
-
-      Canvas.redis.expects(:getset).once.returns(Pseudonym::CAS_TICKET_EXPIRED)
-      expect(Pseudonym.expire_cas_ticket(cas_ticket)).to be_falsey
     end
   end
 
@@ -414,13 +403,13 @@ describe Pseudonym do
       it 'returns false if the sis_user_id is already taken' do
         new_pseudonym = Pseudonym.new(:account => @pseudonym.account)
         new_pseudonym.sis_user_id = sis_user_id
-        expect(new_pseudonym.verify_unique_sis_user_id).to be_falsey
+        expect { new_pseudonym.verify_unique_sis_user_id }.to throw_symbol(:abort)
       end
 
       it 'also can validate if the new sis_user_id is an integer' do
         new_pseudonym = Pseudonym.new(:account => @pseudonym.account)
         new_pseudonym.sis_user_id = sis_user_id.to_i
-        expect(new_pseudonym.verify_unique_sis_user_id).to be_falsey
+        expect { new_pseudonym.verify_unique_sis_user_id }.to throw_symbol(:abort)
       end
 
     end
@@ -704,6 +693,17 @@ describe Pseudonym do
     expect(p2.errors[:unique_id].first.type).to eq :taken
     p2.authentication_provider = aac
     expect(p2).to be_valid
+  end
+
+  describe ".find_all_by_arbtrary_credentials" do
+    it "doesn't choke on if global lookups is down" do
+      u = User.create!
+      p = u.pseudonyms.create!(unique_id: 'a', account: Account.default, password: 'abcdefgh', password_confirmation: 'abcdefgh')
+      expect(GlobalLookups).to receive(:enabled?).and_return(true)
+      expect(Pseudonym).to receive(:associated_shards).and_raise("an error")
+      expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: 'a', password: 'abcdefgh' },
+        [Account.default.id], '127.0.0.1')).to eq [p]
+    end
   end
 end
 

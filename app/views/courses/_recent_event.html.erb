@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <li style="<%= hidden if is_hidden %>" class="event">
 
 <%
@@ -8,8 +26,9 @@
   if is_assignment
     if @current_user_submissions
       submission = @current_user_submissions.detect { |s| s.assignment_id == recent_event.id }
+      submission.assignment = recent_event if submission
     elsif @current_user
-      submission = @current_user.submissions.select([:id, :assignment_id, :score, :grade, :workflow_state, :updated_at]).where(:assignment_id => recent_event).first
+      submission = @current_user.submissions.select([:id, :assignment_id, :grading_period_id, :score, :grade, :workflow_state, :updated_at]).where(:assignment_id => recent_event).first
     end
 
     if is_assignment
@@ -18,7 +37,7 @@
   end
 
   cache([ 'recent_event_render3',
-          @current_user, # needs to be here to bust the cache when the user changes course nicknames
+          @current_user&.course_nickname_hash,
           submission || 'no_submission',
           recent_event || 'blank_event',
           (recent_event.due_at if is_assignment),

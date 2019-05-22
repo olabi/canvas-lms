@@ -1,10 +1,10 @@
 #
-# Copyright (C) 2012 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
 # Canvas is free software: you can redistribute it and/or modify it under
-# the terms of the GNU Affero General Public License as published by the Fr
+# the terms of the GNU Affero General Public License as published by the Free
 # Software Foundation, version 3 of the License.
 #
 # Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
@@ -35,10 +35,14 @@ class Role < ActiveRecord::Base
   module AssociationHelper
     # this is an override to take advantage of built-in role caching since those are by far the most common
     def role
-      self.association(:role).target ||= self.shard.activate do
+      return super if association(:role).loaded?
+      self.role = self.shard.activate do
         Role.get_role_by_id(read_attribute(:role_id)) || (self.respond_to?(:default_role) ? self.default_role : nil)
       end
-      super
+    end
+
+    def role=(role)
+      super(role&.role_for_shard(self.shard))
     end
   end
 
@@ -55,11 +59,11 @@ class Role < ActiveRecord::Base
   validates_exclusion_of :name, :in => KNOWN_TYPES, :unless => :built_in?, :message => 'is reserved'
   validate :ensure_non_built_in_name
 
-  def id
-    if self.built_in? && self.shard != Shard.current && role = Role.get_built_in_role(self.name, Shard.current)
-      role.read_attribute(:id)
+  def role_for_shard(target_shard=Shard.current)
+    if self.built_in? && self.shard != target_shard && target_shard_role = Role.get_built_in_role(self.name, target_shard)
+      target_shard_role
     else
-      super
+      self
     end
   end
 
@@ -83,7 +87,7 @@ class Role < ActiveRecord::Base
   def infer_root_account_id
     unless self.account
       self.errors.add(:account_id)
-      return false
+      throw :abort
     end
     self.root_account_id = self.account.root_account_id || self.account.id
   end
@@ -152,7 +156,7 @@ class Role < ActiveRecord::Base
     # most roles are going to be built in, so don't do a db search every time
     local_id, shard = Shard.local_id_for(id)
     shard ||= Shard.current
-    role = built_in_roles_by_id(false, shard)[local_id] || Role.shard(shard).where(:id => local_id).first
+    role = built_in_roles_by_id(false, shard)[local_id] || Role.where(:id => id).take
     role
   end
 
@@ -248,15 +252,16 @@ class Role < ActiveRecord::Base
   def self.custom_roles_and_counts_for_course(course, user, include_inactive=false)
     users_scope = course.users_visible_to(user)
     base_counts = users_scope.where('enrollments.role_id IS NULL OR enrollments.role_id IN (?)',
-                                    Role.built_in_course_roles.map(&:id)).group('enrollments.type').select('users.id').uniq.count
+                                    Role.built_in_course_roles.map(&:id)).group('enrollments.type').select('users.id').distinct.count
     role_counts = users_scope.where('enrollments.role_id IS NOT NULL AND enrollments.role_id NOT IN (?)',
-                                    Role.built_in_course_roles.map(&:id)).group('enrollments.role_id').select('users.id').uniq.count
+                                    Role.built_in_course_roles.map(&:id)).group('enrollments.role_id').select('users.id').distinct.count
 
     @enrollment_types = Role.all_enrollment_roles_for_account(course.account, include_inactive)
     @enrollment_types.each do |base_type|
       base_type[:count] = base_counts[base_type[:name]] || 0
       base_type[:custom_roles].each do |custom_role|
-        custom_role[:count] = role_counts[custom_role[:id].to_s] || 0
+        id = custom_role[:id]
+        custom_role[:count] = role_counts[id] || 0
       end
     end
 
@@ -265,7 +270,7 @@ class Role < ActiveRecord::Base
 
   def self.manageable_roles_by_user(user, context)
     manageable = []
-    if context.grants_right?(user, :manage_students)
+    if context.grants_right?(user, :manage_students) && !(context.is_a?(Course) && MasterCourses::MasterTemplate.is_master_course?(context))
       manageable += ['StudentEnrollment', 'ObserverEnrollment']
       if context.is_a?(Course) && context.teacherless?
         manageable << 'TeacherEnrollment'

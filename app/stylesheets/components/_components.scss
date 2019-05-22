@@ -1,5 +1,22 @@
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 .toolbar {
-  @include ui-widget-header-bg-and-text;
   padding: $contentBoxPadding / 2;
   @include fontSize($ic-font-size--small);
   line-height: $baseLineHeight;
@@ -7,9 +24,6 @@
 }
 
 // List View
-
-$ic-brand-course-nav-link--active: $ic-brand-primary;
-
 .list-view {
   overflow: auto;
   & > header,
@@ -47,10 +61,11 @@ $ic-brand-course-nav-link--active: $ic-brand-primary;
         text-decoration: none;
         color: $ic-font-color-dark;
         border-radius: $baseBorderRadius;
-        padding: $ic-sp/2 $ic-sp;
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
+        padding: ($ic-sp - 4) $ic-sp;
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+        hyphens: auto;
+        line-height: $ic-label-line-height;
 
         @if $use_high_contrast {
           text-decoration: underline;
@@ -77,25 +92,29 @@ $ic-brand-course-nav-link--active: $ic-brand-primary;
   }
 
   a.active {
-    background-color: $ic-brand-course-nav-link--active;
+    background-color: var(--ic-brand-primary);
     font-weight: bold;
     color: $ic-color-light;
-    &:hover, &:focus { background-color: $ic-brand-primary; }
+
+    // offset focus ring so it doesn't blend in with background
+    &:focus { @include ic-focus-variant($offset: 0.0625rem); }
+
+    &:hover, &:focus { background-color: var(--ic-brand-primary); }
     .nav-badge {
       background: $ic-color-light;
-      color: $ic-brand-primary;
+      color: var(--ic-brand-primary);
     }
   }
 }
 .image-block {
-  display: flex; min-width: 1px;
+  display: flex;
+  min-width: 1px;
 
-  .image-block-image {
-    margin-right: $ic-sp;
-  }
   .image-block-content {
     flex: 1;
     min-width: 1px;
+    padding-#{direction(left)}: $ic-sp;
+    box-sizing: border-box;
   }
 }
 
@@ -113,7 +132,7 @@ $ic-brand-course-nav-link--active: $ic-brand-primary;
     border-bottom: 1px solid $ic-border-light;
 
     &:hover, &:focus {
-      color: $ic-link-color;
+      color: var(--ic-link-color);
     }
 
     @if $use_high_contrast { text-decoration: none; }

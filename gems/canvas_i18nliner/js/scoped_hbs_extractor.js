@@ -1,6 +1,24 @@
-var HbsExtractor = require("i18nliner-handlebars/dist/lib/extractor");
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-var HbsTranslateCall = require("i18nliner-handlebars/dist/lib/t_call");
+var HbsExtractor = require("i18nliner-handlebars/dist/lib/extractor").default;
+
+var HbsTranslateCall = require("i18nliner-handlebars/dist/lib/t_call").default;
 var ScopedHbsTranslateCall = require("./scoped_translate_call")(HbsTranslateCall);
 
 function ScopedHbsExtractor(ast, options) {
@@ -22,7 +40,7 @@ ScopedHbsExtractor.prototype.inferI18nScope = function(path) {
                   .replace(/^_/, '')       // some hbs files have a leading _
                   .replace(/([A-Z]+)([A-Z][a-z])/g,'$1_$2') // camel -> underscore
                   .replace(/([a-z\d])([A-Z])/g, '$1_$2')    // ditto
-                  .replace("-", "_")
+                  .replace(/-/g, "_")
                   .replace(/\/_?/g, '.')
                   .toLowerCase();
   this.scope = scope;

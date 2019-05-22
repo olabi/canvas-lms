@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 require 'sanitize'
 
@@ -11,7 +28,7 @@ class AssessmentItemConverter
   DEFAULT_POINTS_POSSIBLE = 1
   UNSUPPORTED_TYPES = ['File Upload', 'Hot Spot', 'Quiz Bowl', 'WCT_JumbledSentence']
 
-  attr_reader :base_dir, :identifier, :href, :interaction_type, :title, :question
+  attr_reader :package_root, :identifier, :href, :interaction_type, :title, :question
 
   def initialize(opts)
     @log = Canvas::Migration::logger
@@ -27,9 +44,9 @@ class AssessmentItemConverter
     end
 
     if @manifest_node
-      @base_dir = opts[:base_dir]
+      @package_root = PackageRoot.new(opts[:base_dir])
       @identifier = @manifest_node['identifier']
-      @href = File.join(@base_dir, @manifest_node['href'])
+      @href = @package_root.item_path(@manifest_node['href'])
       if title = @manifest_node.at_css('title langstring') || title = @manifest_node.at_css('xmlns|title xmlns|langstring', 'xmlns' => Qti::Converter::IMS_MD)
         @title = title.text
       end
@@ -76,6 +93,8 @@ class AssessmentItemConverter
         # also, the identifier is not always unique, so we use the label as the migration id
         @question[:migration_id] = get_node_att(@doc, 'assessmentItem', 'label')
       end
+
+      @question[:migration_id] = @question[:migration_id].presence
 
       if @type == 'text_entry_interaction'
         @doc.css('textEntryInteraction').each do |node|
@@ -124,6 +143,7 @@ class AssessmentItemConverter
       elsif !%w(text_only_question file_upload_question).include?(@migration_type)
         self.parse_question_data
       else
+        self.get_feedback if @migration_type == 'file_upload_question'
         @question[:question_type] ||= @migration_type
       end
     rescue => e
@@ -166,6 +186,9 @@ class AssessmentItemConverter
       if ref = get_node_att(meta, 'instructureField[name=assessment_question_identifierref]', 'value')
         @question[:assessment_question_migration_id] = ref
       end
+      if ref = get_node_att(meta, 'instructureField[name=original_answer_ids]', 'value')
+        @original_answer_ids = ref.split(",")
+      end
       if get_node_att(meta, 'instructureField[name=cc_profile]', 'value') == 'cc.pattern_match.v0p1'
         @question[:is_cc_pattern_match] = true
       end
@@ -200,6 +223,19 @@ class AssessmentItemConverter
           @question[:question_type] = @migration_type
         end
       end
+    end
+  end
+
+  def get_or_generate_answer_id(response_identifier)
+    if @flavor == Qti::Flavors::CANVAS
+      id = if @original_answer_ids
+        @original_answer_ids.shift.to_i
+      else
+        response_identifier.to_s.sub(/response_/i, "").to_i
+      end
+      id != 0 ? id : unique_local_id
+    else
+      unique_local_id
     end
   end
 
@@ -308,7 +344,7 @@ class AssessmentItemConverter
         end
       when /associateinteraction|matching_question|matchinteraction/i
         q = AssociateInteraction.new(opts)
-      when /extendedtextinteraction|textinteraction|essay_question|short_answer_question/i
+      when /extendedtextinteraction|extendedtextentryinteraction|textinteraction|essay_question|short_answer_question/i
         if opts[:custom_type] and opts[:custom_type] =~ /calculated/i
           q = CalculatedInteraction.new(opts)
         elsif opts[:custom_type] and opts[:custom_type] =~ /numeric|numerical_question/

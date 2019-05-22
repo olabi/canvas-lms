@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 
 define [
   'underscore'
-  'compiled/collections/PaginatedCollection'
+  '../collections/PaginatedCollection'
 ], (_, PaginatedCollection) ->
 
   class CalendarEventCollection extends PaginatedCollection

@@ -1,17 +1,34 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 
 describe MasterCourses::Restrictor do
   before :once do
     @copy_from = course_factory
     @template = MasterCourses::MasterTemplate.set_as_master_course(@copy_from)
-    @original_page = @copy_from.wiki.wiki_pages.create!(:title => "blah", :body => "bloo")
+    @original_page = @copy_from.wiki_pages.create!(:title => "blah", :body => "bloo")
     @tag = @template.create_content_tag_for!(@original_page)
 
     @copy_to = course_factory
-    @page_copy = @copy_to.wiki.wiki_pages.new(:title => "blah", :body => "bloo") # just create a copy directly instead of doing a real migraiton
+    @page_copy = @copy_to.wiki_pages.new(:title => "blah", :body => "bloo") # just create a copy directly instead of doing a real migraiton
     @page_copy.migration_id = @tag.migration_id
     @page_copy.save!
-    @page_copy.master_course_restrictions = nil
+    @page_copy.child_content_restrictions = nil
   end
 
   describe "column locking validations" do
@@ -51,39 +68,79 @@ describe MasterCourses::Restrictor do
     it "should return false by default" do
       expect(@page_copy.editing_restricted?(:any)).to be_falsey
       expect(@page_copy.editing_restricted?(:content)).to be_falsey
+      expect(@page_copy.editing_restricted?(:settings)).to be_falsey
+      expect(@page_copy.editing_restricted?(:availability_dates)).to be_falsey
+      expect(@page_copy.editing_restricted?(:due_dates)).to be_falsey
+      expect(@page_copy.editing_restricted?(:points)).to be_falsey
+      expect(@page_copy.editing_restricted?(:all)).to be_falsey
     end
 
     it "should return what you would expect" do
       @tag.update_attribute(:restrictions, {:content => true})
       expect(@page_copy.editing_restricted?(:content)).to be_truthy
       expect(@page_copy.editing_restricted?(:settings)).to be_falsey
+      expect(@page_copy.editing_restricted?(:availability_dates)).to be_falsey
+      expect(@page_copy.editing_restricted?(:due_dates)).to be_falsey
+      expect(@page_copy.editing_restricted?(:points)).to be_falsey
       expect(@page_copy.editing_restricted?(:any)).to be_truthy
       expect(@page_copy.editing_restricted?(:all)).to be_falsey
     end
 
-    it "should return true if fully locked" do
-      @tag.update_attribute(:restrictions, {:content => true, :settings => true})
+    it "should return true if fully/individually locked" do
+      @tag.update_attribute(:restrictions, {:content => true, :settings => true, :points => true, :availability_dates => true, :due_dates => true, :state => true})
       expect(@page_copy.editing_restricted?(:content)).to be_truthy
       expect(@page_copy.editing_restricted?(:settings)).to be_truthy
+      expect(@page_copy.editing_restricted?(:points)).to be_truthy
+      expect(@page_copy.editing_restricted?(:availability_dates)).to be_truthy
+      expect(@page_copy.editing_restricted?(:due_dates)).to be_truthy
+      expect(@page_copy.editing_restricted?(:any)).to be_truthy
+      expect(@page_copy.editing_restricted?(:all)).to be_truthy
+    end
+
+    it "should return true if locked via :all" do
+      @tag.update_attribute(:restrictions, {:all => true})
+      expect(@page_copy.editing_restricted?(:content)).to be_truthy
+      expect(@page_copy.editing_restricted?(:settings)).to be_truthy
+      expect(@page_copy.editing_restricted?(:points)).to be_truthy
+      expect(@page_copy.editing_restricted?(:availability_dates)).to be_truthy
+      expect(@page_copy.editing_restricted?(:due_dates)).to be_truthy
       expect(@page_copy.editing_restricted?(:any)).to be_truthy
       expect(@page_copy.editing_restricted?(:all)).to be_truthy
     end
   end
 
-  describe "preload_restrictions" do
+  describe "preload_child_restrictions" do
     it "should bulk preload restrictions in a single query" do
-      page2 = @copy_from.wiki.wiki_pages.create!(:title => "blah2")
+      page2 = @copy_from.wiki_pages.create!(:title => "blah2")
       tag2 = @template.create_content_tag_for!(page2, {:restrictions => {:content => true}})
 
-      page2_copy = @copy_to.wiki.wiki_pages.new(:title => "blah2") # just create a copy directly instead of doing a real migraiton
+      page2_copy = @copy_to.wiki_pages.new(:title => "blah2") # just create a copy directly instead of doing a real migraiton
       page2_copy.migration_id = tag2.migration_id
       page2_copy.save!
 
-      MasterCourses::Restrictor.preload_restrictions([@page_copy, page2_copy])
+      MasterCourses::Restrictor.preload_child_restrictions([@page_copy, page2_copy])
 
-      MasterCourses::MasterContentTag.expects(:where).never # don't load again
-      expect(@page_copy.master_course_restrictions).to eq({})
-      expect(page2_copy.master_course_restrictions).to eq({:content => true})
+      expect(MasterCourses::MasterContentTag).to receive(:where).never # don't load again
+      expect(@page_copy.child_content_restrictions).to eq({})
+      expect(page2_copy.child_content_restrictions).to eq({:content => true})
+    end
+  end
+
+  describe "preload_default_template_restrictions" do
+    it "should bulk preload master-side restrictions in a single query" do
+      page2 = @copy_from.wiki_pages.create!(:title => "blah2")
+      tag2 = @template.create_content_tag_for!(page2, {:restrictions => {:content => true}})
+
+      # should also work for associated assignments (since they share a master content tag)
+      quiz = @copy_from.quizzes.create!(:title => "quiz", :quiz_type => "assignment")
+      assignment = quiz.assignment
+      tag3 = @template.create_content_tag_for!(quiz, {:restrictions => {:all => true}})
+
+      MasterCourses::Restrictor.preload_default_template_restrictions([@original_page, page2, assignment], @copy_from)
+
+      expect(@original_page.current_master_template_restrictions).to eq({})
+      expect(page2.current_master_template_restrictions).to eq(tag2.restrictions)
+      expect(assignment.current_master_template_restrictions).to eq(tag3.restrictions)
     end
   end
 
@@ -130,5 +187,20 @@ describe MasterCourses::Restrictor do
     item.title = "another new title"
     expect(item.save).to be_falsey
     expect(item.errors[:title].first.to_s).to include("locked by Master Course")
+  end
+
+  it "should prevent updating assignment points via rubric" do
+    original_assmt = @copy_from.assignments.create!
+    assmt_tag = @template.create_content_tag_for!(original_assmt, {:restrictions => {:content => true, :points => true}})
+
+    assmt_copy = @copy_to.assignments.create!(:points_possible => 1)
+    assmt_copy.migration_id = assmt_tag.migration_id
+    assmt_copy.save!
+    assmt_copy.child_content_restrictions = nil
+
+    rubric = Rubric.create!(:context => @copy_to, :points_possible => 3)
+    rubric.associate_with(assmt_copy, @copy_to, :purpose => 'grading', :use_for_grading => true)
+
+    expect(assmt_copy.reload.points_possible).to eq 1 # don't change the points via the rubric
   end
 end

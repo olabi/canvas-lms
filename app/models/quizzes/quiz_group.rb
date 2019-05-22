@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,6 +33,11 @@ class Quizzes::QuizGroup < ActiveRecord::Base
   before_save :infer_position
   before_destroy :update_quiz
   after_save :update_quiz
+
+  include MasterCourses::CollectionRestrictor
+  self.collection_owner_association = :quiz
+  restrict_columns :points, [:pick_count, :question_points]
+  restrict_columns :content, [:name, :pick_count]
 
   def actual_pick_count
     count = if self.assessment_question_bank

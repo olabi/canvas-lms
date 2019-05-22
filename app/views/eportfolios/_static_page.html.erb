@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% @page = page; @portfolio = portfolio; @static_attachments = static_attachments; @submissions_hash = submissions_hash %>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
         "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -33,14 +51,6 @@
         <%= render :partial => "eportfolios/page_section_static", :object => c, :locals => {:idx => idx, :read_only => true} %>
       <% end %>
     </div>
-    <% if !@page.page_comments.empty? %>
-      <div id="page_comments_holder" style="margin-top: 50px;">
-        <h2><%= t('headers.page_comments', "Page Comments") %></h2>
-        <div id="page_comments" style="padding: 5px 20px;">
-          <%= render :partial => "eportfolios/page_comment", :collection => @page.page_comments, :locals => {:read_only => true} %>
-        </div>
-      </div>
-    <% end %>
   </div>
   <div id="sidebar">
     <div class="section_header">

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 describe ContentZipper do
@@ -8,7 +25,7 @@ describe ContentZipper do
   # This really needs to get refactored at some point.
   def grab_zip
     expect { yield }.to change(Delayed::Job, :count).by(1)
-    expect(response).to be_success
+    expect(response).to be_successful
     attachment_id = json_parse['attachment']['id']
     expect(attachment_id).to be_present
 
@@ -17,14 +34,16 @@ describe ContentZipper do
 
     # a second query should just return status
     expect { yield }.to change(Delayed::Job, :count).by(0)
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(json_parse['attachment']['id']).to eq a.id
   end
 
   context "submission zips" do
     before(:once) do
       course_with_teacher(:active_all => true)
+      @course.enrollments.where(:user_id => @teacher).update_all(:updated_at => 5.minutes.ago)
       submission_model(:course => @course)
+      Submission.where(:id => @submission).update_all(:submitted_at => 5.minutes.ago)
     end
 
     before(:each) do
@@ -39,7 +58,7 @@ describe ContentZipper do
       get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
       att0 = json_parse['attachment']['id']
 
-      @course.enable_feature! :anonymous_grading
+      @assignment.update!(anonymous_grading: true)
       get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
       att1 = json_parse['attachment']['id']
 
@@ -67,6 +86,35 @@ describe ContentZipper do
       end
 
       submission_model(:course => @course)
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
+      att1 = json_parse['attachment']['id']
+
+      expect(att0).not_to eq(att1)
+    end
+
+    it "should not recreate the submission zip if nothing has changed" do
+      att0 = nil
+      Timecop.travel(1.minute.ago) do
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
+        att0 = json_parse['attachment']['id']
+      end
+
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
+      att1 = json_parse['attachment']['id']
+
+      expect(att0).to eq(att1)
+    end
+
+    it "should recreate the submission zip if the user's enrollments have been changed" do
+      att0 = nil
+      Timecop.travel(1.minute.ago) do
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
+        att0 = json_parse['attachment']['id']
+      end
+      section = @course.course_sections.create!
+      @course.enroll_user(@teacher, 'TeacherEnrollment', :section => section,
+        :enrollment_state => 'active', :allow_multiple_enrollments => true)
+
       get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions.json?zip=1&compile=1"
       att1 = json_parse['attachment']['id']
 

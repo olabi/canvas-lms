@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -80,11 +80,11 @@ module Api::V1::CalendarEvent
       else
         hash['effective_context_code'] = event.effective_context_code
       end
+      hash['all_context_codes'] = event.effective_context_code
+    else
+      hash['all_context_codes'] = Context.context_code_for(event)
     end
-    hash['context_code'] ||= event.context_code
-
-    # a field that always gives all relevant contexts without filtering by signups etc.
-    hash['all_context_codes'] = event.effective_context_code || event.context_code
+    hash['context_code'] ||= Context.context_code_for(event)
 
     hash['parent_event_id'] = event.parent_calendar_event_id
     # events are hidden when section-specific events override them
@@ -101,6 +101,8 @@ module Api::V1::CalendarEvent
     if appointment_group
       hash['appointment_group_id'] = appointment_group.id
       hash['appointment_group_url'] = api_v1_appointment_group_url(appointment_group)
+      hash['can_manage_appointment_group'] = appointment_group.grants_right?(user, session, :manage)
+      hash['participant_type'] = appointment_group.participant_type
       if options[:current_participant] && event.has_asset?(options[:current_participant])
         hash['own_reservation'] = true
       end
@@ -116,7 +118,7 @@ module Api::V1::CalendarEvent
         hash['reserve_url'] = api_v1_calendar_event_reserve_url(event, '{{ id }}')
       end
       if participant_limit = event.participants_per_appointment
-        hash["available_slots"] = [participant_limit - hash["child_events_count"], 0].max
+        hash["available_slots"] = [participant_limit - event.child_events.size, 0].max
         hash["participants_per_appointment"] = participant_limit
       end
     end
@@ -168,7 +170,7 @@ module Api::V1::CalendarEvent
       hash['assignment'] = assignment_json(assignment, user, session, override_dates: false, submission: options[:submission])
       hash['html_url'] = hash['assignment']['html_url'] if hash['assignment'].include?('html_url')
     end
-    hash['context_code'] = assignment.context_code
+    hash['context_code'] = Context.context_code_for(assignment)
     hash['start_at'] = hash['end_at'] = assignment.due_at
     hash['url'] = api_v1_calendar_event_url("assignment_#{assignment.id}")
     if assignment.applied_overrides.present?

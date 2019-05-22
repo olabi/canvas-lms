@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "help dialog" do
@@ -70,6 +87,7 @@ describe "help dialog" do
       expect(f("#help_tray")).to be_displayed
       teacher_feedback_link = f("#help_tray a[href='#teacher_feedback']")
       expect(teacher_feedback_link).to be_displayed
+      sleep 0.3 # have to wait for instUI tray animations
       teacher_feedback_link.click
       feedback_form = f("form[action='/api/v1/conversations']")
       wait_for_ajaximations
@@ -102,7 +120,7 @@ describe "help dialog" do
       expect(f("#help_tray")).not_to contain_css("a[href='#teacher_feedback']")
     end
 
-    it "should show the Help dialog on the speedGrader when help is clicked and feedback is enabled" do
+    it "shows the Help item in the SpeedGrader settings menu when feedback is enabled" do
       @course.enroll_student(User.create).accept!
       @assignment = @course.assignments.create
 
@@ -113,14 +131,14 @@ describe "help dialog" do
       Setting.set('show_feedback_link', 'true')
       get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{@assignment.id}"
       wait_for_ajaximations
-      trigger = f('#gradebook_header .help_dialog_trigger')
+
+      settings_menu = f('#speed_grader_settings_mount_point')
+      settings_menu.click
+
+      trigger = f('ul[role=menu] span[name=help][role=menuitem]')
       make_full_screen
       trigger.location_once_scrolled_into_view
       expect(trigger).to be_displayed
-      trigger.click
-      wait_for_ajaximations
-      expect(f("#help-dialog")).to be_displayed
-      expect(f("#help-dialog a[href='#create_ticket']")).to be_displayed
     end
   end
 
@@ -136,7 +154,7 @@ describe "help dialog" do
       wait_for_ajaximations
       f('#global_nav_help_link').click
       wait_for_ajaximations
-      expect(ff("#help_tray .ic-NavMenu-list-item__link").last).to include_text("Customize this menu")
+      expect(f("#help_tray")).to include_text("Customize this menu")
     end
 
     it "should not show the link to sub account admins" do
@@ -146,7 +164,7 @@ describe "help dialog" do
       wait_for_ajaximations
       f('#global_nav_help_link').click
       wait_for_ajaximations
-      expect(ff("#help_tray .ic-NavMenu-list-item__link").last).to_not include_text("Customize this menu")
+      expect(f("#help_tray")).to_not include_text("Customize this menu")
     end
   end
 end

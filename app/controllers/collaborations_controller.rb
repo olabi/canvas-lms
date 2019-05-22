@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -122,12 +122,12 @@
 #     }
 #
 class CollaborationsController < ApplicationController
-  before_filter :require_context, :except => [:members]
-  before_filter :require_collaboration_and_context, :only => [:members]
-  before_filter :require_collaborations_configured
-  before_filter :reject_student_view_student
+  before_action :require_context, :except => [:members]
+  before_action :require_collaboration_and_context, :only => [:members]
+  before_action :require_collaborations_configured
+  before_action :reject_student_view_student
 
-  before_filter { |c| c.active_tab = "collaborations" }
+  before_action { |c| c.active_tab = "collaborations" }
 
   include Api::V1::Collaborator
   include Api::V1::Collaboration
@@ -153,12 +153,14 @@ class CollaborationsController < ApplicationController
            :CAN_MANAGE_GROUPS => @context.grants_right?(@current_user, session, :manage_groups),
            :collaboration_types => Collaboration.collaboration_types,
            :POTENTIAL_COLLABORATORS_URL => polymorphic_url([:api_v1, @context, :potential_collaborators])
+
+    set_tutorial_js_env
   end
 
   # @API List collaborations
-  # List collaborations the current user has access to in the context of the course
-  # provided in the url. NOTE: this only returns ExternalToolCollaboration type
-  # collaborations.
+  # A paginated list of collaborations the current user has access to in the
+  # context of the course provided in the url. NOTE: this only returns
+  # ExternalToolCollaboration type collaborations.
   #
   #   curl https://<canvas>/api/v1/courses/1/collaborations/
   #
@@ -241,7 +243,9 @@ class CollaborationsController < ApplicationController
       }
     end
 
-    render :text => "".html_safe, :layout => true
+    set_tutorial_js_env
+
+    render :html => "".html_safe, :layout => true
   end
 
   def create
@@ -333,7 +337,7 @@ class CollaborationsController < ApplicationController
 
   # @API List members of a collaboration.
   #
-  # List the collaborators of a given collaboration
+  # A paginated list of the collaborators of a given collaboration
   #
   # @argument include[] [String, "collaborator_lti_id"|"avatar_image_url"]
   #   - "collaborator_lti_id": Optional information to include with each member.
@@ -348,18 +352,21 @@ class CollaborationsController < ApplicationController
   # @returns [Collaborator]
   def members
     return unless authorized_action(@collaboration, @current_user, :read)
-    options = {:include => params[:include]}
+    includes = Array(params[:include])
+    options = {include: includes}
     collaborators = @collaboration.collaborators.preload(:group, :user)
     collaborators = Api.paginate(collaborators,
                                  self,
                                  api_v1_collaboration_members_url)
 
-    render :json => collaborators.map { |c| collaborator_json(c, @current_user, session, options) }
+    UserPastLtiId.manual_preload_past_lti_ids(collaborators, @context) if includes.include? 'collaborator_lti_id'
+    render(:json => collaborators.map{|c| collaborator_json(c, @current_user, session, options, context: @context)})
   end
 
   # @API List potential members
   #
-  # List the users who can potentially be added to a collaboration in the given context.
+  # A paginated list of the users who can potentially be added to a
+  # collaboration in the given context.
   #
   # For courses, this consists of all enrolled users.  For groups, it is comprised of the
   # group members plus the admins of the course containing the group.
@@ -409,7 +416,9 @@ class CollaborationsController < ApplicationController
     visibility = content_item['ext_canvas_visibility']
     lti_user_ids = visibility && visibility['users'] || []
     lti_group_ids = visibility && visibility['groups'] || []
-    users = User.where(lti_context_id: lti_user_ids).to_a
+
+    users = User.active.joins(:past_lti_ids).where(user_past_lti_ids: {user_lti_context_id: lti_user_ids}).distinct.to_a
+    users += User.active.where(lti_context_id: lti_user_ids).to_a
     group_ids = Group.where(lti_context_id: lti_group_ids).map(&:id)
     [users, group_ids]
   end

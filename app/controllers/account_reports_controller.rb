@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -39,10 +39,29 @@
 #           "example": "https://example.com/some/path",
 #           "type": "string"
 #         },
+#         "attachment": {
+#           "description": "The attachment api object of the report. Only available after the report has completed.",
+#           "$ref": "File"
+#         },
 #         "status": {
 #           "description": "The status of the report",
 #           "example": "complete",
 #           "type": "string"
+#         },
+#         "created_at": {
+#           "description": "The date and time the report was created.",
+#           "example": "2013-12-01T23:59:00-06:00",
+#           "type": "datetime"
+#         },
+#         "started_at": {
+#           "description": "The date and time the report started processing.",
+#           "example": "2013-12-02T00:03:21-06:00",
+#           "type": "datetime"
+#         },
+#         "ended_at": {
+#           "description": "The date and time the report finished processing.",
+#           "example": "2013-12-02T00:03:21-06:00",
+#           "type": "datetime"
 #         },
 #         "parameters": {
 #           "description": "The report parameters",
@@ -52,7 +71,12 @@
 #         "progress": {
 #           "description": "The progress of the report",
 #           "example": "100",
-#           "type": "string"
+#           "type": "integer"
+#         },
+#         "current_line": {
+#           "description": "This is the current line count being written to the report. It updates every 1000 records.",
+#           "example": "12000",
+#           "type": "integer"
 #         }
 #       }
 #     }
@@ -68,12 +92,12 @@
 #           "type": "integer"
 #         },
 #         "include_deleted": {
-#           "description": "Include deleted objects",
+#           "description": "If true, deleted objects will be included. If false, deleted objects will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "course_id": {
-#           "description": "The course to report on",
+#           "description": "The id of the course to report on",
 #           "example": 2,
 #           "type": "integer"
 #         },
@@ -90,42 +114,42 @@
 #           }
 #         },
 #         "users": {
-#           "description": "Get the data for users",
+#           "description": "If true, user data will be included. If false, user data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "accounts": {
-#           "description": "Get the data for accounts",
+#           "description": "If true, account data will be included. If false, account data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "terms": {
-#           "description": "Get the data for terms",
+#           "description": "If true, term data will be included. If false, term data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "courses": {
-#           "description": "Get the data for courses",
+#           "description": "If true, course data will be included. If false, course data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "sections": {
-#           "description": "Get the data for sections",
+#           "description": "If true, section data will be included. If false, section data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "enrollments": {
-#           "description": "Get the data for enrollments",
+#           "description": "If true, enrollment data will be included. If false, enrollment data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "groups": {
-#           "description": "Get the data for groups",
+#           "description": "If true, group data will be included. If false, group data will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
 #         "xlist": {
-#           "description": "Get the data for cross-listed courses",
+#           "description": "If true, data for crosslisted courses will be included. If false, data for crosslisted courses will be omitted.",
 #           "example": false,
 #           "type": "boolean"
 #         },
@@ -138,7 +162,7 @@
 #           "type": "integer"
 #         },
 #         "include_enrollment_state": {
-#           "description": "Include enrollment state. Defaults to false",
+#           "description": "If true, enrollment state will be included. If false, enrollment state will be omitted. Defaults to false.",
 #           "example": false,
 #           "type": "boolean"
 #         },
@@ -162,15 +186,15 @@
 #     }
 #
 class AccountReportsController < ApplicationController
-  before_filter :require_user
-  before_filter :get_context
+  before_action :require_user
+  before_action :get_context
 
   include Api::V1::Account
   include Api::V1::AccountReport
 
 # @API List Available Reports
 #
-# Returns the list of reports for the current context.
+# Returns a paginated list of reports for the current context.
 #
 # @response_field name The name of the report.
 # @response_field parameters The parameters will vary for each report
@@ -206,7 +230,7 @@ class AccountReportsController < ApplicationController
       results = []
 
       available_reports.each do |key, value|
-        last_run = @account.account_reports.where(:report_type => key).order('created_at DESC').first
+        last_run = @account.account_reports.active.where(:report_type => key).order('created_at DESC').first
         last_run = account_report_json(last_run, @current_user, session) if last_run
         report = {
           :title => value.title,
@@ -231,18 +255,42 @@ class AccountReportsController < ApplicationController
     end
   end
 
-# @API Start a Report
-# Generates a report instance for the account.
-#
-# @argument [parameters] The parameters will vary for each report
-#
-# @returns Report
-#
+  # @API Start a Report
+  # Generates a report instance for the account. Note that "report" in the
+  # request must match one of the available report names. To fetch a list of
+  # available report names and parameters for each report (including whether or
+  # not those parameters are required), see
+  # {api:AccountReportsController#available_reports List Available Reports}.
+  #
+  # @argument parameters The parameters will vary for each report. To fetch a list
+  #   of available parameters for each report, see {api:AccountReportsController#available_reports List Available Reports}.
+  #   A few example parameters have been provided below. Note that the example
+  #   parameters provided below may not be valid for every report.
+  #
+  # @argument parameters[course_id] [Integer] The id of the course to report on.
+  #   Note: this parameter has been listed to serve as an example and may not be
+  #   valid for every report.
+  #
+  # @argument parameters[users] [Boolean] If true, user data will be included. If
+  #   false, user data will be omitted. Note: this parameter has been listed to
+  #   serve as an example and may not be valid for every report.
+  #
+  # @example_request
+  #   curl -X POST \
+  #        https://<canvas>/api/v1/accounts/1/reports/provisioning_csv \
+  #        -H 'Authorization: Bearer <token>' \
+  #        -H 'Content-Type: multipart/form-data' \
+  #        -F 'parameters[users]=true' \
+  #        -F 'parameters[courses]=true' \
+  #        -F 'parameters[enrollments]=true'
+  #
+  # @returns Report
+  #
   def create
     if authorized_action(@context, @current_user, :read_reports)
       available_reports = AccountReport.available_reports.keys
       raise ActiveRecord::RecordNotFound unless available_reports.include? params[:report]
-      parameters = params[:parameters]&.to_hash&.with_indifferent_access
+      parameters = params[:parameters]&.to_unsafe_h
       report = @account.account_reports.build(:user=>@current_user, :report_type=>params[:report], :parameters=>parameters)
       report.workflow_state = :running
       report.progress = 0
@@ -268,7 +316,7 @@ class AccountReportsController < ApplicationController
   def index
     if authorized_action(@context, @current_user, :read_reports)
 
-      reports = Api.paginate(type_scope.order('id DESC'), self, url_for({:action => :index, :controller => :account_reports}))
+      reports = Api.paginate(type_scope.active.order('id DESC'), self, url_for({action: :index, controller: :account_reports}))
 
       render :json => account_reports_json(reports, @current_user, session)
     end
@@ -286,7 +334,7 @@ class AccountReportsController < ApplicationController
   def show
     if authorized_action(@context, @current_user, :read_reports)
 
-      report = type_scope.find(params[:id])
+      report = type_scope.active.find(params[:id])
       render :json => account_report_json(report, @current_user, session)
     end
   end
@@ -303,7 +351,7 @@ class AccountReportsController < ApplicationController
 #
   def destroy
     if authorized_action(@context, @current_user, :read_reports)
-      report = type_scope.find(params[:id])
+      report = type_scope.active.find(params[:id])
 
       report.destroy
       if report.destroy

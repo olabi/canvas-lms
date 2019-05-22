@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -71,13 +88,29 @@ describe ContentMigration do
       expect(tag_to.new_tab).to eq tag_from.new_tab
     end
 
+    it "should copy account-level external tool assignments" do
+      account_tool = @copy_from.account.context_external_tools.build name: 'blah', url: 'https://blah.example.com', shared_secret: '123', consumer_key: '456'
+      assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'external_tool', :grading_type => 'points')
+      tag_from = @assignment.create_external_tool_tag(:url => "http://blah.example.com/one", :new_tab => true, :content => account_tool)
+
+      run_course_copy
+
+      asmnt_2 = @copy_to.assignments.first
+      tag_to = asmnt_2.external_tool_tag
+      expect(tag_to.content).to eq account_tool
+
+      run_course_copy
+
+      expect(asmnt_2.reload.external_tool_tag).to eq tag_to # don't recreate the tag
+    end
+
     it "should copy vendor extensions" do
       @tool_from.settings[:vendor_extensions] = [{:platform=>"my.lms.com", :custom_fields=>{"key"=>"value"}}]
       @tool_from.save!
 
       run_course_copy
 
-      tool = @copy_to.context_external_tools.where(migration_id: CC::CCHelper.create_key(@tool_from)).first
+      tool = @copy_to.context_external_tools.where(migration_id: mig_id(@tool_from)).first
       expect(tool.settings[:vendor_extensions]).to eq [{'platform'=>"my.lms.com", 'custom_fields'=>{"key"=>"value"}}]
     end
 
@@ -91,7 +124,7 @@ describe ContentMigration do
 
       run_course_copy
 
-      tool = @copy_to.context_external_tools.where(migration_id: CC::CCHelper.create_key(@tool_from)).first
+      tool = @copy_to.context_external_tools.where(migration_id: mig_id(@tool_from)).first
       expect(tool.course_navigation).not_to be_nil
       expect(tool.course_navigation).to eq @tool_from.course_navigation
       expect(tool.editor_button).not_to be_nil
@@ -110,7 +143,7 @@ describe ContentMigration do
                     :url => "https://www.example.com/launch"
       run_course_copy
 
-      tool_copy = @copy_to.context_external_tools.where(migration_id: CC::CCHelper.create_key(@tool_from)).first
+      tool_copy = @copy_to.context_external_tools.where(migration_id: mig_id(@tool_from)).first
       tag = @copy_to.context_modules.first.content_tags.first
       expect(tag.content_type).to eq 'ContextExternalTool'
       expect(tag.content_id).to eq tool_copy.id
@@ -165,7 +198,7 @@ describe ContentMigration do
 
       run_course_copy
 
-      tool = @copy_to.context_external_tools.where(migration_id: CC::CCHelper.create_key(@tool_from)).first
+      tool = @copy_to.context_external_tools.where(migration_id: mig_id(@tool_from)).first
       expect(tool.settings[:selection_width]).to eq 5000
       expect(tool.course_settings_sub_navigation[:message_type]).to eq "ContentItemSelectionResponse"
     end

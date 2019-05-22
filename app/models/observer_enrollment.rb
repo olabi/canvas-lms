@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -56,8 +56,8 @@ class ObserverEnrollment < Enrollment
   def self.observed_students(context, current_user)
     RequestCache.cache(:observed_students, context, current_user) do
       context.shard.activate do
-        associated_user_ids = context.observer_enrollments.where(user_id: current_user)
-          .where("associated_user_id IS NOT NULL").select(:associated_user_id)
+        associated_user_ids = context.observer_enrollments.where(user_id: current_user).
+          where("associated_user_id IS NOT NULL").select(:associated_user_id)
         context.student_enrollments.
           where(user_id: associated_user_ids).group_by(&:user)
       end

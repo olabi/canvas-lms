@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,6 +25,7 @@ describe "Default Account Reports" do
     Notification.where(name: "Report Generated").first_or_create
     Notification.where(name: "Report Generation Failed").first_or_create
     @account = Account.create(name: 'New Account', default_time_zone: 'UTC')
+    @account.enable_feature!(:final_grades_override)
     @default_term = @account.default_enrollment_term
 
     @term1 = EnrollmentTerm.create(:name => 'Fall', :start_at => 6.months.ago, :end_at => 1.year.from_now)
@@ -78,22 +79,23 @@ describe "Default Account Reports" do
   # have sis id's and not sis ids
   describe "Grade Export report" do
     before(:once) do
-      # We don't expect these values.  The report should only be
-      # looking at course_score
-      @enrollment1.update_attribute :computed_final_score, 1
-      @enrollment2.update_attribute :computed_final_score, 2
-      @enrollment3.update_attribute :computed_final_score, 3
-      @enrollment4.update_attribute :computed_final_score, 3
-      @enrollment5.update_attribute :computed_final_score, 2
-
       @enrollment1.find_score.update_attribute(:final_score, 88)
       @enrollment2.find_score.update_attribute(:final_score, 90)
       @enrollment3.find_score.update_attribute(:final_score, 93)
       @enrollment4.find_score.update_attribute(:final_score, 97)
       @enrollment5.find_score.update_attribute(:final_score, 99)
+
+      @enrollment1.find_score.update_attribute(:unposted_current_score, 82)
+      @enrollment1.find_score.update_attribute(:unposted_final_score, 92)
+      @enrollment1.find_score.update_attribute(:override_score, 102)
     end
 
-    it "should run grade export for a term" do
+    it "should run grade export for a term and return one line per enrollment" do
+      user_with_managed_pseudonym(user: @user1, account: @account)
+      p = @account.pseudonyms.where(sis_user_id: 'user_sis_id_01').take
+      @enrollment1.sis_pseudonym = p
+      @enrollment1.save!
+
       parameters = {}
       parameters["enrollment_term"] = @term1.id
       parsed = read_report('grade_export_csv', {order: 13, params: parameters})
@@ -101,13 +103,13 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "88.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "88.0", "active", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "90.0", "concluded"]
+                           @term1.id.to_s, "fall12", nil, "90.0", "concluded", nil, nil, nil]
       expect(parsed[2]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "97.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "97.0", "active", nil, nil, nil]
     end
 
     it "should run grade export for a term using sis_id" do
@@ -118,13 +120,13 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "88.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "88.0", "active", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "90.0", "concluded"]
+                           @term1.id.to_s, "fall12", nil, "90.0", "concluded", nil, nil, nil]
       expect(parsed[2]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "97.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "97.0", "active", nil, nil, nil]
     end
 
     it "should run grade export with no parameters" do
@@ -134,19 +136,19 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "88.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "88.0", "active", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "90.0", "concluded"]
+                           @term1.id.to_s, "fall12", nil, "90.0", "concluded", nil, nil, nil]
       expect(parsed[2]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "active"]
+                           @default_term.id.to_s, nil, nil, "93.0", "active", nil, nil, nil]
       expect(parsed[3]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "97.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "97.0", "active", nil, nil, nil]
       expect(parsed[4]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "active"]
+                           @default_term.id.to_s, nil, nil, "99.0", "active", nil, nil, nil]
     end
 
     it "should run grade export with empty string parameter" do
@@ -158,25 +160,27 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "88.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "88.0", "active", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "90.0", "concluded"]
+                           @term1.id.to_s, "fall12", nil, "90.0", "concluded", nil, nil, nil]
       expect(parsed[2]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "active"]
+                           @default_term.id.to_s, nil, nil, "93.0", "active", nil, nil, nil]
       expect(parsed[3]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "97.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "97.0", "active", nil, nil, nil]
       expect(parsed[4]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "active"]
+                           @default_term.id.to_s, nil, nil, "99.0", "active", nil, nil, nil]
     end
 
     it "should run grade export with deleted users" do
 
       @course2.destroy
       @enrollment1.destroy
+      @enrollment2.workflow_state = 'inactive'
+      @enrollment2.save!
 
       parameters = {}
       parameters["include_deleted"] = true
@@ -185,19 +189,19 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "88.0", "deleted"]
+                           @term1.id.to_s, "fall12", nil, "88.0", "deleted", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "90.0", "concluded"]
+                           @term1.id.to_s, "fall12", nil, "90.0", "inactive", nil, nil, nil]
       expect(parsed[2]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "deleted"]
+                           @default_term.id.to_s, nil, nil, "93.0", "deleted", nil, nil, nil]
       expect(parsed[3]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "97.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "97.0", "active", nil, nil, nil]
       expect(parsed[4]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "deleted"]
+                           @default_term.id.to_s, nil, nil, "99.0", "deleted", nil, nil, nil]
     end
 
     it "should run grade export on a sub account" do
@@ -211,16 +215,17 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "active"]
+                           @default_term.id.to_s, nil, nil, "93.0", "active", nil, nil, nil]
       expect(parsed[1]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "active"]
+                           @default_term.id.to_s, nil, nil, "99.0", "active", nil, nil, nil]
     end
 
     it "should run a grade export on concluded courses with an limiting period given" do
       @course1.complete!
       @enrollment1.conclude
-      @enrollment1.save!
+      @enrollment5.workflow_state = 'inactive'
+      @enrollment5.save!
 
       parameters = {}
       parameters["include_deleted"] = true
@@ -231,23 +236,23 @@ describe "Default Account Reports" do
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01",
                            "English 101", @course1.id.to_s, "SIS_COURSE_ID_1",
                            "English 101", @course1.course_sections.first.id.to_s,
-                           nil, "Fall", @term1.id.to_s, "fall12", nil, "88.0", "concluded"]
+                           nil, "Fall", @term1.id.to_s, "fall12", nil, "88.0", "concluded", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02",
                            "English 101", @course1.id.to_s, "SIS_COURSE_ID_1",
                            "English 101", @course1.course_sections.first.id.to_s,
-                           nil, "Fall", @term1.id.to_s, 'fall12', nil, "90.0", "concluded"]
+                           nil, "Fall", @term1.id.to_s, 'fall12', nil, "90.0", "concluded", nil, nil, nil]
       expect(parsed[2]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02",
                            "Math 101", @course2.id.to_s, nil, "Math 101",
                            @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "active"]
+                           @default_term.id.to_s, nil, nil, "93.0", "active", nil, nil, nil]
       expect(parsed[3]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03",
                            "English 101", @course1.id.to_s, "SIS_COURSE_ID_1",
                            "English 101", @course1.course_sections.first.id.to_s,
-                           nil, "Fall", @term1.id.to_s, "fall12", nil, "97.0", "concluded"]
+                           nil, "Fall", @term1.id.to_s, "fall12", nil, "97.0", "concluded", nil, nil, nil]
       expect(parsed[4]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04",
                            "Math 101", @course2.id.to_s, nil, "Math 101",
                            @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "active"]
+                           @default_term.id.to_s, nil, nil, "99.0", "inactive", nil, nil, nil]
 
     end
 
@@ -264,11 +269,11 @@ describe "Default Account Reports" do
       expect(parsed[0]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02",
                            "Math 101", @course2.id.to_s, nil, "Math 101",
                            @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "active"]
+                           @default_term.id.to_s, nil, nil, "93.0", "active", nil, nil, nil]
       expect(parsed[1]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04",
                            "Math 101", @course2.id.to_s, nil, "Math 101",
                            @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "active"]
+                           @default_term.id.to_s, nil, nil, "99.0", "active", nil, nil, nil]
     end
 
     it "should return a deleted courses within an limiting period" do
@@ -281,18 +286,30 @@ describe "Default Account Reports" do
 
       expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "88.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "88.0", "active", "82.0", "92.0", "102.0"]
       expect(parsed[1]).to eq ["Michael Bolton", @user2.id.to_s, "user_sis_id_02", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "93.0", "deleted"]
+                           @default_term.id.to_s, nil, nil, "93.0", "deleted", nil, nil, nil]
       expect(parsed[2]).to eq ["Rick Astley", @user3.id.to_s, "user_sis_id_03", "English 101", @course1.id.to_s,
                            "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
-                           @term1.id.to_s, "fall12", nil, "97.0", "active"]
+                           @term1.id.to_s, "fall12", nil, "97.0", "active", nil, nil, nil]
       expect(parsed[3]).to eq ["Jason Donovan", @user4.id.to_s, "user_sis_id_04", "Math 101", @course2.id.to_s,
                            nil, "Math 101", @course2.course_sections.first.id.to_s, nil, "Default Term",
-                           @default_term.id.to_s, nil, nil, "99.0", "active"]
+                           @default_term.id.to_s, nil, nil, "99.0", "active", nil, nil, nil]
     end
 
+    it "omits the override score column when Final Grade Override is disabled for the account" do
+      @account.disable_feature!(:final_grades_override)
+
+      parameters = {}
+      parameters["include_deleted"] = true
+      parameters["limiting_period"] = "2"
+      parsed = read_report('grade_export_csv', {order: 13, params: parameters})
+
+      expect(parsed[0]).to eq ["John St. Clair", @user1.id.to_s, "user_sis_id_01", "English 101", @course1.id.to_s,
+                           "SIS_COURSE_ID_1", "English 101", @course1.course_sections.first.id.to_s, nil, "Fall",
+                           @term1.id.to_s, "fall12", nil, "88.0", "active", "82.0", "92.0"]
+    end
   end
 
   describe "MGP Grade Export" do
@@ -321,6 +338,8 @@ describe "Default Account Reports" do
         past   = gpg.grading_periods.create! title: "Past", start_date: 1.week.ago, end_date: 1.day.ago
         future = gpg.grading_periods.create! title: "Future", start_date: 1.day.from_now, end_date: 1.week.from_now
 
+        @account.enable_feature!(:final_grades_override)
+
         @course3 = course_factory(:course_name => 'Fun 404', :account => @account, :active_course => true)
         @course3.enroll_user(@user2, 'StudentEnrollment', :enrollment_state => :active)
         @course3.enroll_user(@user4, 'StudentEnrollment', :enrollment_state => :active)
@@ -332,6 +351,8 @@ describe "Default Account Reports" do
         # set up assignments
         past_assignment = @course2.assignments.create! points_possible: 100, due_at: 3.days.ago
         future_assignment = @course2.assignments.create! points_possible: 100, due_at: 3.days.from_now
+        unposted_future_assignment = @course2.assignments.create! points_possible: 100, due_at: 3.days.from_now,
+          muted: true
 
         Timecop.freeze(past.end_date - 1.day) do
           past_assignment.grade_student(@user2, grade: 25, grader: teacher)
@@ -339,6 +360,17 @@ describe "Default Account Reports" do
         end
         future_assignment.grade_student(@user2, grade: 75, grader: teacher)
         future_assignment.grade_student(@user4, grade: 25, grader: teacher)
+
+        unposted_future_assignment.grade_student(@user2, grade: 95, grader: teacher)
+        unposted_future_assignment.grade_student(@user4, grade: 75, grader: teacher)
+
+        user2_enrollment = @user2.enrollments.find_by(course: @course2)
+        user2_enrollment.find_score({grading_period: past}).update!(override_score: 26)
+        user2_enrollment.find_score({grading_period: future}).update!(override_score: 77)
+
+        user4_enrollment = @user4.enrollments.find_by(course: @course2)
+        user4_enrollment.find_score({grading_period: past}).update!(override_score: 78)
+        user4_enrollment.find_score({grading_period: future}).update!(override_score: 29)
 
         past_assignment = @course3.assignments.create! points_possible: 100, due_at: 3.days.ago
         future_assignment = @course3.assignments.create! points_possible: 100, due_at: 3.days.from_now
@@ -371,21 +403,37 @@ describe "Default Account Reports" do
         expect(jason1["course"]).to eq "Fun 404"
         expect(jason1["Past current score"].to_f).to eq 25
         expect(jason1["Future current score"].to_f).to eq 75
+        expect(jason1["Past unposted current score"].to_f).to eq 25
+        expect(jason1["Future unposted current score"].to_f).to eq 75
+        expect(jason1["Past override score"]).to be nil
+        expect(jason1["Future override score"]).to be nil
 
         expect(jason2["student name"]).to eq "Jason Donovan"
         expect(jason2["course"]).to eq "Math 101"
         expect(jason2["Past current score"].to_f).to eq 75
         expect(jason2["Future current score"].to_f).to eq 25
+        expect(jason2["Past unposted current score"].to_f).to eq 75
+        expect(jason2["Future unposted current score"].to_f).to eq 50
+        expect(jason2["Past override score"].to_f).to eq 78
+        expect(jason2["Future override score"].to_f).to eq 29
 
         expect(mike1["student name"]).to eq "Michael Bolton"
         expect(mike1["course"]).to eq "Fun 404"
         expect(mike1["Past final score"].to_f).to eq 75
         expect(mike1["Future final score"].to_f).to eq 25
+        expect(mike1["Past unposted final score"].to_f).to eq 75
+        expect(mike1["Future unposted final score"].to_f).to eq 25
+        expect(mike1["Past override score"]).to be nil
+        expect(mike1["Future override score"]).to be nil
 
         expect(mike2["student name"]).to eq "Michael Bolton"
         expect(mike2["course"]).to eq "Math 101"
         expect(mike2["Past final score"].to_f).to eq 25
-        expect(mike2["Future final score"].to_f).to eq 75
+        expect(mike2["Future final score"].to_f).to eq 37.5
+        expect(mike2["Past unposted final score"].to_f).to eq 25
+        expect(mike2["Future unposted final score"].to_f).to eq 85
+        expect(mike2["Past override score"].to_f).to eq 26
+        expect(mike2["Future override score"].to_f).to eq 77
       end
 
       it "works with students in multiple sections" do
@@ -410,6 +458,32 @@ describe "Default Account Reports" do
         expect(mike2["section"]).to eq "section 2"
         expect(mike1["Past final score"].to_f).to eq 25
         expect(mike2["Past final score"].to_f).to eq 25
+        expect(mike1["Past unposted final score"].to_f).to eq 25
+        expect(mike2["Past unposted final score"].to_f).to eq 25
+        expect(mike1["Past override score"].to_f).to eq 26
+        expect(mike2["Past override score"].to_f).to eq 26
+      end
+
+      it "returns empty score values when a score for a grading period/enrollment is missing" do
+        enrollment = Enrollment.find_by(course: @course3, user: @user2)
+        past_grading_period = GradingPeriod.find_by(title: "Past")
+        Score.find_by(enrollment: enrollment, grading_period: past_grading_period).destroy!
+
+        reports = read_report("mgp_grade_export_csv",
+                              params: {enrollment_term_id: @default_term.id},
+                              parse_header: true,
+                              order: ["student name", "course"])
+        csv = reports["Default Term.csv"]
+
+        deleted_score_row = csv.find { |row| row["student name"] == "Michael Bolton" && row["course"] == "Fun 404" }
+        expect(deleted_score_row["section"]).to eq "Fun 404"
+        expect(deleted_score_row.to_hash).to include(
+          "Past current score" => nil,
+          "Past unposted current score" => nil,
+          "Past final score" => nil,
+          "Past unposted final score" => nil,
+          "Past override score" => nil
+        )
       end
 
       it "returns nothing for terms without grading periods" do
@@ -420,6 +494,18 @@ describe "Default Account Reports" do
         csv = reports["Fall.csv"]
         expect(csv.size).to eq 1
         expect(csv.first).to eq ["no grading periods configured for this term"]
+      end
+
+      it "omits override scores if Final Grade Override is disabled for the account" do
+        @account.disable_feature!(:final_grades_override)
+        reports = read_report("mgp_grade_export_csv",
+                              params: {enrollment_term_id: @term1.id},
+                              header: true,
+                              order: "skip")
+        csv = reports["Fall.csv"]
+        first_row = csv[0]
+
+        expect(first_row).not_to include("Past override score", "Future override score")
       end
     end
   end

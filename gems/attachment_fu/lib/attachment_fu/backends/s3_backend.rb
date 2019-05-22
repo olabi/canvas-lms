@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module AttachmentFu # :nodoc:
   module Backends
     # = AWS SDK Storage Backend
@@ -123,17 +140,20 @@ module AttachmentFu # :nodoc:
       mattr_reader :bucket
 
       def self.included(base) #:nodoc:
-        require 'aws-sdk'
+        require 'aws-sdk-s3'
 
-        s3_config_path = base.attachment_options[:s3_config_path] || (Rails.root + 'config/amazon_s3.yml')
-        s3_config = YAML.load(ERB.new(File.read(s3_config_path)).result)[Rails.env].symbolize_keys
-
+        s3_config = load_s3_config(base.attachment_options[:s3_config_path])
         bucket_name = s3_config.delete(:bucket_name)
 
         s3 = Aws::S3::Resource.new(Canvas::AWS.validate_v2_config(s3_config, 'amazon_s3.yml'))
         @@bucket = s3.bucket(bucket_name)
 
         base.before_update :rename_file
+      end
+
+      def self.load_s3_config(path = nil)
+        s3_config_path = path || (Rails.root + 'config/amazon_s3.yml')
+        YAML.load(ERB.new(File.read(s3_config_path)).result)[Rails.env].symbolize_keys
       end
 
       # Overwrites the base filename writer in order to store the old filename
@@ -230,6 +250,11 @@ module AttachmentFu # :nodoc:
       def authenticated_s3_url(*args)
         thumbnail = args.first.is_a?(String) ? args.first : nil
         options   = args.last.is_a?(Hash)    ? args.last  : {}
+        unless options[:expires_in].nil?
+          if options[:expires_in].is_a? ActiveSupport::Duration
+            options[:expires_in] = options[:expires_in].to_i
+          end
+        end
         s3object(thumbnail).presigned_url(:get, options)
       end
 
@@ -281,12 +306,16 @@ module AttachmentFu # :nodoc:
         def save_to_storage
           if save_attachment?
             options = {
-              body: (temp_path ? File.open(temp_path, 'rb') : temp_data),
               content_type: content_type,
               acl: attachment_options[:s3_access]
             }
             options.merge!(attachment_options.slice(:cache_control, :expires, :metadata))
-            s3object.put(options)
+            if temp_path
+              s3object.upload_file(temp_path, options)
+            else
+              options[:body] = temp_data
+              s3object.put(options)
+            end
           end
 
           @old_filename = nil

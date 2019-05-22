@@ -1,4 +1,21 @@
 # coding: utf-8
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 
@@ -20,7 +37,7 @@ describe "calendar2" do
 
     context "week view" do
 
-      it "should navigate to week view when week button is clicked", priority: "2", test_id: 766945 do
+      it "should navigate to week view when week button is clicked", :xbrowser, priority: "2", test_id: 766945 do
         load_week_view
         expect(fj('.fc-agendaWeek-view:visible')).to be_present
       end
@@ -235,6 +252,8 @@ describe "calendar2" do
     end
 
     it "should make event all-day by dragging", priority: "1", test_id: 138866 do
+      skip "drag event isn't happening, might be a :timezone: :bomb:"
+
       # Create an all-day event to act as drag target
       #   This is a workaround because the all-day row is positioned absolutely
       midnight = Time.zone.now.beginning_of_day
@@ -319,6 +338,17 @@ describe "calendar2" do
         event.reload
         expect(event.end_at).to eq(start_at_time + 3.days)
       end
+    end
+  end
+
+  context "as a student" do
+    before(:each) do
+      course_with_student_logged_in
+    end
+
+    it "should navigate to week view when week button is clicked" do
+      load_week_view
+      expect(fj('.fc-agendaWeek-view:visible')).to be_present
     end
   end
 end

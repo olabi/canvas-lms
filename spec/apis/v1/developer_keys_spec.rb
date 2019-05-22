@@ -55,6 +55,87 @@ describe DeveloperKeysController, type: :request do
 
       confirm_valid_key_in_json(json, key)
     end
+
+    it 'should stringify the nested stuff' do
+      admin_session
+      key = DeveloperKey.create!
+      json = api_call(:get, "/api/v1/accounts/#{sa_id}/developer_keys.json", {
+        controller: 'developer_keys', action: 'index', format: 'json', account_id: sa_id.to_s
+      }, {}, { 'Accept' => 'application/json+canvas-string-ids' })
+      row = json.detect{|r| r["id"] == key.global_id.to_s}
+      expect(row["developer_key_account_binding"]["developer_key_id"]).to eq key.global_id.to_s
+    end
+
+    it 'should only include a subset of attributes if inherited is set' do
+      a = Account.create!
+      allow_any_instance_of(DeveloperKeysController).to receive(:context_is_domain_root_account?).and_return(true)
+      user_session(account_admin_user(account: a))
+      d = DeveloperKey.create!(account: nil)
+      d.update! visible: true
+      get "/api/v1/accounts/#{a.id}/developer_keys", params: { inherited: true }
+      expect(json_parse.first.keys).to match_array(
+        %w[name created_at icon_url workflow_state id developer_key_account_binding is_lti_key]
+      )
+    end
+
+    it 'does not include `test_cluster_only` by default' do
+      admin_session
+      key = DeveloperKey.create!
+      json = api_call(:get, "/api/v1/accounts/#{sa_id}/developer_keys.json", {
+        controller: 'developer_keys',
+        action: 'index',
+        format: 'json',
+        account_id: sa_id.to_s
+      })
+      expect(json.first.keys).not_to be_include('test_cluster_only')
+    end
+
+    it 'does include `test_cluster_only` when enabled' do
+      Setting.set("dev_key_test_cluster_checks_enabled", true)
+      admin_session
+      key = DeveloperKey.create!
+      json = api_call(:get, "/api/v1/accounts/#{sa_id}/developer_keys.json", {
+        controller: 'developer_keys',
+        action: 'index',
+        format: 'json',
+        account_id: sa_id.to_s
+      })
+      expect(json.first.keys).to be_include('test_cluster_only')
+    end
+
+    describe 'developer key account bindings' do
+      specs_require_sharding
+
+      context 'when context is site admin' do
+        it 'includes the site admin binding for the key' do
+          user_session(account_admin_user(account: Account.site_admin))
+          sa_key = Account.site_admin.shard.activate { DeveloperKey.create!(account: nil) }
+          get '/api/v1/accounts/site_admin/developer_keys'
+
+          site_admin_key_json = json_parse.find{ |d| d['id'] == sa_key.global_id }
+          expect(Account.find(site_admin_key_json.dig('developer_key_account_binding', 'account_id'))).to eq Account.site_admin
+          expect(site_admin_key_json.dig('developer_key_account_binding', 'account_owns_binding')).to eq true
+        end
+      end
+
+      context 'when context is not site admin' do
+        let(:root_account) { account_model }
+
+        it 'includes the site admin binding if it is set' do
+          user_session(account_admin_user(account: Account.site_admin))
+          sa_key = Account.site_admin.shard.activate { DeveloperKey.create!(account: nil) }
+          sa_key.update!(visible: true)
+          root_account.developer_key_account_bindings.create!(developer_key: sa_key, workflow_state: 'on')
+
+          get "/api/v1/accounts/#{root_account.id}/developer_keys?inherited=true"
+
+          site_admin_key_json = json_parse.find{ |d| d['id'] == sa_key.global_id }
+
+          expect(Account.find(site_admin_key_json.dig('developer_key_account_binding', 'account_id'))).to eq Account.site_admin
+          expect(site_admin_key_json.dig('developer_key_account_binding', 'account_owns_binding')).to eq false
+        end
+      end
+    end
   end
 
   describe "POST 'create'" do
@@ -165,7 +246,6 @@ describe DeveloperKeysController, type: :request do
     end
 
     expect(json.include?(key_to_hash(key))).to be true
-
   end
 
   def key_to_hash(key)

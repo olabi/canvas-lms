@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,8 +12,8 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 // There's technically a security vulnerability here.  Since we let
@@ -25,28 +25,28 @@
 // settings on their own personal eportfolio, they can't
 // affect anyone else
 
-define([
-  'i18n!eportfolio',
-  'jquery' /* $ */,
-  'react',
-  'react-dom',
-  'compiled/userSettings',
-  'jsx/shared/rce/RichContentEditor',
-  'jsx/eportfolios/MoveToDialog',
-  'eportfolios/eportfolio_section',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.inst_tree' /* instTree */,
-  'jquery.instructure_forms' /* formSubmit, getFormData, formErrors, errorBox */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_helpers' /* replaceTags */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, showIf */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'jqueryui/progressbar' /* /\.progressbar/ */,
-  'jqueryui/sortable' /* /\.sortable/ */
-], function(I18n, $, React, ReactDOM, userSettings, RichContentEditor, MoveToDialog, EportfolioSection) {
+import I18n from 'i18n!eportfolio'
+import $ from 'jquery'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import userSettings from 'compiled/userSettings'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import MoveToDialog from 'jsx/eportfolios/MoveToDialog'
+import {fetchContent} from 'eportfolios/eportfolio_section'
+import sanitizeHtml from 'jsx/shared/sanitizeHtml'
+import './jquery.ajaxJSON'
+import './jquery.inst_tree' /* instTree */
+import './jquery.instructure_forms' /* formSubmit, getFormData, formErrors, errorBox */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import 'compiled/jquery.rails_flash_notifications' /* $.screenReaderFlashMessageExclusive */
+import './jquery.instructure_misc_helpers' /* replaceTags, scrollSidebar */
+import './jquery.instructure_misc_plugins' /* confirmDelete, showIf */
+import './jquery.loadingImg'
+import './jquery.templateData' /* fillTemplateData, getTemplateData */
+import './vendor/jquery.scrollTo'
+import 'jqueryui/progressbar'
+import 'jqueryui/sortable'
 
   // optimization so user isn't waiting on RCS to
   // respond when they hit edit
@@ -74,7 +74,7 @@ define([
       if(section_type == "rich_text" || section_type == "html" || $section.hasClass('read_only')) {
         idx++;
         var name = "section_" + idx;
-        var sectionContent = EportfolioSection.fetchContent($section, section_type, name)
+        var sectionContent = fetchContent($section, section_type, name)
         data = $.extend(data, sectionContent)
       }
     });
@@ -113,17 +113,16 @@ define([
       $('#application').append('<div id="eportfolios_move_to_modal_root"></div>')
       modalRoot = document.querySelector('#eportfolios_move_to_modal_root')
     }
-    ReactDOM.render(React.createElement(MoveToDialog, {
-      source: source,
-      destinations: destinations,
-      appElement: appElement,
-      triggerElement: triggerElement,
-      header: dialogLabel,
-      onClose: function() {
+    ReactDOM.render(<MoveToDialog
+      source={source}
+      destinations={destinations}
+      appElement={appElement}
+      triggerElement={triggerElement}
+      header={dialogLabel}
+      onClose={function() {
         setTimeout(function() { ReactDOM.unmountComponentAtNode(modalRoot) })
-      },
-      onMove: onMove
-    }), modalRoot)
+      }}
+      onMove={onMove} />, modalRoot)
   }
 
   $(document).ready(function() {
@@ -203,7 +202,7 @@ define([
     $("#edit_page_sidebar .submit_button").click(function(event) {
       $("#edit_page_form").submit();
     });
-    $("#edit_page_form,#edit_page_sidebar").find(".preview_button").click(function(){
+    $("#edit_page_form,#edit_page_sidebar").find("button.preview_button").click(function(){
       $("#page_content .section.failed").remove();
       $("#edit_page_form,#page_content,#page_sidebar").addClass('previewing');
       $("#page_content .section").each(function() {
@@ -211,10 +210,11 @@ define([
         var $preview = $section.find(".section_content").clone().removeClass('section_content').addClass('preview_content').addClass('preview_section');
         var section_type = $section.getTemplateData({textValues: ['section_type']}).section_type;
         if(section_type == "html") {
-          $preview.html($section.find(".edit_section").val());
+          // xsslint safeString.function sanitizeHtml
+          $preview.html(sanitizeHtml($section.find(".edit_section").val()));
           $section.find(".section_content").after($preview);
         } else if (section_type == "rich_text") {
-          var $richText = $section.find('.edit_section)');
+          var $richText = $section.find('.edit_section');
           var editorContent = RichContentEditor.callOnRCE($richText, "get_code");
           if (editorContent){ $preview.html($.raw(editorContent)) }
           $section.find(".section_content").after($preview);
@@ -244,7 +244,6 @@ define([
           var $section = $(this)
           var section_type = $section.getTemplateData({textValues: ['section_type']}).section_type;
           if(section_type == "rich_text" || section_type == "html") {
-            var code = $section.find(".edit_section").val();
             if(section_type == "rich_text") {
               var $richText = $section.find('.edit_section')
               var editorContent = RichContentEditor.callOnRCE($richText, "get_code")
@@ -253,6 +252,7 @@ define([
               }
               RichContentEditor.destroyRCE($richText);
             } else {
+              const code = sanitizeHtml($section.find(".edit_section").val());
               $section.find(".section_content").html($.raw(code));
             }
           } else if(!$section.hasClass('read_only')) {
@@ -286,7 +286,7 @@ define([
       event.preventDefault();
       RichContentEditor.callOnRCE($("#edit_page_content"), "toggle")
       //  todo: replace .andSelf with .addBack when JQuery is upgraded.
-      $(this).siblings(".switch_views_link").andSelf().toggle();
+      $(this).siblings(".switch_views_link").andSelf().toggle().focus();
     });
     $("#edit_page_sidebar .add_content_link").click(function(event) {
       event.preventDefault();
@@ -324,6 +324,9 @@ define([
         $("html,body").scrollTo($section);
         if (section_type == "html") {
           $edit.find(".edit_section").focus().select();
+        }
+        if (section_type == "submission") {
+          $edit.find(".submission:first .text").focus()
         }
       });
     });
@@ -366,7 +369,8 @@ define([
       var $section = $(this).parents(".section");
       var $selection = $section.find(".submission_list li.active-leaf:first");
       if($selection.length === 0) { return; }
-      var url = $selection.find(".submission_preview_url").attr('href');
+      var url = $selection.find(".submission_info").attr('href');
+      var title = $selection.find(".submission_info").text();
       var id = $selection.attr('id').substring(11);
       $section.fillTemplateData({
         data: {submission_id: id}
@@ -376,6 +380,8 @@ define([
       $frame.attr('src', url);
       $section.append($frame);
       $section.addClass('read_only');
+      $(this).focus()
+      $.screenReaderFlashMessageExclusive(I18n.t('submission added: %{title}', { title: title }))
     }).delegate('.upload_file_button', 'click', function(event) {
       event.preventDefault();
       event.stopPropagation();
@@ -447,13 +453,12 @@ define([
           return false;
         }
       },
-      success: function(data) {
+      success: function(attachment) {
         var $section = $(this).data('section');
-        var attachment = data.attachment;
         $section.find(".attachment_id").text(attachment.id);
         var url = $(".eportfolio_download_url").attr('href');
         url = $.replaceTags(url, 'uuid', attachment.uuid);
-        if(attachment.content_type.indexOf("image") != -1) {
+        if(attachment['content-type'].indexOf("image") != -1) {
           var $image = $("#eportfolio_view_image").clone(true).removeAttr('id');
           $image.find(".eportfolio_image").attr('src', url).attr('alt', attachment.display_name);
           $image.find(".eportfolio_download").attr('href', url);
@@ -478,6 +483,21 @@ define([
         $section.addClass('failed');
         $(this).remove();
         $section.formErrors(data.errors || data);
+      }
+    });
+    $("#recent_submissions .submission").keydown(function(event) {
+      const count = $(event.target).closest('a').length
+      if (count === 0 || count === 1) {
+        const code = event.which;
+        if ((code === 13) || (code === 32)) {
+          if (count === 0) {
+            // Add Submission
+            $(this).click();
+          } else if (count === 1) {
+            // Open Submission
+            $(event.target).closest('a')[0].click();
+          }
+        }
       }
     });
     $("#recent_submissions .submission").click(function(event) {
@@ -1079,7 +1099,7 @@ define([
       var url = $(this).attr('href');
       var errorCount = 0;
       var check = function(first) {
-        req_url = url;
+        var req_url = url;
         if (first) {
           req_url = url + "?compile=1";
         }
@@ -1112,4 +1132,3 @@ define([
       });
     });
   });
-});

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,7 @@ class AppointmentGroup < ActiveRecord::Base
   # has_many :through on the same table does not alias columns in condition
   # strings, just hashes. we create this helper association to ensure
   # appointments_participants conditions have the correct table alias
-  has_many :_appointments, -> { order(:start_at).preload(:child_events).where("_appointments_appointments_participants_join.workflow_state <> 'deleted'") }, opts
+  has_many :_appointments, -> { order(:start_at).preload(:child_events).where("_appointments_appointments_participants.workflow_state <> 'deleted'") }, opts
   has_many :appointments_participants, -> { where("calendar_events.workflow_state <> 'deleted'").order(:start_at) }, through: :_appointments, source: :child_events
   has_many :appointment_group_contexts
   has_many :appointment_group_sub_contexts, -> { preload(:sub_context) }
@@ -44,7 +44,7 @@ class AppointmentGroup < ActiveRecord::Base
 
   def sub_contexts
     # I wonder how rails is adding multiples of the same sub_contexts
-    appointment_group_sub_contexts.uniq.map &:sub_context
+    appointment_group_sub_contexts.map &:sub_context
   end
 
   validates_presence_of :workflow_state
@@ -131,6 +131,17 @@ class AppointmentGroup < ActiveRecord::Base
                                          :sub_context_code => code)
         ]
       else
+        # if new record and we have a course without sections, add all the sections
+        if new_record?
+          @new_contexts.each do |context|
+            context_subs = context.course_sections.map(&:asset_string)
+            # if context has no selected subcontexts, add all subcontexts
+            if (@new_sub_context_codes & context_subs).count == 0
+              @new_sub_context_codes += context_subs
+            end
+          end
+        end
+
         # right now we don't support changing the sub contexts for a context
         # on an appointment group after it has been saved
         disallowed_sub_context_codes = contexts.map(&:course_sections).
@@ -180,7 +191,7 @@ class AppointmentGroup < ActiveRecord::Base
     if restrict_to_codes
       codes[:primary] &= restrict_to_codes
     end
-    uniq.
+    distinct.
         joins("JOIN #{AppointmentGroupContext.quoted_table_name} agc " \
               "ON appointment_groups.id = agc.appointment_group_id " \
               "LEFT JOIN #{AppointmentGroupSubContext.quoted_table_name} sc " \
@@ -204,7 +215,7 @@ class AppointmentGroup < ActiveRecord::Base
       codes[:full] &= restrict_to_codes
       codes[:limited] &= restrict_to_codes
     end
-    uniq.
+    distinct.
         joins("JOIN #{AppointmentGroupContext.quoted_table_name} agc " \
               "ON appointment_groups.id = agc.appointment_group_id " \
               "LEFT JOIN #{AppointmentGroupSubContext.quoted_table_name} sc " \
@@ -254,11 +265,11 @@ class AppointmentGroup < ActiveRecord::Base
   set_broadcast_policy do
     dispatch :appointment_group_published
     to       { possible_users }
-    whenever { contexts.any?(&:available?) && active? && workflow_state_changed? }
+    whenever { contexts.any?(&:available?) && active? && saved_change_to_workflow_state? }
 
     dispatch :appointment_group_updated
     to       { possible_users }
-    whenever { contexts.any?(&:available?) && active? && new_appointments && !workflow_state_changed? }
+    whenever { contexts.any?(&:available?) && active? && new_appointments && !saved_change_to_workflow_state? }
 
     dispatch :appointment_group_deleted
     to       { possible_users }
@@ -273,8 +284,8 @@ class AppointmentGroup < ActiveRecord::Base
   end
 
   def instructors
-    if sub_context_type == "CourseSection"
-      contexts.map { |c| c.participating_instructors.restrict_to_sections(sub_context_id) }.flatten.uniq
+    if participant_type == 'User' && sub_contexts.present?
+      contexts.map { |c| c.participating_instructors.restrict_to_sections(sub_contexts) }.flatten.uniq
     else
       contexts.map(&:participating_instructors).flatten.uniq
     end
@@ -388,7 +399,7 @@ class AppointmentGroup < ActiveRecord::Base
 
   def update_appointments
     changed = Hash[
-      EVENT_ATTRIBUTES.select{ |attr| send("#{attr}_changed?") }.
+      EVENT_ATTRIBUTES.select{ |attr| saved_change_to_attribute?(attr) }.
       map{ |attr| [attr, attr == :description ? description_html : send(attr)] }
     ]
 
@@ -410,8 +421,8 @@ class AppointmentGroup < ActiveRecord::Base
     end
 
     if desc
-      appointments.where(:description => description_was).update_all(:description => desc)
-      CalendarEvent.joins(:parent_event).where(workflow_state: ['active', 'locked'], parent_events_calendar_events: { context_id: self, context_type: 'AppointmentGroup' }, description: description_was).update_all(:description => desc)
+      appointments.where(:description => description_before_last_save).update_all(:description => desc)
+      CalendarEvent.joins(:parent_event).where(workflow_state: ['active', 'locked'], parent_events_calendar_events: { context_id: self, context_type: 'AppointmentGroup' }, description: description_before_last_save).update_all(:description => desc)
     end
 
     @new_appointments.each(&:reload) if @new_appointments.present?
@@ -452,11 +463,14 @@ class AppointmentGroup < ActiveRecord::Base
   end
 
   alias_method :destroy_permanently!, :destroy
-  def destroy
+  def destroy(updating_user)
     transaction do
       self.workflow_state = 'deleted'
       save!
-      self.appointments.map{ |a| a.destroy(false) }
+      self.appointments.map do |a|
+        a.updating_user = updating_user
+        a.destroy(false)
+      end
     end
   end
 
@@ -484,4 +498,14 @@ class AppointmentGroup < ActiveRecord::Base
   def context_codes
     appointment_group_contexts.map(&:context_code)
   end
+
+  def users_with_reservations_through_group
+    appointments_participants
+      .joins("INNER JOIN #{GroupMembership.quoted_table_name} " \
+             "ON group_memberships.group_id = calendar_events.context_id " \
+             "and calendar_events.context_type = 'Group'")
+      .where("group_memberships.workflow_state <> 'deleted'")
+      .pluck("group_memberships.user_id")
+  end
+
 end

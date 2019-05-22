@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,11 +26,11 @@ module Api::V1::Avatar
       :type => 'gravatar',
       :alt => 'gravatar pic'
     })
-    user.profile_pics_folder.active_file_attachments({:include => :thumbnail}).select{|a| a.content_type.match(/\Aimage\//) && a.thumbnail}.sort_by(&:id).reverse_each do |image|
+    user.profile_pics_folder.active_file_attachments.shard(user).preload(:thumbnail).select(&:has_thumbnail?).sort_by(&:id).reverse_each do |image|
       avatars << avatar_json(user, image, {
         :type => 'attachment',
         :alt => image.display_name,
-        :pending => image.thumbnail.nil?
+        :pending => false
       })
     end
     # send the dotted box as the last option

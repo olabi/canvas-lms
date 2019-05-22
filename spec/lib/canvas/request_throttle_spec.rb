@@ -1,4 +1,5 @@
-# Copyright (C) 2013 Instructure, Inc.
+#
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -60,8 +61,8 @@ describe 'RequestThrottle' do
       expect(throttler.client_identifier(req request_logged_out)).to eq 'session:sess1'
     end
 
-    it "should fall back to nil" do
-      expect(throttler.client_identifier(req request_no_session)).to eq nil
+    it "should fall back to ip" do
+      expect(throttler.client_identifier(req(request_no_session))).to eq "ip:#{request_no_session['REMOTE_ADDR']}"
     end
   end
 
@@ -72,9 +73,20 @@ describe 'RequestThrottle' do
     end
 
     it "should pass on other requests" do
-      throttler.stubs(:whitelisted?).returns(false)
-      throttler.stubs(:blacklisted?).returns(false)
+      allow(throttler).to receive(:whitelisted?).and_return(false)
+      allow(throttler).to receive(:blacklisted?).and_return(false)
       expect(strip_variable_headers(throttler.call(request_user_1))).to eq response
+    end
+
+    it "should have headers even when disabled" do
+      allow(RequestThrottle).to receive(:enabled?).and_return(false)
+      allow(throttler).to receive(:calculate_cost).and_return(30)
+
+      expected = response
+      expected[1]['X-Request-Cost'] = '30'
+      # hwm of 600 - cost of the request
+      expected[1]['X-Rate-Limit-Remaining'] = '570.0'
+      expect(throttler.call(request_user_1)).to eq expected
     end
 
     it "should blacklist based on ip" do
@@ -139,61 +151,67 @@ describe 'RequestThrottle' do
     end
 
     before do
-      throttler.stubs(:whitelisted?).returns(false)
-      throttler.stubs(:blacklisted?).returns(false)
+      allow(throttler).to receive(:whitelisted?).and_return(false)
+      allow(throttler).to receive(:blacklisted?).and_return(false)
     end
 
     it "should skip without redis enabled" do
       if Canvas.redis_enabled?
-        Canvas.stubs(:redis_enabled?).returns(false)
-        Redis::Scripting::Module.any_instance.expects(:run).never
+        allow(Canvas).to receive(:redis_enabled?).and_return(false)
+        expect_any_instance_of(Redis::Scripting::Module).to receive(:run).never
       end
       expect(strip_variable_headers(throttler.call(request_user_1))).to eq response
     end
 
-    it "should skip if no client_identifier found" do
-      if Canvas.redis_enabled?
-        Redis::Scripting::Module.any_instance.expects(:run).never
+    if Canvas.redis_enabled?
+      it "should not skip if no client_identifier found" do
+        expect(strip_variable_headers(throttler.call(request_no_session))).to eq response
+        bucket = RequestThrottle::LeakyBucket.new("ip:#{request_no_session['REMOTE_ADDR']}")
+        count, last_touched = bucket.redis.hmget(bucket.cache_key, 'count', 'last_touched')
+        expect(last_touched.to_f).to be > 0.0
       end
-      expect(throttler.call(request_no_session)).to eq response
     end
 
     def throttled_request
-      bucket = mock('Bucket')
-      RequestThrottle::LeakyBucket.expects(:new).with("user:1").returns(bucket)
-      bucket.expects(:reserve_capacity).yields.returns(1)
-      bucket.expects(:full?).returns(true)
-      bucket.expects(:to_json) # in the logger.info line
+      allow(RequestThrottle).to receive(:enabled?).and_return(true)
+      allow(Canvas).to receive(:redis_enabled?).and_return(true)
+      bucket = double('Bucket')
+      expect(RequestThrottle::LeakyBucket).to receive(:new).with("user:1").and_return(bucket)
+      expect(bucket).to receive(:reserve_capacity).and_yield.and_return(1)
+      expect(bucket).to receive(:full?).and_return(true)
+      expect(bucket).to receive(:to_json) # in the logger.info line
       bucket
     end
 
     it "should throttle if bucket is full" do
       bucket = throttled_request
-      bucket.expects(:remaining).returns(-2)
+      expect(bucket).to receive(:remaining).and_return(-2)
       expected = rate_limit_exceeded
       expected[1]['X-Rate-Limit-Remaining'] = "-2"
       expect(throttler.call(request_user_1)).to eq expected
     end
 
     it "should not throttle if disabled" do
-      RequestThrottle.stubs(:enabled?).returns(false)
-      bucket = throttled_request
-      # shouldn't even check these
-      bucket.unstub(:full?)
-      bucket.unstub(:to_json)
+      allow(RequestThrottle).to receive(:enabled?).and_return(false)
+      bucket = double('Bucket')
+      expect(RequestThrottle::LeakyBucket).to receive(:new).with("user:1").and_return(bucket)
+      expect(bucket).to receive(:reserve_capacity).and_yield.and_return(1)
+      expect(bucket).to receive(:remaining).and_return(1)
       # the cost is still returned anyway
       expected = response
       expected[1]['X-Request-Cost'] = '1'
+      # the remaining is also returned anyway
+      expected[1]['X-Rate-Limit-Remaining'] = '1'
       expect(throttler.call(request_user_1)).to eq expected
     end
 
     it "should not throttle, but update, if bucket is not full" do
-      bucket = mock('Bucket')
-      RequestThrottle::LeakyBucket.expects(:new).with("user:1").returns(bucket)
-      bucket.expects(:reserve_capacity).yields.returns(1)
-      bucket.expects(:full?).returns(false)
-      bucket.expects(:remaining).returns(599)
-      Canvas.stubs(:redis_enabled?).returns(true)
+      bucket = double('Bucket')
+      expect(RequestThrottle::LeakyBucket).to receive(:new).with("user:1").and_return(bucket)
+      expect(bucket).to receive(:reserve_capacity).and_yield.and_return(1)
+      expect(bucket).to receive(:full?).and_return(false)
+      expect(bucket).to receive(:remaining).and_return(599)
+      allow(Canvas).to receive(:redis_enabled?).and_return(true)
 
       expected = response
       expected[1].merge!('X-Request-Cost' => '1', 'X-Rate-Limit-Remaining' => '599')
@@ -227,6 +245,20 @@ describe 'RequestThrottle' do
           Setting.set('request_throttle.hwm', '6.0')
           expect(bucket.full?).to eq false
           Setting.set('request_throttle.hwm', '4.0')
+          expect(bucket.full?).to eq true
+        end
+
+        it "compares to a customized hwm setting if set" do
+          bucket = RequestThrottle::LeakyBucket.new("test", 5.0)
+          Setting.set('request_throttle.hwm', '4.0')
+          expect(bucket.full?).to eq true
+          Setting.set('request_throttle.custom_settings',
+                      {test: {hwm: '6.0'}}.to_json)
+          RequestThrottle::LeakyBucket.reload!
+          expect(bucket.full?).to eq false
+          Setting.set('request_throttle.custom_settings',
+                      {other: {hwm: '6.0'}}.to_json)
+          RequestThrottle::LeakyBucket.reload!
           expect(bucket.full?).to eq true
         end
       end
@@ -267,6 +299,12 @@ describe 'RequestThrottle' do
           expect(@bucket.count).to eq 0.0
           expect(@bucket.last_touched).to be_within(0.1).of(75)
         end
+
+        it "doesn't leak the current request" do
+          @bucket.redis.hmset(@bucket.cache_key, 'count', 1, 'last_touched', @current_time - 50)
+          @bucket.increment(5.0, 0, Time.at(@current_time))
+          expect(@bucket.count).to be_within(0.1).of(5.0)
+        end
       end
 
       describe "#reserve_capacity" do
@@ -303,6 +341,26 @@ describe 'RequestThrottle' do
           end
           expect(@bucket.count).to eq 0
           expect(@bucket.redis.hget(@bucket.cache_key, 'count').to_f).to eq 0
+        end
+
+        it "uses custom values if available" do
+          Setting.set('request_throttle.custom_settings',
+                      {test: {up_front_cost: '20.0'}}.to_json)
+          RequestThrottle::LeakyBucket.reload!
+          Timecop.freeze('2012-01-29 12:00:00 UTC') do
+            @bucket.increment(0, 0, @current_time)
+            @bucket.reserve_capacity do
+              expect(@bucket.redis.hget(@bucket.cache_key, 'count').to_f).to be_within(0.1).of(20)
+              5
+            end
+            expect(@bucket.redis.hget(@bucket.cache_key, 'count').to_f).to be_within(0.1).of(5)
+          end
+        end
+
+        it "does nothing if disabled" do
+          expect(RequestThrottle).to receive(:enabled?).twice.and_return(false)
+          expect(@bucket).to receive(:increment).never
+          @bucket.reserve_capacity {}
         end
 
         after do

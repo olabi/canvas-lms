@@ -1,17 +1,38 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
   'Backbone'
-  'compiled/backbone-ext/DefaultUrlMixin'
-  'compiled/models/TurnitinSettings'
-  'compiled/models/VeriCiteSettings'
-  'compiled/models/DateGroup'
-  'compiled/collections/AssignmentOverrideCollection'
-  'compiled/collections/DateGroupCollection'
+  '../backbone-ext/DefaultUrlMixin'
+  '../models/TurnitinSettings'
+  '../models/VeriCiteSettings'
+  '../models/DateGroup'
+  '../collections/AssignmentOverrideCollection'
+  '../collections/DateGroupCollection'
   'i18n!assignments'
   'jsx/grading/helpers/GradingPeriodsHelper'
   'timezone'
-], ($, _, {Model}, DefaultUrlMixin, TurnitinSettings, VeriCiteSettings, DateGroup, AssignmentOverrideCollection, DateGroupCollection, I18n, GradingPeriodsHelper, tz) ->
+  'jsx/shared/helpers/numberHelper'
+  '../util/PandaPubPoller'
+], ($, _, {Model}, DefaultUrlMixin, TurnitinSettings, VeriCiteSettings, DateGroup,
+    AssignmentOverrideCollection, DateGroupCollection, I18n, GradingPeriodsHelper,
+    tz, numberHelper, PandaPubPoller) ->
 
   isAdmin = () ->
     _.contains(ENV.current_user_roles, 'admin')
@@ -84,7 +105,12 @@ define [
 
     pointsPossible: (points) =>
       return @get('points_possible') || 0 unless arguments.length > 0
-      @set 'points_possible', points
+      # if the incoming value is valid, set the field to the numeric value
+      # if not, set to the incoming string and let validation handle it later
+      if(numberHelper.validate(points))
+        @set 'points_possible', numberHelper.parse(points)
+      else
+        @set 'points_possible', points
 
     secureParams: =>
       @get('secure_params')
@@ -94,7 +120,7 @@ define [
       @set 'assignment_group_id', assignment_group_id
 
     canFreeze: =>
-      @get('frozen_attributes')? && !@frozen()
+      @get('frozen_attributes')? && !@frozen() && !@isQuizLTIAssignment()
 
     canDelete: =>
       not @inClosedGradingPeriod() and not @frozen()
@@ -172,9 +198,25 @@ define [
       return @get 'post_to_sis' unless arguments.length > 0
       @set 'post_to_sis', postToSisBoolean
 
-    moderatedGrading: (moderatedGradingBoolean) =>
-      return @get 'moderated_grading' unless arguments.length > 0
-      @set 'moderated_grading', moderatedGradingBoolean
+    moderatedGrading: (enabled) =>
+      return @get('moderated_grading') or false unless arguments.length > 0
+      @set('moderated_grading', enabled)
+
+    anonymousInstructorAnnotations: (anonymousInstructorAnnotationsBoolean) =>
+      return @get 'anonymous_instructor_annotations' unless arguments.length > 0
+      @set 'anonymous_instructor_annotations', anonymousInstructorAnnotationsBoolean
+
+    anonymousGrading: (anonymousGradingBoolean) =>
+      return @get 'anonymous_grading' unless arguments.length > 0
+      @set 'anonymous_grading', anonymousGradingBoolean
+
+    gradersAnonymousToGraders: (anonymousGraders) =>
+      return @get('graders_anonymous_to_graders') unless arguments.length > 0
+      @set 'graders_anonymous_to_graders', anonymousGraders
+
+    graderCommentsVisibleToGraders: (commentsVisible) =>
+      return !!@get('grader_comments_visible_to_graders') unless arguments.length > 0
+      @set 'grader_comments_visible_to_graders', commentsVisible
 
     peerReviews: (peerReviewBoolean) =>
       return @get 'peer_reviews' unless arguments.length > 0
@@ -306,6 +348,21 @@ define [
     postToSISEnabled: =>
       return ENV.POST_TO_SIS
 
+    postToSISName: =>
+      return ENV.SIS_NAME
+
+    sisIntegrationSettingsEnabled: =>
+      return ENV.SIS_INTEGRATION_SETTINGS_ENABLED
+
+    maxNameLength: =>
+      return ENV.MAX_NAME_LENGTH
+
+    maxNameLengthRequiredForAccount: =>
+      return ENV.MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT
+
+    dueDateRequiredForAccount: =>
+      return ENV.DUE_DATE_REQUIRED_FOR_ACCOUNT
+
     defaultDates: =>
       group = new DateGroup
         due_at:    @get("due_at")
@@ -348,8 +405,38 @@ define [
       else
         return @dueAt()
 
+    canDuplicate: =>
+      @get('can_duplicate')
+
+    isDuplicating: =>
+      @get('workflow_state') == 'duplicating'
+
+    failedToDuplicate: =>
+      @get('workflow_state') == 'failed_to_duplicate'
+
+    originalCourseID: =>
+      @get('original_course_id')
+
+    originalAssignmentID: =>
+      @get('original_assignment_id')
+
+    originalAssignmentName: =>
+      @get('original_assignment_name')
+
     is_quiz_assignment: =>
       @get('is_quiz_assignment')
+
+    isQuizLTIAssignment: =>
+      @get('is_quiz_lti_assignment')
+
+    isImporting: =>
+      @get('workflow_state') == 'importing'
+
+    failedToImport: =>
+      @get('workflow_state') == 'failed_to_import'
+
+    submissionTypesFrozen: =>
+      _.include(@frozenAttributes(), 'submission_types')
 
     toView: =>
       fields = [
@@ -368,14 +455,19 @@ define [
         'labelId', 'position', 'postToSIS', 'multipleDueDates', 'nonBaseDates',
         'allDates', 'hasDueDate', 'hasPointsPossible', 'singleSectionDueDate',
         'moderatedGrading', 'postToSISEnabled', 'isOnlyVisibleToOverrides',
-        'omitFromFinalGrade', 'is_quiz_assignment', 'secureParams',
-        'inClosedGradingPeriod', 'dueDateRequired'
+        'omitFromFinalGrade', 'isDuplicating', 'failedToDuplicate',
+        'originalAssignmentName', 'is_quiz_assignment', 'isQuizLTIAssignment',
+        'isImporting', 'failedToImport',
+        'secureParams', 'inClosedGradingPeriod', 'dueDateRequired',
+        'submissionTypesFrozen', 'anonymousInstructorAnnotations',
+        'anonymousGrading', 'gradersAnonymousToGraders', 'showGradersAnonymousToGradersCheckbox'
       ]
 
       hash =
         id: @get('id'),
-        is_master_course_content: @get('is_master_course_content'),
-        restricted_by_master_course: @get('restricted_by_master_course')
+        is_master_course_child_content: @get('is_master_course_child_content'),
+        restricted_by_master_course: @get('restricted_by_master_course'),
+        master_course_restrictions: @get('master_course_restrictions')
       for field in fields
         hash[field] = @[field]()
       hash
@@ -383,6 +475,7 @@ define [
     toJSON: ->
       data = super
       data = @_filterFrozenAttributes(data)
+      delete data.description if (ENV.MASTER_COURSE_DATA?.is_master_course_child_content && ENV.MASTER_COURSE_DATA?.master_course_restrictions?.content)
       if @alreadyScoped then data else { assignment: data }
 
     inGradingPeriod: (gradingPeriod) ->
@@ -471,6 +564,51 @@ define [
     disabledMessage: ->
       I18n.t("Can't unpublish %{name} if there are student submissions", name: @get('name'))
 
+    # caller is original assignment
+    duplicate: (callback) =>
+      course_id = @courseID()
+      assignment_id = @id
+      $.ajaxJSON "/api/v1/courses/#{course_id}/assignments/#{assignment_id}/duplicate", 'POST',
+        {}, callback
+
+    # caller is failed assignment
+    duplicate_failed: (callback) =>
+      target_course_id = @courseID()
+      target_assignment_id = @id
+      original_course_id = @originalCourseID()
+      original_assignment_id = @originalAssignmentID()
+      query_string = "?target_assignment_id=#{target_assignment_id}"
+      if (original_course_id != target_course_id) # when it's a course copy failure
+        query_string += "&target_course_id=#{target_course_id}"
+      $.ajaxJSON "/api/v1/courses/#{original_course_id}/assignments/#{original_assignment_id}/duplicate#{query_string}",
+        'POST', {}, callback
+
+    pollUntilFinishedDuplicating: (interval = 3000) =>
+      @pollUntilFinished(interval, @isDuplicating)
+
+    pollUntilFinishedImporting: (interval = 3000) =>
+      @pollUntilFinished(interval, @isImporting)
+
+    pollUntilFinishedLoading: (interval = 3000) =>
+      if @isDuplicating()
+        @pollUntilFinishedDuplicating(interval)
+      else if @isImporting()
+        @pollUntilFinishedImporting(interval)
+
+    pollUntilFinished: (interval, isFinished) =>
+      # TODO: implement pandapub streaming updates
+      poller = new PandaPubPoller interval, interval * 5, (done) =>
+        @fetch().always =>
+          done()
+          poller.stop() unless isFinished()
+      poller.start()
+
     isOnlyVisibleToOverrides: (override_flag) ->
       return @get('only_visible_to_overrides') || false unless arguments.length > 0
       @set 'only_visible_to_overrides', override_flag
+
+    isRestrictedByMasterCourse: ->
+      @get('is_master_course_child_content') && @get('restricted_by_master_course')
+
+    showGradersAnonymousToGradersCheckbox: =>
+      @moderatedGrading() && @get('grader_comments_visible_to_graders')

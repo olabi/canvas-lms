@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,22 +22,67 @@ module Lti
   module Ims
     class ToolSettingController < ApplicationController
       include Lti::ApiServiceHelper
+      include Lti::Ims::AccessTokenHelper
 
-      skip_before_filter :require_context
-      skip_before_filter :require_user
-      skip_before_filter :load_user
-      before_filter :authenticate_api_call
+      rescue_from ActiveRecord::RecordNotFound do
+        render json: {
+          :status => I18n.t('lib.auth.api.not_found_status', 'not_found'),
+          :errors => [{:message => I18n.t('lib.auth.api.not_found_message', "not_found")}]
+        }, status: :not_found
+      end
+
+      TOOL_SETTINGS_SERVICE = 'ToolProxySettings'.freeze
+      TOOL_PROXY_BINDING_SERVICE = 'ToolProxyBindingSettings'.freeze
+      LTI_LINK_SETTINGS = 'LtiLinkSettings'.freeze
+
+      skip_before_action :load_user
+      before_action :authenticate_api_call
+      skip_before_action :verify_authenticity_token
+
+      SERVICE_DEFINITIONS = [
+        {
+          id: TOOL_SETTINGS_SERVICE,
+          endpoint: 'api/lti/tool_settings/tool_proxy/{tool_proxy_id}',
+          format: %w(
+            application/vnd.ims.lti.v2.toolsettings+json
+            application/vnd.ims.lti.v2.toolsettings.simple+json
+          ).freeze,
+          action: %w(GET PUT).freeze
+        }.freeze,
+        {
+          id: TOOL_PROXY_BINDING_SERVICE,
+          endpoint: 'api/lti/tool_settings/bindings/{binding_id}',
+          format: %w(
+            application/vnd.ims.lti.v2.toolsettings+json'
+            application/vnd.ims.lti.v2.toolsettings.simple+json
+          ).freeze,
+          action: %w(GET PUT).freeze
+        }.freeze,
+        {
+          id: LTI_LINK_SETTINGS,
+          endpoint: 'api/lti/tool_proxy/{tool_proxy_guid}/courses/{course_id}/resource_link_id/{resource_link_id}/tool_setting',
+          format: %w(
+            application/vnd.ims.lti.v2.toolsettings+json
+            application/vnd.ims.lti.v2.toolsettings.simple+json
+          ).freeze,
+          action: %w(GET PUT).freeze
+        }.freeze
+      ].freeze
 
       def show
         render_bad_request and return unless valid_show_request?
-        render json: tool_setting_json(@tool_setting, params[:bubble]), content_type: @content_type
+        render json: tool_setting_json(tool_setting, params[:bubble]), content_type: @content_type
       end
 
       def update
         json = JSON.parse(request.body.read)
         render_bad_request and return unless valid_update_request?(json)
-        @tool_setting.update_attribute(:custom, custom_settings(tool_setting_type(@tool_setting), json))
-        render nothing: true
+        tool_setting.update_attribute(:custom, custom_settings(tool_setting_type(tool_setting), json))
+        head :ok
+      end
+
+      def lti2_service_name
+        [TOOL_SETTINGS_SERVICE, TOOL_PROXY_BINDING_SERVICE, LTI_LINK_SETTINGS]
       end
 
       private
@@ -106,8 +152,37 @@ module Lti
       end
 
       def authenticate_api_call
-        lti_authenticate or return
-        @tool_setting = @tool_proxy.tool_settings.find(params[:tool_setting_id]) if @tool_proxy
+        if oauth2_request?
+          begin
+            validate_access_token!
+          rescue Lti::Oauth2::InvalidTokenError
+            render_unauthorized and return
+          end
+        elsif request.authorization.present?
+          lti_authenticate or return
+        else
+          render_unauthorized and return
+        end
+      end
+
+      def tool_setting
+        @_tool_setting ||= begin
+          tool_setting_id = params[:tool_setting_id]
+          ts = if tool_setting_id.present?
+            tool_proxy.tool_settings.find(tool_setting_id)
+          else
+            get_context
+            tool_proxy_guid = params[:tool_proxy_guid]
+            resource_link_id = params[:resource_link_id]
+            render_unauthorized and return unless tool_proxy_guid == tool_proxy.guid
+            tool_proxy.tool_settings.find_by(
+              context: @context,
+              resource_link_id: resource_link_id
+            )
+          end
+          raise ActiveRecord::RecordNotFound if ts.blank?
+          ts
+        end
       end
 
       def valid_show_request?
@@ -130,7 +205,7 @@ module Lti
       def render_bad_request
         render :json => {
                              :status => I18n.t('lib.auth.api.bad_request_status', 'bad_request'),
-                             :errors => [{:message => I18n.t('lib.auth.api.bad_request_messagee', "bad_request")}]
+                             :errors => [{:message => I18n.t('lib.auth.api.bad_request_message', "bad_request")}]
                            },
                :status => :bad_request
       end

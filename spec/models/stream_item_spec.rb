@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -54,11 +54,30 @@ describe StreamItem do
     expect(de.reload.discussion_topic_id).not_to be_nil
   end
 
+  it "uses new context short name" do
+    user_factory
+    context = Course.create!(:course_code => "some name")
+    enable_cache do
+      dt1 = DiscussionTopic.create!(:context => context)
+      dt1.generate_stream_items([@user])
+      si1 = StreamItem.where(:asset_id => dt1.id).first
+      expect(si1.data.context_short_name).to eq "some name"
+
+      context.update_attribute(:course_code, "some other name")
+      dt2 = DiscussionTopic.create!(:context => context)
+      dt2.generate_stream_items([@user])
+      si2 = StreamItem.where(:asset_id => dt2.id).first
+      expect(si2.data.context_short_name).to eq "some other name"
+    end
+  end
+
   describe "destroy_stream_items_using_setting" do
     it "should have a default ttl" do
       si1 = StreamItem.create! { |si| si.asset_type = 'Message'; si.data = { notification_id: nil } }
       si2 = StreamItem.create! { |si| si.asset_type = 'Message'; si.data = { notification_id: nil } }
       StreamItem.where(:id => si2).update_all(:updated_at => 1.year.ago)
+      # stub this out so that the vacuum is skipped (can't run in specs in a transaction)
+      allow(Shard.current.database_server).to receive(:unshackle)
       expect {
         StreamItem.destroy_stream_items_using_setting
       }.to change(StreamItem, :count).by(-1)
@@ -123,4 +142,40 @@ describe StreamItem do
       end
     end
   end
+
+  it "should return a title for a Conversation" do
+    user_factory
+    convo = Conversation.create!(:subject => "meow")
+    convo.generate_stream_items([@user])
+    si = @user.stream_item_instances.first.stream_item
+    data = si.data(@user.id)
+    expect(data).to be_a Conversation
+    expect(data.title).to eql("meow")
+  end
+
+  it "should not unhide stream item instances when someone 'deletes' a message" do
+    users = (0..2).map{|x| user_factory }
+    user1, user2, user3 = users
+    convo = Conversation.initiate(users, false)
+    message = convo.add_message(user3, "hello")
+    si = StreamItem.where(:asset_type => "Conversation", :asset_id => convo).first
+    instance1, instance2 = [user1, user2].map{|u| si.stream_item_instances.where(:user_id => u).first }
+    instance1.update_attribute(:hidden, true) # hide on user1's instance
+    convo.conversation_participants.where(:user_id => user2).first.remove_messages(:all) # remove on user2's side
+    expect(instance1.reload).to be_hidden # should leave user1's instance alone
+
+    # should remove the messages from user2's view after post_process
+    expect(StreamItem.find(si.id).data(user2.id).latest_messages_from_stream_item).to be_empty
+  end
+
+    it "should return a description for a Collaboration" do
+      user_factory
+      context = Course.create!
+      collab = Collaboration.create!(:context => context, :description => "meow", :title => "kitty")
+      collab.generate_stream_items([@user])
+      si = @user.stream_item_instances.first.stream_item
+      data = si.data(@user.id)
+      expect(data).to be_a Collaboration
+      expect(data.description).to eql("meow")
+    end
 end

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 
 describe "settings tabs" do
@@ -31,11 +48,9 @@ describe "settings tabs" do
       expect(f("#tab-announcements .announcement-details")).to include_text(displayed_username)
       dismiss_flash_messages
 
-      # close the "user account" reactTray that opened so we could read the displayed username
-      if tray_close = f('.ic-NavMenu__closeButton')
-       tray_close.click
-      end
-      expect(f('body')).not_to contain_css('.ReactTray__Overlay')
+      # close the "user account" Tray that opened so we could read the displayed username
+      f('body').click
+      expect(f('body')).not_to contain_css('[aria-label="Profile tray"]')
 
       expect(f("#tab-announcements .notification_subject").text).to eq subject
       expect(f("#tab-announcements .notification_message").text).to eq "this is a message"
@@ -60,7 +75,7 @@ describe "settings tabs" do
 
     before do
       course_with_admin_logged_in
-      driver.manage.window.maximize
+      make_full_screen
     end
 
     it "should add and delete an announcement" do

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,11 +12,14 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 class Canvadoc < ActiveRecord::Base
+  include Canvadocs::Session
+  alias_method :session_url, :canvadocs_session_url
+
   belongs_to :attachment
 
   has_many :canvadocs_submissions
@@ -24,7 +27,7 @@ class Canvadoc < ActiveRecord::Base
   def upload(opts = {})
     return if document_id.present?
 
-    url = attachment.authenticated_s3_url(expires_in: 1.day)
+    url = attachment.public_url(expires_in: 7.days)
 
     opts.delete(:annotatable) unless Canvadocs.annotations_supported?
 
@@ -44,43 +47,6 @@ class Canvadoc < ActiveRecord::Base
     end
   end
 
-  def session_url(opts = {})
-    user = opts.delete(:user)
-    opts.merge! annotation_opts(user)
-
-    Canvas.timeout_protection("canvadocs", raise_on_timeout: true) do
-      session = canvadocs_api.session(document_id, opts)
-      canvadocs_api.view(session["id"])
-    end
-  end
-
-  def annotation_opts(user)
-    return {} if !user || !has_annotations?
-
-    opts = {
-      annotation_context: "default",
-      permissions: "readwrite",
-      user_id: user.global_id.to_s,
-      user_name: user.short_name.gsub(",", ""),
-      user_role: "",
-      user_filter: user.global_id.to_s,
-    }
-
-    return opts if submissions.empty?
-
-    if submissions.any? { |s| s.grants_right? user, :read_grade }
-      opts.delete :user_filter
-    end
-
-    # no commenting when anonymous peer reviews are enabled
-    if submissions.map(&:assignment).any? { |a| a.peer_reviews? && a.anonymous_peer_reviews? }
-      opts = {}
-    end
-
-    opts
-  end
-  private :annotation_opts
-
   def submissions
     self.canvadocs_submissions.
       preload(submission: :assignment).
@@ -90,6 +56,27 @@ class Canvadoc < ActiveRecord::Base
   def available?
     !!(document_id && process_state != 'error' && Canvadocs.enabled?)
   end
+
+  def has_annotations?
+    Canvadocs.annotations_supported? || has_annotations == true
+  end
+
+  def self.jwt_secret
+    secret = Canvas::DynamicSettings.find(service: 'canvadoc', default_ttl: 5.minutes)['secret']
+    Base64.decode64(secret) if secret
+  end
+
+  # NOTE: the Setting.get('canvadoc_mime_types', ...) and the
+  # Setting.get('canvadoc_submission_mime_types', ...) will
+  # pull from the database first. the second parameter is there
+  # as a default in case the settings are not located in the
+  # db. this means that for instructure production canvas,
+  # we need to update the beta and prod databases with any
+  # mime_types we want to add/remove.
+  # TODO: find out if opensource users need the second param
+  # to the Setting.get(...,...) calls and if not, then remove
+  # them entirely from the codebase (since intructure prod
+  # does not need them)
 
   def self.mime_types
     JSON.parse Setting.get('canvadoc_mime_types', %w[
@@ -101,13 +88,35 @@ class Canvadoc < ActiveRecord::Base
       application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
       application/vnd.openxmlformats-officedocument.presentationml.presentation
       application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      application/vnd.oasis.opendocument.graphics
+      application/vnd.oasis.opendocument.formula
     ].to_json)
   end
 
-  def canvadocs_api
+  def self.submission_mime_types
+    JSON.parse Setting.get('canvadoc_submission_mime_types', %w[
+      application/excel
+      application/msword
+      application/pdf
+      application/vnd.ms-excel
+      application/vnd.ms-powerpoint
+      application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      application/vnd.openxmlformats-officedocument.presentationml.presentation
+      application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      application/vnd.oasis.opendocument.graphics
+      application/vnd.oasis.opendocument.formula
+      image/bmp
+      image/jpeg
+      image/jpg
+      image/png
+      image/tif
+      image/tiff
+    ].to_json)
+  end
+
+  def self.canvadocs_api
     raise "Canvadocs isn't enabled" unless Canvadocs.enabled?
     Canvadocs::API.new(token: Canvadocs.config['api_key'],
                        base_url: Canvadocs.config['base_url'])
   end
-  private :canvadocs_api
 end

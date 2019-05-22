@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -48,13 +48,13 @@ describe Quizzes::QuizQuestionsController do
 
   describe "POST 'create'" do
     it "should require authorization" do
-      post 'create', :course_id => @course.id, :quiz_id => @quiz, :question => {}
+      post 'create', params: {:course_id => @course.id, :quiz_id => @quiz, :question => {}}
       assert_unauthorized
     end
 
     it "should create a quiz question" do
       user_session(@teacher)
-      post 'create', :course_id => @course.id, :quiz_id => @quiz, :question => {
+      post 'create', params: {:course_id => @course.id, :quiz_id => @quiz, :question => {
         :question_type => "multiple_choice_question",
         :answers => {
           '0' => {
@@ -66,7 +66,7 @@ describe Quizzes::QuizQuestionsController do
             :weight => 0
           }
         }
-      }
+      }}
       expect(assigns[:question]).not_to be_nil
       expect(assigns[:question].question_data).not_to be_nil
       expect(assigns[:question].question_data[:answers].length).to eql(2)
@@ -74,7 +74,7 @@ describe Quizzes::QuizQuestionsController do
     end
     it "should preserve ids, if provided, on create" do
       user_session(@teacher)
-      post 'create', :course_id => @course.id, :quiz_id => @quiz, :question => {
+      post 'create', params: {:course_id => @course.id, :quiz_id => @quiz, :question => {
         :question_type => "multiple_choice_question",
         :answers => [
           {
@@ -93,7 +93,7 @@ describe Quizzes::QuizQuestionsController do
             :weight => 0
           }
         ]
-      }
+      }}
       expect(assigns[:question]).not_to be_nil
       expect(assigns[:question].question_data).not_to be_nil
       data = assigns[:question].question_data[:answers]
@@ -110,9 +110,9 @@ describe Quizzes::QuizQuestionsController do
         long_data = "#{long_data}abcdefghijklmnopqrstuvwxyz#{long_data}"
       end
       user_session(@teacher)
-      xhr :post, 'create', course_id: @course.id, quiz_id: @quiz, question: {
+      post 'create', params: {course_id: @course.id, quiz_id: @quiz, question: {
         question_text: long_data
-      }
+      }}, xhr: true
       expect(response.body).to match /max length is 16384/
     end
   end
@@ -121,13 +121,13 @@ describe Quizzes::QuizQuestionsController do
     before(:once) { quiz_question }
 
     it "should require authorization" do
-      put 'update', :course_id => @course.id, :quiz_id => @quiz, :id => @question.id, :question => {}
+      put 'update', params: {:course_id => @course.id, :quiz_id => @quiz, :id => @question.id, :question => {}}
       assert_unauthorized
     end
 
     it "should update a quiz question" do
       user_session(@teacher)
-      put 'update', :course_id => @course.id, :quiz_id => @quiz, :id => @question.id, :question => {
+      put 'update', params: {:course_id => @course.id, :quiz_id => @quiz, :id => @question.id, :question => {
         :question_type => "multiple_choice_question",
         :answers => {
           '0' => {
@@ -143,7 +143,7 @@ describe Quizzes::QuizQuestionsController do
             :weight => 0
           }
         }
-      }
+      }}
       expect(assigns[:question]).not_to be_nil
       expect(assigns[:question].question_data).not_to be_nil
       expect(assigns[:question].question_data[:answers].length).to eql(3)
@@ -152,7 +152,7 @@ describe Quizzes::QuizQuestionsController do
 
     it "should preserve ids, if provided, on update" do
       user_session(@teacher)
-      put 'update', :course_id => @course.id, :quiz_id => @quiz, :id => @question.id, :question => {
+      put 'update', params: {:course_id => @course.id, :quiz_id => @quiz, :id => @question.id, :question => {
         :question_type => "multiple_choice_question",
         :answers => {
           '0' => {
@@ -171,7 +171,7 @@ describe Quizzes::QuizQuestionsController do
             :weight => 0
           }
         }
-      }
+      }}
       expect(assigns[:question]).not_to be_nil
       expect(assigns[:question].question_data).not_to be_nil
       data = assigns[:question].question_data[:answers]
@@ -187,9 +187,9 @@ describe Quizzes::QuizQuestionsController do
         long_data = "#{long_data}abcdefghijklmnopqrstuvwxyz#{long_data}"
       end
       user_session(@teacher)
-      xhr :put, 'update', course_id: @course.id, quiz_id: @quiz, id: @question.id, question: {
+      put 'update', params: {course_id: @course.id, quiz_id: @quiz, id: @question.id, question: {
         question_text: long_data
-      }
+      }}, xhr: true
       expect(response.body).to match /max length is 16384/
     end
 
@@ -204,12 +204,37 @@ describe Quizzes::QuizQuestionsController do
       linked_question.save!
 
       user_session(@teacher)
-      put 'update', :course_id => @course.id, :quiz_id => @quiz, :id => linked_question.id, :question => {:correct_comments_html => ""}
-      expect(response).to be_success
+      put 'update', params: {:course_id => @course.id, :quiz_id => @quiz, :id => linked_question.id, :question => {:correct_comments_html => ""}}
+      expect(response).to be_successful
 
       linked_question.reload
       expect(linked_question.question_data['correct_comments_html']).to be_blank
       expect(linked_question.question_data['correct_comments']).to be_blank
+    end
+
+    it "should leave assessment question verifiers" do
+      @attachment = attachment_with_context(@course)
+      bank = @course.assessment_question_banks.create!(:title=>'Test Bank')
+      aq = bank.assessment_questions.create!(:question_data => {
+        :question_type => 'essay_question',
+        :question_text => "File ref:<img src=\"/courses/#{@course.id}/files/#{@attachment.id}/download\">"})
+
+      translated_text = aq.reload.question_data['question_text']
+      expect(translated_text).to match %r{/assessment_questions/\d+/files/\d+}
+      expect(translated_text).to match /verifier=/
+
+      # add the first question directly onto the quiz, so it shouldn't get "randomly" selected from the group
+      linked_question = @quiz.quiz_questions.build(:question_data => aq.question_data)
+      linked_question.assessment_question_id = aq.id
+      linked_question.save!
+
+      user_session(@teacher)
+      put 'update', params: {:course_id => @course.id, :quiz_id => @quiz, :id => linked_question.id,
+        :question => {:question_text => translated_text}}
+      expect(response).to be_successful
+
+      linked_question.reload
+      expect(linked_question.question_data['question_text']).to eq translated_text # leave alone
     end
   end
 end

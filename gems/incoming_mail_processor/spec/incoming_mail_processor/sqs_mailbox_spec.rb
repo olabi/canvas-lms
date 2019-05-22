@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -68,6 +68,7 @@ describe IncomingMailProcessor::SqsMailbox do
           and_return(double(queue_url: 'some_url'))
       expect(Aws::SQS::Client).to receive(:new).and_return(sqs)
       expect(Aws::SQS::QueuePoller).to receive(:new).and_return(queue)
+      expect(queue).to receive(:before_request)
       expect(queue).to receive(:poll).and_yield(sqs_message)
       subject.connect
       subject.each_message do |msg, contents|

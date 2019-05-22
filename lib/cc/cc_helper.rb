@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ module CC
 module CCHelper
 
   CANVAS_NAMESPACE = 'http://canvas.instructure.com/xsd/cccv1p0'
-  XSD_URI = 'http://canvas.instructure.com/xsd/cccv1p0.xsd'
+  XSD_URI = 'https://canvas.instructure.com/xsd/cccv1p0.xsd'
 
   # IMS formats/types
   IMS_DATE = "%Y-%m-%d"
@@ -96,30 +96,35 @@ module CCHelper
   ASSIGNMENT_XML = 'assignment.xml'
   EXTERNAL_CONTENT_FOLDER = 'external_content'
 
-  def ims_date(date=nil)
-    CCHelper.ims_date(date)
+  def ims_date(date=nil,default=Time.now)
+    CCHelper.ims_date(date, default)
   end
 
-  def ims_datetime(date=nil)
-    CCHelper.ims_datetime(date)
+  def ims_datetime(date=nil,default=Time.now)
+    CCHelper.ims_datetime(date, default)
   end
 
-  def self.create_key(object, prepend="")
+  def self.create_key(object, prepend="", global: false)
     if object.is_a? ActiveRecord::Base
-      key = object.asset_string
+      key = global ? object.global_asset_string : object.asset_string
+    elsif global && (md = object.to_s.match(/^(.*)_(\d+)$/))
+      key = "#{md[1]}_#{Shard.global_id_for(md[2])}" # globalize asset strings
     else
       key = object.to_s
     end
-    "i" + Digest::MD5.hexdigest(prepend + key)
+    # make it obvious if we're using new identifiers now
+    (global ? "g" : "i") + Digest::MD5.hexdigest(prepend + key)
   end
 
-  def self.ims_date(date=nil)
-    date ||= Time.now
+  def self.ims_date(date=nil,default=Time.now)
+    date ||= default
+    return nil unless date
     date.respond_to?(:utc) ? date.utc.strftime(IMS_DATE) : date.strftime(IMS_DATE)
   end
 
-  def self.ims_datetime(date=nil)
-    date ||= Time.now
+  def self.ims_datetime(date=nil,default=Time.now)
+    date ||= default
+    return nil unless date
     date.respond_to?(:utc) ? date.utc.strftime(IMS_DATETIME) : date.strftime(IMS_DATETIME)
   end
 
@@ -140,8 +145,31 @@ module CCHelper
 
   def get_html_title_and_body(doc)
     title = get_node_val(doc, 'html head title')
-    body = doc.at_css('html body').to_s.gsub(%r{</?body>}, '').strip
+    body = doc.at_css('html body').to_s.force_encoding(Encoding::UTF_8).gsub(%r{</?body>}, '').strip
     [title, body]
+  end
+
+  def self.map_linked_objects(content)
+    linked_objects = []
+    html = Nokogiri::HTML.fragment(content)
+    html.css('a, img').each do |atag|
+      source = atag['href'] || atag['src']
+      next unless source =~ /%24[^%]*%24/
+      if source.include?(CGI.escape(CC::CCHelper::WEB_CONTENT_TOKEN))
+        attachment_key = source.sub(CGI.escape(CC::CCHelper::WEB_CONTENT_TOKEN), '')
+        attachment_key = attachment_key.split('?').first
+        attachment_key = attachment_key.split('/').map {|ak| CGI.unescape(ak)}.join('/')
+        linked_objects.push({local_path: attachment_key, type: 'Attachment'})
+      else
+        type, object_key = source.split('/').last 2
+        if type =~ /%24[^%]*%24/
+          type = object_key
+          object_key = nil
+        end
+        linked_objects.push({identifier: object_key, type: type})
+      end
+    end
+    linked_objects
   end
 
   require 'set'
@@ -153,7 +181,7 @@ module CCHelper
       @media_object_flavor = opts[:media_object_flavor]
       @used_media_objects = Set.new
       @media_object_infos = {}
-      @rewriter = UserContent::HtmlRewriter.new(course, user)
+      @rewriter = UserContent::HtmlRewriter.new(course, user, contextless_types: ['files'])
       @course = course
       @user = user
       @track_referenced_files = opts[:track_referenced_files]
@@ -175,7 +203,7 @@ module CCHelper
           if match_data = match.url.match(%r{/files/folder/(.*)})
             # this might not be the best idea but let's keep going and see what happens
             "#{COURSE_TOKEN}/files/folder/#{match_data[1]}"
-          else
+          elsif match.prefix.present?
             # If match.obj_id is nil, it's because we're actually linking to a page
             # (the /courses/:id/files page) and not to a specific file. In this case,
             # just pass it straight through.
@@ -187,38 +215,43 @@ module CCHelper
           else
             obj = match.obj_class.where(id: match.obj_id).first
           end
-          next(match.url) unless obj && @rewriter.user_can_view_content?(obj)
-          folder = obj.folder.full_name.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
-          folder = folder.split("/").map{|part| URI.escape(part)}.join("/")
+          next(match.url) unless obj && (@rewriter.user_can_view_content?(obj) || @for_epub_export)
 
           @referenced_files[obj.id] = @key_generator.create_key(obj) if @track_referenced_files && !@referenced_files[obj.id]
-          # for files, turn it into a relative link by path, rather than by file id
-          # we retain the file query string parameters
-          path = "#{folder}/#{URI.escape(obj.display_name)}"
-          path = HtmlTextHelper.escape_html(path)
-          "#{path}#{CCHelper.file_query_string(match.rest)}"
+
+          if @for_course_copy
+            "#{COURSE_TOKEN}/file_ref/#{@key_generator.create_key(obj)}#{match.rest}"
+          else
+            # for files in exports, turn it into a relative link by path, rather than by file id
+            # we retain the file query string parameters
+            folder = obj.folder.full_name.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
+            folder = folder.split("/").map{|part| URI.escape(part)}.join("/")
+            path = "#{folder}/#{URI.escape(obj.display_name)}"
+            path = HtmlTextHelper.escape_html(path)
+            "#{path}#{CCHelper.file_query_string(match.rest)}"
+          end
         end
       end
       wiki_handler = Proc.new do |match|
         # WikiPagesController allows loosely-matching URLs; fix them before exporting
         if match.obj_id.present?
           url_or_title = match.obj_id
-          page = @course.wiki.wiki_pages.deleted_last.where(url: url_or_title).first ||
-                 @course.wiki.wiki_pages.deleted_last.where(url: url_or_title.to_url).first ||
-                 @course.wiki.wiki_pages.where(id: url_or_title.to_i).first
+          page = @course.wiki_pages.deleted_last.where(url: url_or_title).first ||
+                 @course.wiki_pages.deleted_last.where(url: url_or_title.to_url).first ||
+                 @course.wiki_pages.where(id: url_or_title.to_i).first
         end
         if page
-          "#{WIKI_TOKEN}/#{match.type}/#{page.url}"
+          "#{WIKI_TOKEN}/#{match.type}/#{page.url}#{match.query}"
         else
-          "#{WIKI_TOKEN}/#{match.type}/#{match.obj_id}"
+          "#{WIKI_TOKEN}/#{match.type}/#{match.obj_id}#{match.query}"
         end
       end
       @rewriter.set_handler('wiki', &wiki_handler)
       @rewriter.set_handler('pages', &wiki_handler)
       @rewriter.set_handler('items') do |match|
         item = ContentTag.find(match.obj_id)
-        migration_id = CCHelper.create_key(item)
-        new_url = "#{COURSE_TOKEN}/modules/#{match.type}/#{migration_id}"
+        migration_id = @key_generator.create_key(item)
+        new_url = "#{COURSE_TOKEN}/modules/#{match.type}/#{migration_id}#{match.query}"
       end
       @rewriter.set_default_handler do |match|
         new_url = match.url
@@ -227,8 +260,9 @@ module CCHelper
           if obj && (@rewriter.user_can_view_content?(obj) || @for_epub_export)
             # for all other types,
             # create a migration id for the object, and use that as the new link
-            migration_id = CCHelper.create_key(obj)
-            new_url = "#{OBJECT_TOKEN}/#{match.type}/#{migration_id}"
+            migration_id = @key_generator.create_key(obj)
+            query = translate_module_item_query(match.query)
+            new_url = "#{OBJECT_TOKEN}/#{match.type}/#{migration_id}#{query}"
           end
         elsif match.obj_id
           new_url = "#{COURSE_TOKEN}/#{match.type}/#{match.obj_id}#{match.rest}"
@@ -245,6 +279,14 @@ module CCHelper
       @url_prefix += ":#{port}" if !host.include?(':') && port.present?
     end
 
+    def translate_module_item_query(query)
+      return query unless query&.include?("module_item_id=")
+      original_param = query.sub("?", "").split("&").detect{|p| p.include?("module_item_id=")}
+      tag_id = original_param.split("=").last
+      new_param = "module_item_id=#{@key_generator.create_key("content_tag_#{tag_id}")}"
+      query.sub(original_param, new_param)
+    end
+
     attr_reader :course, :user
 
     def html_page(html, title, meta_fields={})
@@ -252,13 +294,11 @@ module CCHelper
       meta_html = ""
       meta_fields.each_pair do |k, v|
         next unless v.present?
-        meta_html += %{<meta name="#{k}" content="#{v}"/>\n}
+        meta_html += %{<meta name="#{HtmlTextHelper.escape_html(k.to_s)}" content="#{HtmlTextHelper.escape_html(v.to_s)}"/>\n}
       end
 
-      %{<html>\n<head>\n<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n<title>#{title}</title>\n#{meta_html}</head>\n<body>\n#{content}\n</body>\n</html>}
+      %{<html>\n<head>\n<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>\n<title>#{HtmlTextHelper.escape_html(title)}</title>\n#{meta_html}</head>\n<body>\n#{content}\n</body>\n</html>}
     end
-
-    UrlAttributes = CanvasSanitize::SANITIZE[:protocols].inject({}) { |h,(k,v)| h[k] = v.keys; h }
 
     def html_content(html)
       html = @rewriter.translate_content(html)
@@ -272,7 +312,7 @@ module CCHelper
         next unless anchor['id']
         media_id = anchor['id'].gsub(/^media_comment_/, '')
         obj = MediaObject.by_media_id(media_id).first
-        if obj && migration_id = CCHelper.create_key(obj)
+        if obj && migration_id = @key_generator.create_key(obj)
           @used_media_objects << obj
           info = CCHelper.media_object_info(obj, nil, media_object_flavor)
           @media_object_infos[obj.id] = info
@@ -284,7 +324,7 @@ module CCHelper
       # (those in the course are already "$CANVAS_COURSE_REFERENCE$/...", but links
       #  outside the course need a domain to be meaningful in the export)
       # see also Api#api_user_content, which does a similar thing
-      UrlAttributes.each do |tag, attributes|
+      Api::Html::Content::URL_ATTRIBUTES.each do |tag, attributes|
         doc.css(tag).each do |element|
           attributes.each do |attribute|
             url_str = element[attribute]

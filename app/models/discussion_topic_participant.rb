@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,8 +23,9 @@ class DiscussionTopicParticipant < ActiveRecord::Base
   belongs_to :user
 
   before_save :check_unread_count
+  after_save :check_planner_cache
 
-  validates_presence_of :discussion_topic_id, :user_id, :workflow_state, :unread_entry_count
+  validates :discussion_topic_id, :user_id, :workflow_state, :unread_entry_count, presence: true
 
   # keeps track of the read state for the initial discussion topic text
   workflow do
@@ -38,5 +39,13 @@ class DiscussionTopicParticipant < ActiveRecord::Base
   # Returns nothing.
   def check_unread_count
     self.unread_entry_count = 0 if unread_entry_count <= 0
+  end
+
+  def check_planner_cache
+    if id_before_last_save.nil? ||
+      (unread_entry_count_before_last_save == 0 && unread_entry_count > 0) ||
+      (unread_entry_count_before_last_save > 0 && unread_entry_count == 0)
+      PlannerHelper.clear_planner_cache(user)
+    end
   end
 end

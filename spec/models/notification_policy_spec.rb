@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -76,7 +76,7 @@ describe NotificationPolicy do
     Notification.create! :name => "Hello",
                          :subject => "Hello",
                          :category => "TestImmediately"
-    Message.any_instance.stubs(:get_template).returns("here's a free <%= data.favorite_soda %>")
+    allow_any_instance_of(Message).to receive(:get_template).and_return("here's a free <%= data.favorite_soda %>")
     class DataTest < ActiveRecord::Base
       self.table_name = :courses
 
@@ -254,7 +254,7 @@ describe NotificationPolicy do
     end
 
     before :each do
-      Notification.stubs(:all).returns([@notification])
+      allow(Notification).to receive(:all).and_return([@notification])
     end
 
     it "should create default NotificationPolicy entries if missing" do

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -147,97 +147,12 @@ module ApplicationHelper
     object.grants_any_right?(user, session, *actions)
   end
 
-  # Loads up the lists of files needed for the wiki_sidebar.  Called from
-  # within the cached code so won't be loaded unless needed.
-  def load_wiki_sidebar
-    return if @wiki_sidebar_data
-    logger.warn "database lookups happening in view code instead of controller code for wiki sidebar (load_wiki_sidebar)"
-    @wiki_sidebar_data = {}
-    includes = [:active_assignments, :active_discussion_topics, :active_quizzes, :active_context_modules]
-    includes.each{|i| @wiki_sidebar_data[i] = @context.send(i).limit(150) if @context.respond_to?(i) }
-    includes.each{|i| @wiki_sidebar_data[i] ||= [] }
-    if @context.respond_to?(:wiki)
-      limit = Setting.get('wiki_sidebar_item_limit', 1000000).to_i
-      @wiki_sidebar_data[:wiki_pages] = @context.wiki.wiki_pages.active.order(:title).select('title, url, workflow_state').limit(limit)
-      @wiki_sidebar_data[:wiki] = @context.wiki
-    end
-    @wiki_sidebar_data[:wiki_pages] ||= []
-    if can_do(@context, @current_user, :manage_files, :read_as_admin)
-      @wiki_sidebar_data[:root_folders] = Folder.root_folders(@context)
-    elsif @context.is_a?(Course) && !@context.tab_hidden?(Course::TAB_FILES)
-      @wiki_sidebar_data[:root_folders] = Folder.root_folders(@context).reject{|folder| folder.locked? || folder.hidden}
-    else
-      @wiki_sidebar_data[:root_folders] = []
-    end
-    @wiki_sidebar_data
-  end
-
-  # js_block captures the content of what you pass it and render_js_blocks will
-  # render all of the blocks that were captured by js_block inside of a <script> tag
-  # if you are in the development environment it will also print out a javascript // comment
-  # that shows the file and line number of where this block of javascript came from.
-  def js_block(options = {}, &block)
-    js_blocks << options.merge(
-      :file_and_line => block.to_s,
-      :contents => capture(&block)
-    )
-  end
-
-  def js_blocks; @js_blocks ||= []; end
-
-  def render_js_blocks
-    output = js_blocks.inject('') do |str, e|
-      # print file and line number for debugging in development mode.
-      value = ""
-      value << "<!-- BEGIN SCRIPT BLOCK FROM: " + e[:file_and_line] + " --> \n" if Rails.env.development?
-      value << e[:contents]
-      value << "<!-- END SCRIPT BLOCK FROM: " + e[:file_and_line] + " --> \n" if Rails.env.development?
-      str << value
-    end
-    raw(output)
-  end
-
-  def hidden_dialog(id, &block)
-    content = capture(&block)
-    if !Rails.env.production? && hidden_dialogs[id] && hidden_dialogs[id] != content
-      raise "Attempted to capture a hidden dialog with #{id} and different content!"
-    end
-    hidden_dialogs[id] = capture(&block)
-  end
-
-  def hidden_dialogs; @hidden_dialogs ||= {}; end
-
-  def render_hidden_dialogs
-    output = hidden_dialogs.keys.sort.inject('') do |str, id|
-      str << "<div id='#{id}' style='display: none;''>" << hidden_dialogs[id] << "</div>"
-    end
-    raw(output)
-  end
-
-  class << self
-    attr_accessor :cached_translation_blocks
-  end
-
-  def include_js_translations?
-    !!(params[:include_js_translations] || use_optimized_js?)
-  end
-
   # See `js_base_url`
   def use_optimized_js?
-    if ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
-      # allows overriding by adding ?debug_assets=1 or ?debug_js=1 to the url
-      use_webpack? || !(params[:debug_assets] || params[:debug_js])
+    if params.key?(:optimized_js)
+      params[:optimized_js] == 'true' || params[:optimized_js] == '1'
     else
-      # allows overriding by adding ?optimized_js=1 to the url
-      params[:optimized_js] || false
-    end
-  end
-
-  def use_webpack?
-    if CANVAS_WEBPACK
-      !(params[:require_js])
-    else
-      params[:webpack]
+      ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
     end
   end
 
@@ -252,41 +167,41 @@ module ApplicationHelper
   #   * when ENV['USE_OPTIMIZED_JS'] is false
   #   * or when ?debug_assets=true is present in the url
   def js_base_url
-    if use_webpack?
-      use_optimized_js? ? '/dist/webpack-production' : '/dist/webpack-dev'
-    else
-      use_optimized_js? ? '/optimized' : '/javascripts'
-    end.freeze
+    (use_optimized_js? ? '/dist/webpack-production' : '/dist/webpack-dev').freeze
+  end
+
+  def include_head_js
+    # This contains the webpack runtime, it needs to be loaded first
+    paths = ["#{js_base_url}/vendor"]
+
+    # We preemptive load these timezone/locale data files so they are ready
+    # by the time our app-code runs and so webpack doesn't need to know how to load them
+    paths << "/timezone/#{js_env[:TIMEZONE]}.js" if js_env[:TIMEZONE]
+    paths << "/timezone/#{js_env[:CONTEXT_TIMEZONE]}.js" if js_env[:CONTEXT_TIMEZONE]
+    paths << "/timezone/#{js_env[:BIGEASY_LOCALE]}.js" if js_env[:BIGEASY_LOCALE]
+    paths << "#{js_base_url}/moment/locale/#{js_env[:MOMENT_LOCALE]}" if js_env[:MOMENT_LOCALE] && js_env[:MOMENT_LOCALE] != 'en'
+
+    paths << "#{js_base_url}/appBootstrap"
+    paths << "#{js_base_url}/common"
+
+    js_bundles.each do |(bundle, plugin)|
+      paths << "#{js_base_url}/#{plugin ? "#{plugin}-" : ''}#{bundle}"
+    end
+    # now that we've rendered out a script tag for each bundle we were told about in controllers,
+    # empty out the js_bundles array so we don't re-render them later
+    @js_bundles_included_in_head = js_bundles.dup
+    js_bundles.clear
+
+    javascript_include_tag(*paths, defer: true)
   end
 
   # Returns a <script> tag for each registered js_bundle
   def include_js_bundles
-    if use_webpack?
-
-      # This contains the webpack runtime, it needs to be loaded first
-      paths = ["#{js_base_url}/vendor"]
-
-      # We preemptive load these timezone/locale data files so they are ready
-      # by the time our app-code runs and so webpack doesn't need to know how to load them
-      paths << "#{js_base_url}/vendor/timezone/#{js_env[:TIMEZONE]}" if js_env[:TIMEZONE]
-      paths << "#{js_base_url}/vendor/timezone/#{js_env[:CONTEXT_TIMEZONE]}" if js_env[:CONTEXT_TIMEZONE]
-      paths << "#{js_base_url}/vendor/timezone/#{js_env[:BIGEASY_LOCALE]}" if js_env[:BIGEASY_LOCALE]
-      paths << "#{js_base_url}/moment/locale/#{js_env[:MOMENT_LOCALE]}" if js_env[:MOMENT_LOCALE] && js_env[:MOMENT_LOCALE] != 'en'
-
-      paths << "#{js_base_url}/appBootstrap"
-      paths << "#{js_base_url}/common"
-    else
-      paths = []
+    paths = []
+    (js_bundles - (@js_bundles_included_in_head || [])).each do |(bundle, plugin)|
+      paths << "#{js_base_url}/#{plugin ? "#{plugin}-" : ''}#{bundle}"
     end
-
-    js_bundles.each do |(bundle, plugin)|
-      if use_webpack?
-        paths << "#{js_base_url}/#{plugin ? "#{plugin}-" : ''}#{bundle}"
-      else
-        paths << "#{js_base_url}#{plugin ? "/plugins/#{plugin}" : ''}/compiled/bundles/#{bundle}.js"
-      end
-    end
-    javascript_include_tag(*paths, type: nil)
+    javascript_include_tag(*paths, defer: true)
   end
 
   def include_css_bundles
@@ -304,20 +219,42 @@ module ApplicationHelper
     Rails.env.test? && ENV.fetch("DISABLE_CSS_TRANSITIONS", "1") == "1"
   end
 
-  def css_variant
-    use_high_contrast = @current_user && @current_user.prefers_high_contrast?
-    'new_styles' + (use_high_contrast ? '_high_contrast' : '_normal_contrast')
+  def use_rtl?
+    I18n.rtl? || @current_user.try(:feature_enabled?, :force_rtl)
   end
 
-  def css_url_for(bundle_name, plugin=false)
+  # this is exactly the same as our sass helper with the same name
+  # see: https://www.npmjs.com/package/sass-direction
+  def direction(left_or_right)
+    use_rtl? ? {'left' => 'right', 'right' => 'left'}[left_or_right] : left_or_right
+  end
+
+  def css_variant(opts = {})
+    variant = use_responsive_layout? ? 'responsive_layout' : 'new_styles'
+    use_high_contrast = @current_user && @current_user.prefers_high_contrast? || opts[:force_high_contrast]
+    variant + (use_high_contrast ? '_high_contrast' : '_normal_contrast') + (use_rtl? ? '_rtl' : '')
+  end
+
+  def css_url_for(bundle_name, plugin=false, opts = {})
     bundle_path = "#{plugin ? "plugins/#{plugin}" : 'bundles'}/#{bundle_name}"
-    cache = BrandableCSS.cache_for(bundle_path, css_variant)
-    base_dir = cache[:includesNoVariables] ? 'no_variables' : File.join(active_brand_config.try(:md5).to_s, css_variant)
+    cache = BrandableCSS.cache_for(bundle_path, css_variant(opts))
+    base_dir = cache[:includesNoVariables] ? 'no_variables' : css_variant(opts)
     File.join('/dist', 'brandable_css', base_dir, "#{bundle_path}-#{cache[:combinedChecksum]}.css")
   end
 
   def brand_variable(variable_name)
     BrandableCSS.brand_variable_value(variable_name, active_brand_config)
+  end
+
+  # returns the proper alt text for the logo
+  def alt_text_for_login_logo
+    possibly_customized_login_logo = brand_variable('ic-brand-Login-logo')
+    default_login_logo = BrandableCSS.brand_variable_value('ic-brand-Login-logo')
+    if possibly_customized_login_logo == default_login_logo
+      I18n.t("Canvas by Instructure")
+    else
+      @domain_root_account.short_name
+    end
   end
 
   def favicon
@@ -413,12 +350,18 @@ module ApplicationHelper
     @include_license_dialog = true
     css_bundle('license_help')
     js_bundle('license_help')
-    link_to(image_tag('help.png', :alt => I18n.t("Help with content licensing")), '#', :class => 'license_help_link no-hover', :title => I18n.t("Help with content licensing"))
+    icon = safe_join [
+      "<i class='icon-question' aria-hidden='true'></i>".html_safe
+    ]
+    link_to(icon, '#', :class => 'license_help_link no-hover', :title => I18n.t("Help with content licensing"))
   end
 
   def visibility_help_link
     js_bundle('visibility_help')
-    link_to(image_tag('help.png', :alt => I18n.t("Help with course visibilities")), '#', :class => 'visibility_help_link no-hover', :title => I18n.t("Help with course visibilities"))
+    icon = safe_join [
+      "<i class='icon-question' aria-hidden='true'></i>".html_safe
+    ]
+    link_to(icon, '#', :class => 'visibility_help_link no-hover', :title => I18n.t("Help with course visibilities"))
   end
 
   def equella_enabled?
@@ -481,9 +424,7 @@ module ApplicationHelper
       :http_status              => @status,
       :error_id                 => @error && @error.id,
       :disableGooglePreviews    => !service_enabled?(:google_docs_previews),
-      :disableScribdPreviews    => !feature_enabled?(:scribd),
       :disableCrocodocPreviews  => !feature_enabled?(:crocodoc),
-      :enableScribdHtml5        => feature_enabled?(:scribd_html5),
       :logPageViews             => !@body_class_no_headers,
       :maxVisibleEditorButtons  => 3,
       :editorButtons            => editor_buttons,
@@ -596,64 +537,18 @@ module ApplicationHelper
     super
   end
 
-  def map_courses_for_menu(courses, opts={})
-    mapped = courses.map do |course|
-      tabs = opts[:include_section_tabs] && available_section_tabs(course)
-      presenter = CourseForMenuPresenter.new(course, tabs, @current_user, @domain_root_account)
-      presenter.to_h
-    end
-
-    if @domain_root_account.feature_enabled?(:dashcard_reordering)
-      mapped = mapped.sort_by {|h| h[:position] || ::CanvasSort::Last}
+  # return enough group data for the planner to display items associated with groups
+  def map_groups_for_planner(groups)
+    mapped = groups.map do |g|
+      {
+        id: g.id,
+        assetString: g.asset_string,
+        name: g.name,
+        url: "/groups/#{g.id}"
+      }
     end
 
     mapped
-  end
-
-  def menu_courses_locals
-    courses = @current_user.menu_courses
-    all_courses_count = @current_user.courses_with_primary_enrollment.size
-
-    {
-      :collection             => map_courses_for_menu(courses),
-      :collection_size        => all_courses_count,
-      :more_link_for_over_max => courses_path,
-      :title                  => t('#menu.my_courses', "My Courses"),
-      :link_text              => t('#layouts.menu.view_all_or_customize', 'View All or Customize'),
-      :edit                   => t("#menu.customize", "Customize")
-    }
-  end
-
-  def menu_groups_locals
-    {
-      :collection => @current_user.menu_data[:group_memberships],
-      :collection_size => @current_user.menu_data[:group_memberships_count],
-      :partial => "shared/menu_group_membership",
-      :max_to_show => 8,
-      :more_link_for_over_max => groups_path,
-      :title => t('#menu.current_groups', "Current Groups"),
-      :link_text => t('#layouts.menu.view_all_groups', 'View all groups')
-    }
-  end
-
-  def menu_accounts_locals
-    {
-      :collection => @current_user.menu_data[:accounts],
-      :collection_size => @current_user.menu_data[:accounts_count],
-      :partial => "shared/menu_account",
-      :max_to_show => 8,
-      :more_link_for_over_max => accounts_path,
-      :title => t('#menu.managed_accounts', "Managed Accounts"),
-      :link_text => t('#layouts.menu.view_all_accounts', 'View all accounts')
-    }
-  end
-
-  def cache_if(cond, *args)
-    if cond
-      cache(*args) { yield }
-    else
-      yield
-    end
   end
 
   def show_feedback_link?
@@ -685,8 +580,12 @@ module ApplicationHelper
     (@domain_root_account && @domain_root_account.settings[:help_link_icon]) || 'help'
   end
 
+  def default_help_link_name
+    I18n.t('Help')
+  end
+
   def help_link_name
-    (@domain_root_account && @domain_root_account.settings[:help_link_name]) || I18n.t('Help')
+    (@domain_root_account && @domain_root_account.settings[:help_link_name]) || default_help_link_name
   end
 
   def help_link_data
@@ -712,7 +611,7 @@ module ApplicationHelper
   def active_brand_config(opts={})
     return active_brand_config_cache[opts] if active_brand_config_cache.key?(opts)
 
-    ignore_branding = (@current_user.try(:prefers_high_contrast?) && !opts[:ignore_high_contrast_preference])
+    ignore_branding = (@current_user.try(:prefers_high_contrast?) && !opts[:ignore_high_contrast_preference]) || opts[:force_high_contrast]
     active_brand_config_cache[opts] = if ignore_branding
       nil
     else
@@ -722,7 +621,12 @@ module ApplicationHelper
       brand_config = if session.key?(:brand_config_md5)
         BrandConfig.where(md5: session[:brand_config_md5]).first
       else
-        brand_config_for_account(opts)
+        account = brand_config_account(opts)
+        if opts[:ignore_parents]
+          account.brand_config if account.branding_allowed?
+        else
+          account.try(:effective_brand_config)
+        end
       end
       # If the account does not have a brandConfig, or they explicitly chose to start from a blank
       # slate in the theme editor, do one last check to see if we should actually use the k12 theme
@@ -733,78 +637,38 @@ module ApplicationHelper
     end
   end
 
-  def active_brand_config_json_url(opts={})
-    path = active_brand_config(opts).try(:public_json_path)
-    path ||= BrandableCSS.public_default_json_path
-    "#{Canvas::Cdn.config.host}/#{path}"
+  def active_brand_config_url(type, opts={})
+    path = active_brand_config(opts).try("public_#{type}_path")
+    path ||= BrandableCSS.public_default_path(type, @current_user&.prefers_high_contrast? || opts[:force_high_contrast])
+    "#{Canvas::Cdn.add_brotli_to_host_if_supported(request)}/#{path}"
   end
 
-  def brand_config_for_account(opts={})
-    account = Context.get_account(@context || @course)
+  def brand_config_account(opts={})
+    return @brand_account if @brand_account
+    @brand_account = Context.get_account(@context || @course)
 
     # for finding which values to show in the theme editor
-    if opts[:ignore_parents]
-      return account.brand_config if account.branding_allowed?
-      return
-    end
+    return @brand_account if opts[:ignore_parents]
 
-    if !account
+    if !@brand_account
       if @current_user.present?
         # If we're not viewing a `context` with an account, like if we're on the dashboard or my
         # user profile, show the branding for the lowest account where all my enrollments are. eg:
         # if I'm at saltlakeschooldistrict.instructure.com, but I'm only enrolled in classes at
         # Highland High, show Highland's branding even on the dashboard.
-        account = @current_user.common_account_chain(@domain_root_account).last
+        @brand_account = @current_user.common_account_chain(@domain_root_account).last
       end
       # If we're not logged in, or we have no enrollments anywhere in domain_root_account,
       # and we're on the dashboard at eg: saltlakeschooldistrict.instructure.com, just
       # show its branding
-      account ||= @domain_root_account
+      @brand_account ||= @domain_root_account
     end
-
-    account.try(:effective_brand_config)
+    @brand_account
   end
-  private :brand_config_for_account
-
-  def get_global_includes
-    return @global_includes if defined?(@global_includes)
-    @global_includes = if @domain_root_account.try(:sub_account_includes?)
-      # get the deepest account to start looking for branding
-      if (acct = Context.get_account(@context))
-
-        # cache via the id because it could be that the root account js changes
-        # but the cache is for the sub-account, and we'd rather have everything
-        # reset after 15 minutes then have some places update immediately and
-        # some places wait.
-        key = [acct.id, 'account_context_global_includes'].cache_key
-        Rails.cache.fetch(key, :expires_in => 15.minutes) do
-          acct.account_chain(include_site_admin: true).
-            reverse.map(&:global_includes_hash)
-        end
-      elsif @current_user.present?
-        key = [
-          @domain_root_account.id,
-          'common_account_global_includes',
-          @current_user.id
-        ].cache_key
-        Rails.cache.fetch(key, :expires_in => 15.minutes) do
-          chain = @domain_root_account.account_chain(include_site_admin: true).reverse
-          chain.concat(@current_user.common_account_chain(@domain_root_account))
-          chain.uniq.map(&:global_includes_hash)
-        end
-      end
-    end
-
-    @global_includes ||= (@domain_root_account || Account.site_admin).
-      account_chain(include_site_admin: true).
-      reverse.map(&:global_includes_hash)
-    @global_includes.uniq!
-    @global_includes.compact!
-    @global_includes
-  end
+  private :brand_config_account
 
   def include_account_js(options = {})
-    return if params[:global_includes] == '0'
+    return if params[:global_includes] == '0' || !@domain_root_account
 
     includes = if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
       abc.css_and_js_overrides[:js_overrides]
@@ -813,21 +677,8 @@ module ApplicationHelper
     end
 
     if includes.present?
-      if options[:raw]
-        includes = ["/optimized/vendor/jquery-1.7.2.js"] + includes
-        javascript_include_tag(*includes)
-      else
-        str = <<-ENDSCRIPT
-          require(['jquery'], function () {
-            #{includes.to_json}.forEach(function (src) {
-              var s = document.createElement('script');
-              s.src = src;
-              document.body.appendChild(s);
-            });
-          });
-        ENDSCRIPT
-        javascript_tag(str)
-      end
+      includes.unshift("/node_modules/jquery/jquery.js") if options[:raw]
+      javascript_include_tag(*includes, defer: true)
     end
   end
 
@@ -838,7 +689,7 @@ module ApplicationHelper
   end
 
   def disable_account_css?
-    @disable_account_css || params[:global_includes] == '0'
+    @disable_account_css || params[:global_includes] == '0' || !@domain_root_account
   end
 
   def include_account_css
@@ -957,12 +808,10 @@ module ApplicationHelper
   def agree_to_terms
     # may be overridden by a plugin
     @agree_to_terms ||
-    t("I agree to the *terms of use* and **privacy policy**.",
+    t("I agree to the *terms of use*.",
       wrapper: {
-        '*' => link_to('\1', terms_of_use_url, target: '_blank'),
-        '**' => link_to('\1', privacy_policy_url, target: '_blank')
-      }
-    )
+        '*' => link_to('\1', "#", class: 'terms_of_service_link'),
+      })
   end
 
   def dashboard_url(opts={})
@@ -976,7 +825,8 @@ module ApplicationHelper
   end
 
   def custom_dashboard_url
-    url = @domain_root_account.settings[:dashboard_url]
+    url = @domain_root_account.settings["#{ApplicationController.test_cluster_name}_dashboard_url".to_sym] if ApplicationController.test_cluster_name
+    url ||= @domain_root_account.settings[:dashboard_url]
     if url.present?
       url += "?current_user_id=#{@current_user.id}" if @current_user
       url
@@ -984,6 +834,9 @@ module ApplicationHelper
   end
 
   def include_custom_meta_tags
+    add_csp_for_root
+    js_env(csp: csp_iframe_attribute) if csp_enforced?
+
     output = []
     if @meta_tags.present?
       output = @meta_tags.map{ |meta_attrs| tag("meta", meta_attrs) }
@@ -995,6 +848,100 @@ module ApplicationHelper
     output << tag("link", rel: 'manifest', href: manifest_url) if manifest_url.present?
 
     output.join("\n").html_safe.presence
+  end
+
+  def csp_context_is_submission?
+    csp_context
+    @csp_context_is_submission
+  end
+
+  def csp_context
+    @csp_context ||= begin
+      @csp_context_is_submission = false
+      attachment = @attachment || @context
+      if attachment.is_a?(Attachment)
+        if attachment.context_type == 'User'
+          # search for an attachment association
+          aas = attachment.attachment_associations.where(context_type: 'Submission').preload(:context).to_a
+          ActiveRecord::Associations::Preloader.new.preload(aas.map(&:submission), assignment: :context)
+          courses = aas.map { |aa| aa.submission.assignment.course }.uniq
+          if courses.length == 1
+            @csp_context_is_submission = true
+            courses.first
+          end
+        elsif attachment.context_type == 'Submission'
+          @csp_context_is_submission = true
+          attachment.submission.assignment.course
+        elsif attachment.context_type == 'Course'
+          attachment.course
+        else
+          brand_config_account
+        end
+      elsif @context.is_a?(Course)
+        @context
+      elsif @context.is_a?(Group) && @context.context.is_a?(Course)
+        @context.context
+      elsif @course.is_a?(Course)
+        @course
+      else
+        brand_config_account
+      end
+    end
+  end
+
+  def csp_enabled?
+    csp_context&.root_account&.feature_enabled?(:javascript_csp)
+  end
+
+  def csp_enforced?
+    csp_enabled? && csp_context.csp_enabled?
+  end
+
+  def csp_report_uri
+    @csp_report_uri ||= begin
+      if (host = csp_context.root_account.csp_logging_config['host'])
+        "; report-uri #{host}report/#{csp_context.root_account.global_id}"
+      else
+        ""
+      end
+    end
+  end
+
+  def csp_header
+    header = "Content-Security-Policy"
+    header << "-Report-Only" unless csp_enforced?
+
+    header
+  end
+
+  def include_files_domain_in_csp
+    # TODO: make this configurable per-course, and depending on csp_context_is_submission?
+    true
+  end
+
+  def add_csp_for_root
+    return unless csp_enabled?
+    return if csp_report_uri.empty? && !csp_enforced?
+
+    # we iframe all files from the files domain into canvas, so we always have to include the files domain here
+    domains = csp_context.csp_whitelisted_domains(request, include_files: true, include_tools: true).join(' ')
+    headers[csp_header] = "frame-src 'self' #{domains}#{csp_report_uri}"
+  end
+
+  def add_csp_for_file
+    return unless csp_enabled?
+    return if csp_report_uri.empty? && !csp_enforced?
+    headers[csp_header] = csp_iframe_attribute + csp_report_uri
+  end
+
+  def csp_iframe_attribute
+    frame_domains = csp_context.csp_whitelisted_domains(request, include_files: include_files_domain_in_csp, include_tools: true)
+    script_domains = csp_context.csp_whitelisted_domains(request, include_files: include_files_domain_in_csp, include_tools: false)
+    if include_files_domain_in_csp
+      frame_domains = %w{'self'} + frame_domains
+      script_domains = %w{'self' 'unsafe-eval' 'unsafe-inline'} + script_domains
+    end
+    "frame-src #{frame_domains.join(' ')}; script-src #{script_domains.join(' ')}"
   end
 
   # Returns true if the current_path starts with the given value
@@ -1013,9 +960,221 @@ module ApplicationHelper
   end
 
   def link_to_parent_signup(auth_type)
-    template = auth_type.present? ? "#{auth_type.downcase}Dialog" : "parentDialog"
-    path = auth_type.present? ? external_auth_validation_path : users_path
+    data = reg_link_data(auth_type)
     link_to(t("Parents sign up here"), '#', id: "signup_parent", class: "signup_link",
-            data: {template: template, path: path}, title: t("Parent Signup"))
+            data: data, title: t("Parent Signup"))
   end
+
+  def tutorials_enabled?
+    @domain_root_account&.feature_enabled?(:new_user_tutorial) &&
+    @current_user&.feature_enabled?(:new_user_tutorial_on_off)
+  end
+
+  def set_tutorial_js_env
+    return if @js_env && @js_env[:NEW_USER_TUTORIALS]
+
+    is_enabled = @context.is_a?(Course) &&
+      tutorials_enabled? &&
+      @context.grants_right?(@current_user, session, :manage)
+
+    js_env NEW_USER_TUTORIALS: {is_enabled: is_enabled}
+  end
+
+  def planner_enabled?
+    !!(@current_user && @domain_root_account&.feature_enabled?(:student_planner) &&
+      @current_user.has_student_enrollment?)
+  end
+
+  def will_paginate(collection, options = {})
+    unless options[:renderer]
+      options = options.merge :renderer => WillPaginateHelper::AccessibleLinkRenderer
+    end
+    super
+  end
+
+  def generate_access_verifier(return_url: nil)
+    Users::AccessVerifier.generate(
+      user: @current_user,
+      real_user: logged_in_user,
+      developer_key: @access_token&.developer_key,
+      root_account: @domain_root_account,
+      oauth_host: request.host_with_port,
+      return_url: return_url
+    )
+  end
+
+  def validate_access_verifier
+    Users::AccessVerifier.validate(params)
+  end
+
+  def file_access_user
+    if !@files_domain
+      @current_user
+    elsif session['file_access_user_id'].present?
+      @file_access_user ||= User.where(id: session['file_access_user_id']).first
+    else
+      nil
+    end
+  end
+
+  def file_access_real_user
+    if !@files_domain
+      logged_in_user
+    elsif session['file_access_real_user_id'].present?
+      @file_access_real_user ||= User.where(id: session['file_access_real_user_id']).first
+    else
+      file_access_user
+    end
+  end
+
+  def file_access_developer_key
+    if !@files_domain
+      @access_token&.developer_key
+    elsif session['file_access_developer_key_id'].present?
+      @file_access_developer_key ||= DeveloperKey.where(id: session['file_access_developer_key_id']).first
+    else
+      nil
+    end
+  end
+
+  def file_access_root_account
+    if !@files_domain
+      @domain_root_account
+    elsif session['file_access_root_account_id'].present?
+      @file_access_root_account ||= Account.where(id: session['file_access_root_account_id']).first
+    else
+      nil
+    end
+  end
+
+  MAX_SEQUENCES=10
+  def context_module_sequence_items_by_asset_id(asset_id, asset_type)
+    # assemble a sequence of content tags in the course
+    # (break ties on module position by module id)
+    tag_ids = @context.sequential_module_item_ids & Shackles.activate(:slave) { @context.module_items_visible_to(@current_user).reorder(nil).pluck(:id) }
+
+    # find content tags to include
+    tag_indices = []
+    if asset_type == 'ContentTag'
+      tag_ids.each_with_index { |tag_id, ix| tag_indices << ix if tag_id == asset_id.to_i }
+    else
+      # map wiki page url to id
+      if asset_type == 'WikiPage'
+        page = @context.wiki_pages.not_deleted.where(url: asset_id).first
+        asset_id = page.id if page
+      else
+        asset_id = asset_id.to_i
+      end
+
+      # find the associated assignment id, if applicable
+      if asset_type == 'Quizzes::Quiz'
+        asset = @context.quizzes.where(id: asset_id.to_i).first
+        associated_assignment_id = asset.assignment_id if asset
+      end
+
+      if asset_type == 'DiscussionTopic'
+        asset = @context.send(asset_type.tableize).where(id: asset_id.to_i).first
+        associated_assignment_id = asset.assignment_id if asset
+      end
+
+      # find up to MAX_SEQUENCES tags containing the object (or its associated assignment)
+      matching_tag_ids = @context.context_module_tags.where(:id => tag_ids).
+        where(:content_type => asset_type, :content_id => asset_id).pluck(:id)
+      if associated_assignment_id
+        matching_tag_ids += @context.context_module_tags.where(:id => tag_ids).
+          where(:content_type => 'Assignment', :content_id => associated_assignment_id).pluck(:id)
+      end
+
+      if matching_tag_ids.any?
+        tag_ids.each_with_index { |tag_id, ix| tag_indices << ix if matching_tag_ids.include?(tag_id) }
+      end
+    end
+
+    tag_indices.sort!
+    if tag_indices.length > MAX_SEQUENCES
+      tag_indices = tag_indices[0, MAX_SEQUENCES]
+    end
+
+    # render the result
+    result = { :items => [] }
+
+    needed_tag_ids = []
+    tag_indices.each do |ix|
+      needed_tag_ids << tag_ids[ix]
+      needed_tag_ids << tag_ids[ix - 1] if ix > 0
+      needed_tag_ids << tag_ids[ix + 1] if ix < tag_ids.size - 1
+    end
+
+    needed_tags = ContentTag.where(:id => needed_tag_ids.uniq).preload(:context_module).index_by(&:id)
+    tag_indices.each do |ix|
+      hash = { :current => module_item_json(needed_tags[tag_ids[ix]], @current_user, session), :prev => nil, :next => nil }
+      if ix > 0
+        hash[:prev] = module_item_json(needed_tags[tag_ids[ix - 1]], @current_user, session)
+      end
+      if ix < tag_ids.size - 1
+        hash[:next] = module_item_json(needed_tags[tag_ids[ix + 1]], @current_user, session)
+      end
+      if cyoe_enabled?(@context)
+        is_student = @context.grants_right?(@current_user, session, :participate_as_student)
+        opts = { context: @context, user: @current_user, session: session, is_student: is_student }
+        hash[:mastery_path] = conditional_release_rule_for_module_item(needed_tags[tag_ids[ix]], opts)
+      end
+      result[:items] << hash
+    end
+    modules = needed_tags.values.map(&:context_module).uniq
+    result[:modules] = modules.map { |mod| module_json(mod, @current_user, session) }
+    result
+  end
+
+  def file_access_oauth_host
+    if logged_in_user && !@files_domain
+      request.host_with_port
+    elsif session['file_access_oauth_host'].present?
+      session['file_access_oauth_host']
+    else
+      nil
+    end
+  end
+
+  def file_authenticator
+    FileAuthenticator.new(
+      user: file_access_real_user,
+      acting_as: file_access_user,
+      access_token: @access_token,
+      # TODO: we prefer the access token when we have it, and we'll _need_ to
+      # before we can implement the long term API access solution (which means
+      # we'll need to stop going through the files domain). but if we don't
+      # have it (we're on the files domain, and can't safely get at the token
+      # itself, but can get the developer key id), we can use the developer key
+      # to "fake" an access token it for the short term work around (which only
+      # ends up looking at the developer key anyways)
+      developer_key: file_access_developer_key,
+      root_account: file_access_root_account,
+      oauth_host: file_access_oauth_host
+    )
+  end
+
+  def authenticated_download_url(attachment)
+    file_authenticator.download_url(attachment)
+  end
+
+  def authenticated_inline_url(attachment)
+    file_authenticator.inline_url(attachment)
+  end
+
+  def authenticated_thumbnail_url(attachment, options={})
+    file_authenticator.thumbnail_url(attachment, options)
+  end
+
+  def thumbnail_image_url(attachment, uuid=nil, url_options={})
+    # this thumbnail url is a route that redirects to local/s3 appropriately.
+    # deferred redirect through route because it may be saved for later use
+    # after a direct link to attachment.thumbnail_url would have expired
+    super(attachment, uuid || attachment.uuid, url_options)
+  end
+
+  def browser_performance_monitor_embed
+    # stub
+  end
+
 end

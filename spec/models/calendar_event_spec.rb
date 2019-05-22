@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -115,6 +115,32 @@ describe CalendarEvent do
     end
   end
 
+  describe "default_values during update" do
+    before(:once) do
+      course_model
+      @original_start_at = Time.at(1220443500) # 3 Sep 2008 12:05pm (UTC)
+      @original_end_at = @original_start_at + 2.hours
+      @midnight = Time.at(1220421600)
+      @event = calendar_event_model(
+        :start_at => @original_start_at,
+        :end_at => @original_end_at,
+        :time_zone_edited => "Mountain Time (US & Canada)"
+      )
+    end
+
+    it "should not retain all day flag when times are changed (calls :default_values)" do
+      # set the start and end to midnight and make sure all_day is automatically set
+      @event.update_attributes({ :start_at => @midnight, :end_at => @midnight })
+      expect(@event.all_day?).to be_truthy
+      expect(@event.all_day_date.strftime("%Y-%m-%d")).to eq "2008-09-03"
+
+      # set the start and end to different times and then make sure all_day is automatically unset
+      @event.update_attributes({ :start_at => @original_start_at, :end_at => @original_end_at })
+      expect(@event.all_day?).to be_falsey
+    end
+  end
+
+
   context "ical" do
     describe "to_ics" do
       it "should not fail for null times" do
@@ -161,11 +187,11 @@ describe CalendarEvent do
         @event.updated_at = Time.at(1220443500) # 3 Sep 2008 12:05pm (UTC)
         res = @event.to_ics(in_own_calendar: false)
         expect(res).not_to be_nil
-        expect(res.start.icalendar_tzid).to eq 'UTC'
-        expect(res.start.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 11:55am").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
-        expect(res.end.icalendar_tzid).to eq 'UTC'
-        expect(res.end.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 12:00pm").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
-        expect(res.dtstamp.icalendar_tzid).to eq 'UTC'
+        expect(res.dtstart.tz_utc).to eq true
+        expect(res.dtstart.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 11:55am").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
+        expect(res.dtend.tz_utc).to eq true
+        expect(res.dtend.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 12:00pm").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
+        expect(res.dtstamp.tz_utc).to eq true
         expect(res.dtstamp.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 12:05pm").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
       end
 
@@ -176,12 +202,17 @@ describe CalendarEvent do
         @event.updated_at = Time.at(1220472300) # 3 Sep 2008 12:05pm (AKDT)
         res = @event.to_ics(in_own_calendar: false)
         expect(res).not_to be_nil
-        expect(res.start.icalendar_tzid).to eq 'UTC'
-        expect(res.start.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 11:55am").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
-        expect(res.end.icalendar_tzid).to eq 'UTC'
-        expect(res.end.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 12:00pm").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
-        expect(res.end.icalendar_tzid).to eq 'UTC'
+        expect(res.dtstart.tz_utc).to eq true
+        expect(res.dtstart.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 11:55am").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
+        expect(res.dtend.tz_utc).to eq true
+        expect(res.dtend.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 12:00pm").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
+        expect(res.dtend.tz_utc).to eq true
         expect(res.dtstamp.strftime('%Y-%m-%dT%H:%M:%S')).to eq Time.zone.parse("Sep 3 2008 12:05pm").in_time_zone('UTC').strftime('%Y-%m-%dT%H:%M:00')
+      end
+
+      it 'should not fail with no date for all_day event' do
+        res = calendar_event_model(all_day: true).to_ics
+        expect(res).not_to be_nil
       end
 
       it "should return string dates for all_day events" do
@@ -206,7 +237,7 @@ describe CalendarEvent do
 
 
 [link!](www.example.com)")
-        expect(ev.x_alt_desc).to eq @event.description
+        expect(ev.x_alt_desc.first).to eq @event.description
       end
 
       it "should not add verifiers to files unless course or attachment is public" do
@@ -496,8 +527,10 @@ describe CalendarEvent do
 
       it "should notify admins and observers when a user reserves", priority: "1", test_id: 193144 do
         reservation = @appointment.reserve_for(@student1, @student1)
-        expect(reservation.messages_sent).to be_include("Appointment Reserved By User")
-        expect(reservation.messages_sent["Appointment Reserved By User"].map(&:user_id).sort.uniq).to eql (@course.instructors.map(&:id) + [@observer.id]).sort
+        messages = reservation.messages_sent["Appointment Reserved By User"]
+        expect(messages).to be_present
+        expect(messages.first.root_account_id).to eq Account.default.id
+        expect(messages.map(&:user_id).sort.uniq).to eql (@course.instructors.map(&:id) + [@observer.id]).sort
       end
 
       it "should notify admins and observers when a user reserves a group appointment" do
@@ -529,7 +562,7 @@ describe CalendarEvent do
 
       expect(appointment.reserve_for(@student1, @student1)).not_to be_nil
       expect(appointment.reserve_for(@other_student, @other_student)).not_to be_nil
-      expect { appointment.reserve_for(@unlucky_student, @unlucky_student) }.to raise_error
+      expect { appointment.reserve_for(@unlucky_student, @unlucky_student) }.to raise_error(CalendarEvent::ReservationError)
     end
 
     it "should give preference to the calendar's appointment limit" do
@@ -552,7 +585,7 @@ describe CalendarEvent do
       expect(appointment.reserve_for(@student1, @student1)).not_to be_nil
       expect(appointment.reserve_for(s1, s1)).not_to be_nil
       expect(appointment.reserve_for(s2, s2)).not_to be_nil
-      expect { expect(appointment.reserve_for(s3, s3)).not_to be_nil }.to raise_error
+      expect { appointment.reserve_for(s3, s3) }.to raise_error(CalendarEvent::ReservationError)
 
       # should be able to unset the participant limit too
       appointment.participants_per_appointment = nil
@@ -590,12 +623,12 @@ describe CalendarEvent do
       appointment2 = ag.appointments.last
 
       appointment.reserve_for(@student1, @student1)
-      expect { appointment2.reserve_for(@student1, @student1) }.to raise_error
+      expect { appointment2.reserve_for(@student1, @student1) }.to raise_error(CalendarEvent::ReservationError)
     end
 
-    it "should cancel existing reservations if cancel_existing = true" do
+    it "should cancel existing reservations if cancel_existing = true and the appointment is in the future" do
       ag = AppointmentGroup.create(:title => "test", :contexts => [@course], :max_appointments_per_participant => 1,
-        :new_appointments => [['2012-01-01 12:00:00', '2012-01-01 13:00:00'], ['2012-01-01 13:00:00', '2012-01-01 14:00:00']]
+        :new_appointments => [[1.hour.from_now, 2.hours.from_now], [3.hours.from_now, 4.hours.from_now]]
       )
       ag.publish!
       appointment = ag.appointments.first
@@ -604,6 +637,19 @@ describe CalendarEvent do
       r1 = appointment.reserve_for(@student1, @student1)
       expect { appointment2.reserve_for(@student1, @student1, :cancel_existing => true) }.not_to raise_error
       expect(r1.reload).to be_deleted
+    end
+
+    it "should refuse to cancel existing reservations if cancel_existing = true and the appointment is in the past" do
+      ag = AppointmentGroup.create(:title => "test", :contexts => [@course], :max_appointments_per_participant => 1,
+        :new_appointments => [[2.hours.ago, 1.hour.ago], [1.hour.from_now, 2.hours.from_now]]
+      )
+      ag.publish!
+      appointment = ag.appointments.first
+      appointment2 = ag.appointments.last
+
+      r1 = appointment.reserve_for(@student1, @student1)
+      expect { appointment2.reserve_for(@student1, @student1, :cancel_existing => true) }.to raise_error(CalendarEvent::ReservationError)
+      expect(r1.reload).not_to be_deleted
     end
 
     it "should save comments with appointment" do
@@ -629,7 +675,7 @@ describe CalendarEvent do
       ag.publish!
       appointment = ag.appointments.first
 
-      expect { appointment.reserve_for(@student1, @student1) }.to raise_error
+      expect { appointment.reserve_for(@student1, @student1) }.to raise_error(CalendarEvent::ReservationError)
     end
 
     it "should enforce the group category" do
@@ -646,7 +692,7 @@ describe CalendarEvent do
       appointment = ag.appointments.first
       ag.publish!
 
-      expect { appointment.reserve_for(g2, teacher) }.to raise_error
+      expect { appointment.reserve_for(g2, teacher) }.to raise_error(CalendarEvent::ReservationError)
       expect { appointment.reserve_for(g1, teacher) }.not_to raise_error
     end
 
@@ -664,7 +710,7 @@ describe CalendarEvent do
       user_factory(active_all: true)
       @course.enroll_teacher(@user).accept!
       expect(@ag.eligible_participant?(@user)).to be_falsey
-      expect { @appointment.reserve_for(@user, @user) }.to raise_error
+      expect { @appointment.reserve_for(@user, @user) }.to raise_error(CalendarEvent::ReservationError)
     end
 
     it "should lock the appointment once it is reserved" do

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,7 +37,8 @@ class MarkDonePresenter
         @context.context
       end
     return unless item_context.is_a?(Course)
-    item_ids = item_context.module_items_visible_to(@user).where(:content_type => @asset.class.name, :content_id => @asset.id).reorder(nil).pluck(:id)
+
+    item_ids = Shackles.activate(:slave) { item_context.module_items_visible_to(@user).where(:content_type => @asset.class.name, :content_id => @asset.id).reorder(nil).pluck(:id) }
     item_ids.first if item_ids.count == 1
   end
 

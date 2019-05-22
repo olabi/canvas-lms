@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,16 +31,18 @@ describe "security" do
 
       https!
 
-      get_via_redirect "/login"
+      get "/login"
+      follow_redirect! while response.redirect?
       assert_response :success
       cookie = cookies['_normandy_session']
       expect(cookie).to be_present
       expect(path).to eq "/login/canvas"
 
-      post_via_redirect "/login/canvas", "pseudonym_session[unique_id]" => "nobody@example.com",
+      post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
                                   "pseudonym_session[password]" => "asdfasdf",
                                   "pseudonym_session[remember_me]" => "1",
-                                  "redirect_to_ssl" => "1"
+                                  "redirect_to_ssl" => "1"}
+      follow_redirect! while response.redirect?
       assert_response :success
       expect(request.fullpath).to eql("/?login_success=1")
       new_cookie = cookies['_normandy_session']
@@ -84,16 +86,16 @@ describe "security" do
       u.save!
       https!
 
-      post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
-        "pseudonym_session[password]" => "asdfasdf"
+      post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
+        "pseudonym_session[password]" => "asdfasdf"}
       assert_response 302
       c = response['Set-Cookie'].lines.grep(/\A_normandy_session=/).first
       expect(c).not_to match(/expires=/)
       reset!
       https!
-      post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
+      post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
         "pseudonym_session[password]" => "asdfasdf",
-        "pseudonym_session[remember_me]" => "1"
+        "pseudonym_session[remember_me]" => "1"}
       assert_response 302
       c = response['Set-Cookie'].lines.grep(/\A_normandy_session=/).first
       expect(c).not_to match(/expires=/)
@@ -105,8 +107,8 @@ describe "security" do
                               :password => "asdfasdf"
       u.save!
       https!
-      post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
-        "pseudonym_session[password]" => "asdfasdf"
+      post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
+        "pseudonym_session[password]" => "asdfasdf"}
       assert_response 302
       c1 = response['Set-Cookie'].lines.grep(/\Apseudonym_credentials=/).first
       c2 = response['Set-Cookie'].lines.grep(/\A_normandy_session=/).first
@@ -120,10 +122,11 @@ describe "security" do
       :username => "nobody@example.com",
       :password => "asdfasdf"
     u.save!
-    post "/login", { "pseudonym_session[unique_id]" => "nobody@example.com",
+    post "/login/canvas", params: { "pseudonym_session[unique_id]" => "nobody@example.com",
       "pseudonym_session[password]" => "asdfasdf",
-      "pseudonym_session[remember_me]" => "1" }, { 'HTTP_ACCEPT' => 'application/json' }
-    expect(response).to be_success
+      "pseudonym_session[remember_me]" => "1" },
+      headers: { 'HTTP_ACCEPT' => 'application/json' }
+    expect(response).to be_successful
     expect(response['Content-Type']).to match(%r"^application/json")
     expect(response.body).not_to match(%r{^while\(1\);})
     json = JSON.parse response.body
@@ -133,15 +136,15 @@ describe "security" do
   it "should prepend GET JSON responses with protection" do
     course_with_teacher_logged_in
     get "/courses.json"
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(response['Content-Type']).to match(%r"^application/json")
     expect(response.body).to match(%r{^while\(1\);})
   end
 
   it "should not prepend GET JSON responses to Accept application/json requests with protection" do
     course_with_teacher_logged_in
-    get "/courses.json", nil, { 'HTTP_ACCEPT' => 'application/json' }
-    expect(response).to be_success
+    get "/courses.json", headers: { 'HTTP_ACCEPT' => 'application/json' }
+    expect(response).to be_successful
     expect(response['Content-Type']).to match(%r"^application/json")
     expect(response.body).not_to match(%r{^while\(1\);})
   end
@@ -149,7 +152,7 @@ describe "security" do
   it "should not prepend non-GET JSON responses with protection" do
     course_with_teacher_logged_in
     delete "/dashboard/ignore_stream_item/1"
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(response['Content-Type']).to match(%r"^application/json")
     expect(response.body).not_to match(%r{^while\(1\);})
   end
@@ -166,21 +169,21 @@ describe "security" do
 
     it "should not remember me when the wrong token is given" do
       # plain persistence_token no longer works
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{@p.persistence_token}"
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{@p.persistence_token}"}
       expect(response).to redirect_to("https://www.example.com/login")
       token = SessionPersistenceToken.generate(@p)
       # correct token id, but nonsense uuid and persistence_token
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.id}::blah::blah"
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.id}::blah::blah"}
       expect(response).to redirect_to("https://www.example.com/login")
       # correct token id and persistence_token, but nonsense uuid
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.id}::#{@p.persistence_token}::blah"
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.id}::#{@p.persistence_token}::blah"}
       expect(response).to redirect_to("https://www.example.com/login")
     end
 
     it "should login via persistence token when no session exists" do
       token = SessionPersistenceToken.generate(@p)
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
-      expect(response).to be_success
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
+      expect(response).to be_successful
       expect(cookies['_normandy_session']).to be_present
       expect(session[:used_remember_me_token]).to be_truthy
 
@@ -189,29 +192,29 @@ describe "security" do
       expect(response).to redirect_to login_url
       expect(flash[:warning]).not_to be_empty
 
-      post "/login", :pseudonym_session => { :unique_id => @p.unique_id, :password => 'asdfasdf' }
+      post "/login/canvas", params: {:pseudonym_session => { :unique_id => @p.unique_id, :password => 'asdfasdf' }}
       expect(response).to redirect_to settings_profile_url
       expect(session[:used_remember_me_token]).not_to be_truthy
 
       follow_redirect!
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should not allow login via the same valid token twice" do
       token = SessionPersistenceToken.generate(@p)
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
-      expect(response).to be_success
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
+      expect(response).to be_successful
       expect(SessionPersistenceToken.find_by_id(token.id)).to be_nil
       reset!
       https!
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
       expect(response).to redirect_to("https://www.example.com/login")
     end
 
     it "should generate a new valid token when a token is used" do
       token = SessionPersistenceToken.generate(@p)
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
-      expect(response).to be_success
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
+      expect(response).to be_successful
       s1 = cookies['_normandy_session']
       expect(s1).to be_present
       cookie = cookies['pseudonym_credentials']
@@ -223,17 +226,17 @@ describe "security" do
       reset!
       https!
       # check that the new token is valid too
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{cookie}"
-      expect(response).to be_success
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{cookie}"}
+      expect(response).to be_successful
       s2 = cookies['_normandy_session']
       expect(s2).to be_present
       expect(s2).not_to eq s1
     end
 
     it "should generate and return a token when remember_me is checked" do
-      post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
+      post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
         "pseudonym_session[password]" => "asdfasdf",
-        "pseudonym_session[remember_me]" => "1"
+        "pseudonym_session[remember_me]" => "1"}
       assert_response 302
       cookie = cookies['pseudonym_credentials']
       expect(cookie).to be_present
@@ -249,9 +252,9 @@ describe "security" do
 
     it "should destroy the token both user agent and server side on logout" do
       expect {
-        post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
+        post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
           "pseudonym_session[password]" => "asdfasdf",
-          "pseudonym_session[remember_me]" => "1"
+          "pseudonym_session[remember_me]" => "1"}
       }.to change(SessionPersistenceToken, :count).by(1)
       c = cookies['pseudonym_credentials']
       expect(c).to be_present
@@ -268,32 +271,32 @@ describe "security" do
       s1.https!
       s2 = open_session
       s2.https!
-      s1.post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
+      s1.post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
         "pseudonym_session[password]" => "asdfasdf",
-        "pseudonym_session[remember_me]" => "1"
+        "pseudonym_session[remember_me]" => "1"}
       c1 = s1.cookies['pseudonym_credentials']
-      s2.post "/login", "pseudonym_session[unique_id]" => "nobody@example.com",
+      s2.post "/login/canvas", params: {"pseudonym_session[unique_id]" => "nobody@example.com",
         "pseudonym_session[password]" => "asdfasdf",
-        "pseudonym_session[remember_me]" => "1"
+        "pseudonym_session[remember_me]" => "1"}
       c2 = s2.cookies['pseudonym_credentials']
       expect(c1).not_to eq c2
 
       s3 = open_session
       s3.https!
-      s3.get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{c1}"
-      expect(s3.response).to be_success
+      s3.get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{c1}"}
+      expect(s3.response).to be_successful
       s3.delete "/logout"
       # make sure c2 can still work
       s4 = open_session
       s4.https!
-      s4.get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{c2}"
-      expect(s4.response).to be_success
+      s4.get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{c2}"}
+      expect(s4.response).to be_successful
     end
 
     it "should not login if the pseudonym is deleted" do
       token = SessionPersistenceToken.generate(@p)
       @p.destroy
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
       expect(response).to redirect_to("https://www.example.com/login")
     end
 
@@ -305,7 +308,7 @@ describe "security" do
       @p.save!
       pers2 = @p.persistence_token
       expect(pers1).not_to eq pers2
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{creds}"
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{creds}"}
       expect(response).to redirect_to("https://www.example.com/login")
     end
 
@@ -318,8 +321,8 @@ describe "security" do
           user_with_pseudonym(:account => account)
         end
         token = SessionPersistenceToken.generate(@pseudonym)
-        get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
-        expect(response).to be_success
+        get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
+        expect(response).to be_successful
         expect(cookies['_normandy_session']).to be_present
         expect(session[:used_remember_me_token]).to be_truthy
       end
@@ -338,9 +341,10 @@ describe "security" do
       end
 
       def bad_login(ip)
-        post_via_redirect "/login",
-          { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "failboat" },
-          { "REMOTE_ADDR" => ip }
+        post "/login/canvas",
+          params: { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "failboat" },
+          headers: { "REMOTE_ADDR" => ip }
+        follow_redirect! while response.redirect?
       end
 
       it "should be limited for the same ip" do
@@ -349,9 +353,10 @@ describe "security" do
         bad_login("5.5.5.5")
         expect(response.body).to match(/Too many failed login attempts/)
         # should still fail
-        post_via_redirect "/login",
-          { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
-          { "REMOTE_ADDR" => "5.5.5.5" }
+        post "/login/canvas",
+          params: { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
+          headers: { "REMOTE_ADDR" => "5.5.5.5" }
+        follow_redirect! while response.redirect?
         expect(response.body).to match(/Too many failed login attempts/)
       end
 
@@ -363,9 +368,10 @@ describe "security" do
         bad_login("5.5.5.7") # different IP, but too many total failures
         expect(response.body).to match(/Too many failed login attempts/)
         # should still fail
-        post_via_redirect "/login",
-          { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
-          { "REMOTE_ADDR" => "5.5.5.7" }
+        post "/login/canvas",
+          params: { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
+          headers: { "REMOTE_ADDR" => "5.5.5.7" }
+        follow_redirect! while response.redirect?
         expect(response.body).to match(/Too many failed login attempts/)
       end
 
@@ -376,15 +382,16 @@ describe "security" do
         # schools like to NAT hundreds of people to the same IP, so we don't
         # ever block the IP address as a whole
         user_with_pseudonym(:active_user => true, :username => "second@example.com", :password => "12341234").save!
-        post_via_redirect "/login",
-          { "pseudonym_session[unique_id]" => "second@example.com", "pseudonym_session[password]" => "12341234" },
-          { "REMOTE_ADDR" => "5.5.5.5" }
+        post "/login/canvas",
+          params: { "pseudonym_session[unique_id]" => "second@example.com", "pseudonym_session[password]" => "12341234" },
+          headers:  { "REMOTE_ADDR" => "5.5.5.5" }
+        follow_redirect! while response.redirect?
         expect(request.fullpath).to eql("/?login_success=1")
       end
 
       it "should apply limitations correctly for cross-account logins" do
         account = Account.create!
-        Account.any_instance.stubs(:trusted_account_ids).returns([account.id])
+        allow_any_instantiation_of(Account.default).to receive(:trusted_account_ids).and_return([account.id])
         @pseudonym.account = account
         @pseudonym.save!
         bad_login("5.5.5.5")
@@ -394,9 +401,10 @@ describe "security" do
         bad_login("5.5.5.7") # different IP, but too many total failures
         expect(response.body).to match(/Too many failed login attempts/)
         # should still fail
-        post_via_redirect "/login",
-          { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
-          { "REMOTE_ADDR" => "5.5.5.5" }
+        post "/login/canvas",
+          params: { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
+          headers: { "REMOTE_ADDR" => "5.5.5.5" }
+        follow_redirect! while response.redirect?
         expect(response.body).to match(/Too many failed login attempts/)
       end
     end
@@ -420,11 +428,11 @@ describe "security" do
     @course.reload
 
     user_session(@student)
-    post "/courses/#{@course.id}/user_lists.json", :user_list => "A1234567, A345678"
+    post "/courses/#{@course.id}/user_lists.json", params: {:user_list => "A1234567, A345678"}
     expect(response).not_to be_success
 
     user_session(@teacher)
-    post "/courses/#{@course.id}/user_lists.json", :user_list => "A1234567, A345678"
+    post "/courses/#{@course.id}/user_lists.json", params: {:user_list => "A1234567, A345678"}
     assert_response :success
     expect(json_parse).to eq({
       "duplicates" => [],
@@ -541,8 +549,8 @@ describe "security" do
 
     it "should remember the destination with an intervening auth" do
       token = SessionPersistenceToken.generate(@admin.pseudonyms.first)
-      get "/", {}, "HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"
-      expect(response).to be_success
+      get "/", headers: {"HTTP_COOKIE" => "pseudonym_credentials=#{token.pseudonym_credentials}"}
+      expect(response).to be_successful
       expect(cookies['_normandy_session']).to be_present
       expect(session[:used_remember_me_token]).to be_truthy
 
@@ -554,7 +562,7 @@ describe "security" do
       expect(response).to redirect_to login_url
       expect(flash[:warning]).not_to be_empty
 
-      post "/login", :pseudonym_session => { :unique_id => @admin.pseudonyms.first.unique_id, :password => 'password' }
+      post "/login/canvas", params: {:pseudonym_session => { :unique_id => @admin.pseudonyms.first.unique_id, :password => 'password' }}
       expect(response).to redirect_to user_masquerade_url(@student)
       expect(session[:used_remember_me_token]).not_to be_truthy
 
@@ -562,20 +570,20 @@ describe "security" do
       expect(response).to redirect_to conversations_url
 
       follow_redirect!
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(session[:become_user_id]).to eq @student.id.to_s
     end
   end
 
   it "should not allow logins to safefiles domains" do
-    HostUrl.stubs(:is_file_host?).returns(true)
-    HostUrl.stubs(:default_host).returns('test.host')
+    allow(HostUrl).to receive(:is_file_host?).and_return(true)
+    allow(HostUrl).to receive(:default_host).and_return('test.host')
     get "http://files-test.host/login"
     expect(response).to be_redirect
     uri = URI.parse response['Location']
     expect(uri.host).to eq 'test.host'
 
-    HostUrl.stubs(:is_file_host?).returns(false)
+    allow(HostUrl).to receive(:is_file_host?).and_return(false)
     get "http://test.host/login"
     expect(response).to redirect_to('http://test.host/login/canvas')
   end
@@ -602,7 +610,7 @@ describe "security" do
     describe "site admin" do
       it "role_overrides" do
         get "/accounts/#{Account.site_admin.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /Permissions/
 
         get "/accounts/#{Account.site_admin.id}/role_overrides"
@@ -611,10 +619,10 @@ describe "security" do
         add_permission :manage_role_overrides
 
         get "/accounts/#{Account.site_admin.id}/role_overrides"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/accounts/#{Account.site_admin.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Permissions/
       end
     end
@@ -627,24 +635,22 @@ describe "security" do
         assert_status(401)
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
-        expect(response.body).not_to match /Find A User/
+        expect(response).to be_successful
 
         get "/accounts/#{Account.default.id}/statistics"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /Recently Logged-In Users/
 
         add_permission :read_roster
 
         get "/accounts/#{Account.default.id}/users"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
-        expect(response.body).to match /Find A User/
+        expect(response).to be_successful
 
         get "/accounts/#{Account.default.id}/statistics"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Recently Logged-In Users/
       end
 
@@ -652,29 +658,23 @@ describe "security" do
         add_permission :view_statistics
 
         course_factory
-        get "/accounts/#{Account.default.id}"
-        expect(response).to be_redirect
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
-        expect(response.body).not_to match /Course Filtering/
-        expect(response.body).not_to match /Find a Course/
+        expect(response).to be_successful
 
         get "/accounts/#{Account.default.id}/statistics"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /Recently Started Courses/
         expect(response.body).not_to match /Recently Ended Courses/
 
         add_permission :read_course_list
 
         get "/accounts/#{Account.default.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Courses/
-        expect(response.body).to match /Course Filtering/
-        expect(response.body).to match /Find a Course/
 
         get "/accounts/#{Account.default.id}/statistics"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Recently Started Courses/
         expect(response.body).to match /Recently Ended Courses/
       end
@@ -684,16 +684,16 @@ describe "security" do
         assert_status(401)
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /Statistics/
 
         add_permission :view_statistics
 
         get "/accounts/#{Account.default.id}/statistics"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Statistics/
       end
 
@@ -708,7 +708,7 @@ describe "security" do
         assert_status(401)
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /Faculty Journal/
 
         get "/users/#{@student.id}/user_notes"
@@ -726,23 +726,23 @@ describe "security" do
         add_permission :manage_user_notes
 
         get "/accounts/#{Account.default.id}/user_notes"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/accounts/#{Account.default.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Faculty Journal/
 
         get "/users/#{@student.id}/user_notes"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         post "/users/#{@student.id}/user_notes.json"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/users/#{@student.id}/user_notes/#{@user_note.id}.json"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         delete "/users/#{@student.id}/user_notes/#{@user_note.id}.json"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it "view_jobs" do
@@ -752,7 +752,7 @@ describe "security" do
         add_permission :view_jobs
 
         get "/jobs"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
     end
 
@@ -767,7 +767,7 @@ describe "security" do
         expect(response).to be_redirect
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         html = Nokogiri::HTML(response.body)
         expect(html.css('.edit_course_link')).to be_empty
         expect(html.css('#tab-users')).to be_empty
@@ -777,10 +777,10 @@ describe "security" do
         @admin.reload
 
         get "/courses/#{@course.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         html = Nokogiri::HTML(response.body)
         expect(html.css('#course_form')).not_to be_empty
         expect(html.css('#tab-navigation')).not_to be_empty
@@ -797,7 +797,7 @@ describe "security" do
         assert_status(401)
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /People/
         html = Nokogiri::HTML(response.body)
         expect(html.css('#tab-users')).to be_empty
@@ -805,19 +805,19 @@ describe "security" do
         add_permission :read_roster
 
         get "/courses/#{@course.id}/users"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /View User Groups/
         expect(response.body).to match /View Prior Enrollments/
         expect(response.body).not_to match /Manage Users/
 
         get "/courses/#{@course.id}/users/prior"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/groups"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /People/
       end
 
@@ -832,7 +832,7 @@ describe "security" do
         assert_status(401)
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match /People/
 
         add_permission :manage_students
@@ -846,18 +846,18 @@ describe "security" do
         add_permission :read_roster
 
         get "/courses/#{@course.id}/users"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /View User Groups/
         expect(response.body).to match /View Prior Enrollments/
 
         get "/courses/#{@course.id}/users/prior"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/groups"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /People/
 
         @course.tab_configuration = [ { :id => Course::TAB_PEOPLE, :hidden => true } ]
@@ -866,7 +866,7 @@ describe "security" do
         # Should still be able to see People tab even if disabled, because we can
         # manage stuff in it
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /People/
       end
 
@@ -883,7 +883,7 @@ describe "security" do
         expect(response).to be_redirect
 
         get "/courses/#{@course.id}/gradebook"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it 'read_course_content' do
@@ -921,7 +921,7 @@ describe "security" do
         assert_status(401)
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         html = Nokogiri::HTML(response.body)
         expect(html.css('.section .assignments')).to be_empty
         expect(html.css('.section .syllabus')).to be_empty
@@ -930,7 +930,7 @@ describe "security" do
         expect(html.css('.section .discussions')).to be_empty
         expect(html.css('.section .files')).to be_empty
         expect(response.body).not_to match /Copy this Course/
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
         expect(response.body).not_to match /Export this Course/
 
         add_permission :read_course_content
@@ -938,39 +938,39 @@ describe "security" do
         add_permission :read_forum
 
         get "/courses/#{@course.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /People/
 
         @course.tab_configuration = [ { :id => Course::TAB_PEOPLE, :hidden => true } ]
         @course.save!
 
         get "/courses/#{@course.id}/assignments"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /People/ # still has read_as_admin rights
 
         get "/courses/#{@course.id}/assignments/syllabus"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/wiki"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/quizzes"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/discussion_topics"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/files"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/copy"
         assert_status(401)
 
         get "/courses/#{@course.id}/content_exports"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         html = Nokogiri::HTML(response.body)
         expect(html.css('.section .assignments')).not_to be_empty
         expect(html.css('.section .syllabus')).not_to be_empty
@@ -979,7 +979,7 @@ describe "security" do
         expect(html.css('.section .discussions')).not_to be_empty
         expect(html.css('.section .files')).not_to be_empty
         expect(response.body).not_to match /Copy this Course/
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
         expect(response.body).to match /Export Course Content/
         expect(response.body).not_to match /Delete this Course/
         expect(response.body).not_to match /End this Course/
@@ -989,22 +989,22 @@ describe "security" do
         delete "/courses/#{@course.id}"
         assert_status(401)
 
-        delete "/courses/#{@course.id}", :event => 'delete'
+        delete "/courses/#{@course.id}", params: {:event => 'delete'}
         assert_status(401)
 
         add_permission :manage_courses
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Copy this Course/
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
         expect(response.body).to match /Export Course Content/
         expect(response.body).to_not match /Delete this Course/
 
         add_permission :change_course_state
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match /Delete this Course/
 
         html = Nokogiri::HTML(response.body)
@@ -1012,9 +1012,9 @@ describe "security" do
         expect(html.css('#course_enrollment_term_id')).not_to be_empty
 
         get "/courses/#{@course.id}/copy"
-        expect(response).to be_success
+        expect(response).to be_successful
 
-        delete "/courses/#{@course.id}", :event => 'delete'
+        delete "/courses/#{@course.id}", params: {:event => 'delete'}
         expect(response).to be_redirect
 
         expect(@course.reload).to be_deleted
@@ -1022,8 +1022,8 @@ describe "security" do
 
       it 'manage_content' do
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response).to be_successful
+        expect(response.body).not_to match /Import Course Content/
 
         get "/courses/#{@course.id}/content_migrations"
         assert_status(401)
@@ -1031,11 +1031,11 @@ describe "security" do
         add_permission :manage_content
 
         get "/courses/#{@course.id}/details"
-        expect(response).to be_success
-        expect(response.body).to match /Import Content into this Course/
+        expect(response).to be_successful
+        expect(response.body).to match /Import Course Content/
 
         get "/courses/#{@course.id}/content_migrations"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it 'read_reports' do
@@ -1043,7 +1043,7 @@ describe "security" do
         add_permission :read_roster
 
         get "/courses/#{@course.id}/users/#{@student.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match "Access Report"
 
         get "/courses/#{@course.id}/users/#{@student.id}/usage"
@@ -1052,11 +1052,11 @@ describe "security" do
         add_permission :read_reports
 
         get "/courses/#{@course.id}/users/#{@student.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to match "Access Report"
 
         get "/courses/#{@course.id}/users/#{@student.id}/usage"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it 'manage_sections' do
@@ -1064,14 +1064,14 @@ describe "security" do
         remove_permission(:manage_sections, teacher_role)
 
         get "/courses/#{@course.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match 'Add Section'
 
         post "/courses/#{@course.id}/sections"
         assert_status(401)
 
         get "/courses/#{@course.id}/sections/#{@course.default_section.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         put "/courses/#{@course.id}/sections/#{@course.default_section.id}"
         assert_status(401)
@@ -1082,10 +1082,10 @@ describe "security" do
         remove_permission(:change_course_state, teacher_role)
 
         get "/courses/#{@course.id}/settings"
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).not_to match 'End this Course'
 
-        delete "/courses/#{@course.id}", :event => 'conclude'
+        delete "/courses/#{@course.id}", params: {:event => 'conclude'}
         assert_status(401)
       end
 
@@ -1099,7 +1099,7 @@ describe "security" do
         end
 
         get "/courses/#{@course.id}/users/#{@student.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get "/users/#{@student.id}"
         assert_status(401)
@@ -1108,7 +1108,7 @@ describe "security" do
         user_session(admin)
 
         get "/users/#{@student.id}"
-        expect(response).to be_success
+        expect(response).to be_successful
       end
     end
   end

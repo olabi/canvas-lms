@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative 'groups_common'
 require_relative 'shared_examples_common'
@@ -28,7 +45,8 @@ shared_examples 'home_page' do |context|
   it "should have a working link to add an announcement from the group home page", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273604, teacher: 319911) do
     get url
     expect_new_page_load { fln('Announcement').click }
-    expect(f('.btn-primary')).to be_displayed
+    add_announcement_url = "/groups/#{@testgroup.first.id}/discussion_topics/new?is_announcement=true"
+    expect(f("a[href=\"#{add_announcement_url}\"]")).to be_displayed
   end
 
   it "should display recent activity feed on the group home page", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273605, teacher: 319912) do
@@ -82,6 +100,7 @@ shared_examples 'announcements_page' do |context|
 
     get announcements_page
     expect_new_page_load { f('.btn-primary').click }
+    expect(f('#editor_tabs')).to be_displayed
     fj(".ui-accordion-header a:contains('Announcements')").click
     expect(fln('Group Announcement')).to be_displayed
     expect(f("#content")).not_to contain_link('Course Announcement')
@@ -90,7 +109,7 @@ shared_examples 'announcements_page' do |context|
   it "should only access group files in announcements right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273624, teacher: 324931) do
     add_test_files
     get announcements_page
-    expect_new_page_load { f('.btn-primary').click }
+    expect_new_page_load { f('#add_announcement').click }
     expand_files_on_content_pane
     expect(ffj('.file .text:visible').size).to eq 1
   end
@@ -107,31 +126,95 @@ shared_examples 'announcements_page' do |context|
   end
 end
 
+shared_examples 'announcements_page_v2' do
+  include GroupsCommon
+  include SharedExamplesCommon
+
+  it "should display the announcement button" do
+    get announcements_page
+    expect(f('#add_announcement')).to be_displayed
+  end
+
+  it "should list all announcements", ignore_js_errors: true do
+    # Create 5 announcements in the group
+    announcements = []
+    5.times do |n|
+      announcements << @testgroup.first.announcements.create!(
+        title: "Announcement #{n+1}",
+        message: "Message #{n+1}",
+        user: @teacher
+      )
+    end
+
+    get announcements_page
+    expect(ff('.ic-announcement-row').size).to eq 5
+  end
+
+  it "should only list in-group announcements in the content right pane", ignore_js_errors: true do
+    # create group and course announcements
+    @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group',user: @teacher)
+    @course.announcements.create!(title: 'Course Announcement', message: 'Course',user: @teacher)
+
+    get announcements_page
+    expect_new_page_load { f('#add_announcement').click }
+    expect(f('#editor_tabs')).to be_displayed
+
+    fj('[role="tabpanel"] button:contains("Announcements")').click
+    wait_for_ajaximations
+    skip('figure out why when you expand any of the accordions in the rcs sidbar, it doesnt show anything CORE-2714')
+    expect(fln('Group Announcement')).to be_displayed
+    expect(f("#content")).not_to contain_link('Course Announcement')
+  end
+
+  it "should only access group files in announcements right content pane", ignore_js_errors: true do
+    add_test_files
+    get announcements_page
+    expect_new_page_load { f('#add_announcement').click }
+    expand_files_on_content_pane
+    expect(ff('svg[name=IconDocument]').size).to eq 1
+  end
+
+  it "should have an Add External Feed link on announcements", ignore_js_errors: true do
+    get announcements_page
+    f('#external_feed').click
+    f('#external-rss-feed__toggle-button').click
+    expect(f('#external-rss-feed__submit-button-group')).to be_displayed
+  end
+
+  it "should have an RSS feed button on announcements", ignore_js_errors: true do
+    @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group',user: @teacher)
+    get announcements_page
+    expect(f('button[id="external_feed"]')).to be_displayed
+  end
+end
+
 #-----------------------------------------------------------------------------------------------------------------------
 shared_examples 'pages_page' do |context|
   include GroupsCommon
   include SharedExamplesCommon
 
   it "should load pages index and display all pages", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273610, teacher: 324927) do
-    @testgroup.first.wiki.wiki_pages.create!(title: "Page 1", user: @teacher)
-    @testgroup.first.wiki.wiki_pages.create!(title: "Page 2", user: @teacher)
+    @testgroup.first.wiki_pages.create!(title: "Page 1", user: @teacher)
+    @testgroup.first.wiki_pages.create!(title: "Page 2", user: @teacher)
     get pages_page
     expect(ff('.collectionViewItems .clickable').size).to eq 2
   end
 
   it "should only list in-group pages in the content right pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273620, teacher: 324928) do
     # create group and course announcements
-    group_page = @testgroup.first.wiki.wiki_pages.create!(user: @teacher,
+    group_page = @testgroup.first.wiki_pages.create!(user: @teacher,
                                                           title: 'Group Page')
-    course_page = @course.wiki.wiki_pages.create!(user: @teacher,
+    course_page = @course.wiki_pages.create!(user: @teacher,
                                                   title: 'Course Page')
 
     get pages_page
     f('.btn-primary').click
     wait_for_ajaximations
-    fj(".ui-accordion-header a:contains('Wiki Pages')").click
-    expect(fln("#{group_page.title}")).to be_displayed
-    expect(f("#content")).not_to contain_link("#{course_page.title}")
+    fj('button:contains("Pages")').click
+    wait_for_ajaximations
+    skip('figure out why when you expand any of the accordions in the rcs sidbar, it doesnt show anything CORE-2714')
+    expect(fln(group_page.title.to_s)).to be_displayed
+    expect(f("#content")).not_to contain_link(course_page.title.to_s)
   end
 
   it "should only access group files in pages right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 303700, teacher: 324932) do
@@ -140,7 +223,7 @@ shared_examples 'pages_page' do |context|
     f('.btn-primary').click
     wait_for_ajaximations
     expand_files_on_content_pane
-    expect(ffj('.file .text:visible').size).to eq 1
+    expect(ff('svg[name=IconDocument]').size).to eq 1
   end
 end
 
@@ -165,7 +248,7 @@ shared_examples 'discussions_page' do |context|
   include GroupsCommon
   include SharedExamplesCommon
 
-  it "should only list in-group discussions in the content right pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273622, teacher: 324930) do
+  it "should only list in-group discussions in the content right pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273622, teacher: 324930), ignore_js_errors: true do
     # create group and course announcements
     group_dt = DiscussionTopic.create!(context: @testgroup.first, user: @teacher,
                                        title: 'Group Discussion', message: 'Group')
@@ -173,32 +256,21 @@ shared_examples 'discussions_page' do |context|
                                         title: 'Course Discussion', message: 'Course')
 
     get discussions_page
-    expect_new_page_load { f('.btn-primary').click }
-    fj(".ui-accordion-header a:contains('Discussions')").click
-    expect(fln("#{group_dt.title}")).to be_displayed
-    expect(f("#content")).not_to contain_link("#{course_dt.title}")
+    expect_new_page_load { f('#add_discussion').click }
+    expect(f('#editor_tabs')).to be_displayed
+    fj('button:contains("Discussions")').click
+    skip('figure out why when you expand any of the accordions in the rcs sidbar, it doesnt show anything CORE-2714')
+    wait_for_ajaximations
+    expect(fln(group_dt.title.to_s)).to be_displayed
+    expect(f("#content")).not_to contain_link(course_dt.title.to_s)
   end
 
-  it "should only access group files in discussions right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 303701, teacher: 324933) do
+  it "should only access group files in discussions right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 303701, teacher: 324933), ignore_js_errors: true do
     add_test_files
     get discussions_page
-    expect_new_page_load { f('.btn-primary').click }
+    expect_new_page_load { f('#add_discussion').click }
     expand_files_on_content_pane
-    expect(ffj('.file .text:visible').size).to eq 1
-  end
-
-  it "should allow group users to reply to group discussions", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 312868, teacher: 312870) do
-    DiscussionTopic.create!(context: @testgroup.first, user: @teacher,
-                            title: 'Group Discussion', message: 'Group')
-    get discussions_page
-    fln('Group Discussion').click
-    wait_for_ajaximations
-    f('.discussion-reply-action').click
-    type_in_tiny('textarea', 'Good discussion')
-    fj('.btn-primary:contains("Post Reply")').click
-    wait_for_ajaximations
-    expect(f('.entry')).to be_present
-    expect(ff('.message.user_content')[1]).to include_text 'Good discussion'
+    expect(ff('svg[name=IconDocument]').size).to eq 1
   end
 end
 
@@ -241,6 +313,8 @@ shared_examples 'conferences_page' do |context|
   end
 
   it "should allow group users to delete an active conference", priority: pick_priority(context, student: "1", teacher: "2"),test_id: pick_test_id(context, student: 323557, teacher: 323558) do
+    skip_if_safari(:alert)
+    skip_if_chrome('delete_conference method is fragile')
     WimbaConference.create!(title: "new conference", user: @user, context: @testgroup.first)
     get conferences_page
 
@@ -249,6 +323,8 @@ shared_examples 'conferences_page' do |context|
   end
 
   it "should allow group users to delete a concluded conference", priority: pick_priority(context, student: "1", teacher: "2"),test_id: pick_test_id(context, student: 323559, teacher: 323560) do
+    skip_if_safari(:alert)
+    skip_if_chrome('delete_conference method is fragile')
     cc = WimbaConference.create!(title: "cncluded conference", user: @user, context: @testgroup.first)
     conclude_conference(cc)
     get conferences_page

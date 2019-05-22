@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 require 'ritex'
 require 'securerandom'
@@ -37,7 +54,8 @@ module UserContent
     end
 
     find_equation_images(html) do |node|
-      mathml = latex_to_mathml(node['alt'])
+      equation = node['data-equation-content'] || node['alt']
+      mathml = UserContent.latex_to_mathml(equation)
       next if mathml.blank?
 
       mathml_span = Nokogiri::HTML::DocumentFragment.parse(
@@ -133,13 +151,14 @@ module UserContent
     }
     DefaultAllowedTypes = AssetTypes.keys
 
-    def initialize(context, user)
+    def initialize(context, user, contextless_types: [])
       raise(ArgumentError, "context required") unless context
       @context = context
       @user = user
-      # capture group 1 is the object type, group 2 is the object id, if it's
-      # there, and group 3 is the rest of the url, including any beginning '/'
-      @toplevel_regex = %r{/#{context.class.name.tableize}/#{context.id}/(\w+)(?:/([^\s"<'\?\/]*)([^\s"<']*))?}
+      @contextless_types = contextless_types
+      @context_prefix = "/#{context.class.name.tableize}/#{context.id}"
+      @absolute_part = '(https?://[\w-]+(?:\.[\w-]+)*(?:\:\d{1,5})?)?'
+      @toplevel_regex = %r{#{@absolute_part}(#{@context_prefix})?/(\w+)(?:/([^\s"<'\?\/]*)([^\s"<']*))?}
       @handlers = {}
       @default_handler = nil
       @unknown_handler = nil
@@ -148,7 +167,10 @@ module UserContent
 
     attr_reader :user, :context
 
-    class UriMatch < Struct.new(:url, :type, :obj_class, :obj_id, :rest)
+    class UriMatch < Struct.new(:url, :type, :obj_class, :obj_id, :rest, :prefix)
+      def query
+        rest && rest[/\?.*/]
+      end
     end
 
     # specify a url type like "assignments" or "file_contents"
@@ -173,8 +195,10 @@ module UserContent
 
       asset_types = AssetTypes.reject { |k,v| !@allowed_types.include?(k) }
 
-      html.gsub(@toplevel_regex) do |relative_url|
-        type, obj_id, rest = [$1, $2, $3]
+      html.gsub(@toplevel_regex) do |url|
+        _absolute_part, prefix, type, obj_id, rest = [$1, $2, $3, $4, $5]
+        next url if !@contextless_types.include?(type) && prefix != @context_prefix
+
         if type != "wiki" && type != "pages"
           if obj_id.to_i > 0
             obj_id = obj_id.to_i
@@ -192,12 +216,12 @@ module UserContent
         if asset_types.key?(type)
           klass = asset_types[type]
           klass = klass.to_s.constantize if klass
-          match = UriMatch.new(relative_url, type, klass, obj_id, rest)
+          match = UriMatch.new(url, type, klass, obj_id, rest, prefix)
           handler = @handlers[type] || @default_handler
-          (handler && handler.call(match)) || relative_url
+          (handler && handler.call(match)) || url
         else
-          match = UriMatch.new(relative_url, type)
-          (@unknown_handler && @unknown_handler.call(match)) || relative_url
+          match = UriMatch.new(url, type)
+          (@unknown_handler && @unknown_handler.call(match)) || url
         end
       end
     end

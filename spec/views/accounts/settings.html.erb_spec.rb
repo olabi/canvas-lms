@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,8 @@ require File.expand_path(File.dirname(__FILE__) + '/../views_helper')
 
 describe "accounts/settings.html.erb" do
   before do
-    assigns[:account_roles] = []
-    assigns[:course_roles] = []
+    assign(:account_roles, [])
+    assign(:course_roles, [])
   end
 
   describe "sis_source_id edit box" do
@@ -31,18 +31,18 @@ describe "accounts/settings.html.erb" do
       @account.sis_source_id = "so_special_sis_id"
       @account.save!
 
-      assigns[:context] = @account
-      assigns[:account] = @account
-      assigns[:account_users] = []
-      assigns[:root_account] = @account
-      assigns[:associated_courses_count] = 0
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:context, @account)
+      assign(:account, @account)
+      assign(:account_users, [])
+      assign(:root_account, @account)
+      assign(:associated_courses_count, 0)
+      assign(:announcements, AccountNotification.none.paginate)
     end
 
     it "should show to sis admin" do
       admin = account_admin_user
       view_context(@account, admin)
-      assigns[:current_user] = admin
+      assign(:current_user, admin)
       render
       expect(response).to have_tag("input#account_sis_source_id")
     end
@@ -50,7 +50,7 @@ describe "accounts/settings.html.erb" do
     it "should not show to non-sis admin" do
       admin = account_admin_user_with_role_changes(:role_changes => {'manage_sis' => false})
       view_context(@account, admin)
-      assigns[:current_user] = admin
+      assign(:current_user, admin)
       render
       expect(response).to have_tag("span.sis_source_id", @account.sis_source_id)
       expect(response).not_to have_tag("input#account_sis_source_id")
@@ -60,11 +60,11 @@ describe "accounts/settings.html.erb" do
   describe "open registration" do
     before do
       @account = Account.default
-      assigns[:account] = @account
-      assigns[:account_users] = []
-      assigns[:root_account] = @account
-      assigns[:associated_courses_count] = 0
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:account, @account)
+      assign(:account_users, [])
+      assign(:root_account, @account)
+      assign(:associated_courses_count, 0)
+      assign(:announcements, AccountNotification.none.paginate)
       admin = account_admin_user
       view_context(@account, admin)
     end
@@ -87,11 +87,11 @@ describe "accounts/settings.html.erb" do
   describe "managed by site admins" do
     before do
       @account = Account.default
-      assigns[:account] = @account
-      assigns[:account_users] = []
-      assigns[:root_account] = @account
-      assigns[:associated_courses_count] = 0
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:account, @account)
+      assign(:account_users, [])
+      assign(:root_account, @account)
+      assign(:associated_courses_count, 0)
+      assign(:announcements, AccountNotification.none.paginate)
     end
 
     it "should show settings that can only be managed by site admins" do
@@ -115,9 +115,9 @@ describe "accounts/settings.html.erb" do
 
   describe "SIS Integration Settings" do
     before do
-      assigns[:account_users] = []
-      assigns[:associated_courses_count] = 0
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:account_users, [])
+      assign(:associated_courses_count, 0)
+      assign(:announcements, AccountNotification.none.paginate)
     end
 
     def do_render(user,account=nil)
@@ -129,14 +129,14 @@ describe "accounts/settings.html.erb" do
     context "site admin user" do
       before do
         @account = Account.site_admin
-        assigns[:account] = @account
-        assigns[:root_account] = @account
+        assign(:account, @account)
+        assign(:root_account, @account)
       end
 
       context "should not show settings to site admin user" do
         context "new_sis_integrations => true" do
           before do
-            @account.stubs(:feature_enabled?).with(:new_sis_integrations).returns(true)
+            allow(@account).to receive(:feature_enabled?).with(:new_sis_integrations).and_return(true)
           end
 
           it { expect(response).not_to have_tag("#sis_integration_settings") }
@@ -148,7 +148,7 @@ describe "accounts/settings.html.erb" do
 
       context "new_sis_integrations => false" do
         before do
-          @account.stubs(:feature_enabled?).with(:new_sis_integrations).returns(false)
+          allow(@account).to receive(:feature_enabled?).with(:new_sis_integrations).and_return(false)
         end
 
         it { expect(response).not_to have_tag("#sis_integration_settings") }
@@ -164,23 +164,21 @@ describe "accounts/settings.html.erb" do
         @account = Account.default
         @subaccount = @account.sub_accounts.create!(:name => 'sub-account')
 
-        assigns[:account] = @account
-        assigns[:root_account] = @account
-        assigns[:current_user] = current_user
-
-        @account.stubs(:feature_enabled?).with(:post_grades).returns(true)
-        @account.stubs(:feature_enabled?).with(:google_docs_domain_restriction).returns(true)
+        assign(:account, @account)
+        assign(:root_account, @account)
+        assign(:current_user, current_user)
       end
 
       context "new_sis_integrations => false" do
         before do
-          @account.stubs(:feature_enabled?).with(:new_sis_integrations).returns(false)
-          @account.stubs(:grants_right?).with(current_user, :manage_account_memberships).returns(true)
+          @account.disable_feature!(:new_sis_integrations)
+          @account.enable_feature!(:post_grades)
+          allow(@account).to receive(:grants_right?).with(current_user, :manage_account_memberships).and_return(true)
         end
 
         context "show old version of settings to regular admin user" do
           before do
-            @account.stubs(:grants_right?).with(current_user, :manage_site_settings).returns(true)
+            allow(@account).to receive(:grants_right?).with(current_user, :manage_site_settings).and_return(true)
             do_render(current_user)
           end
 
@@ -202,7 +200,7 @@ describe "accounts/settings.html.erb" do
         let(:assignment_name_length) { "#account_settings_sis_assignment_name_length_value" }
 
         before do
-          @account.stubs(:feature_enabled?).with(:new_sis_integrations).returns(true)
+          @account.enable_feature!(:new_sis_integrations)
         end
 
         context "should show settings to regular admin user" do
@@ -224,12 +222,12 @@ describe "accounts/settings.html.erb" do
 
         context "SIS syncing enabled" do
           before do
-            Assignment.stubs(:sis_grade_export_enabled?).returns(true)
+            allow(Assignment).to receive(:sis_grade_export_enabled?).and_return(true)
           end
 
           context "for root account" do
             before do
-              @account.stubs(:sis_syncing).returns({value: true, locked: true})
+              allow(@account).to receive(:sis_syncing).and_return({value: true, locked: true})
               do_render(current_user)
             end
 
@@ -247,7 +245,7 @@ describe "accounts/settings.html.erb" do
             context "locked" do
               before do
                 @account.enable_feature!(:post_grades)
-                @account.stubs(:sis_syncing).returns({value: true, locked: true, inherited: true })
+                allow(@account).to receive(:sis_syncing).and_return({value: true, locked: true, inherited: true })
                 do_render(current_user, @account)
               end
 
@@ -262,7 +260,7 @@ describe "accounts/settings.html.erb" do
 
             context "not locked" do
               before do
-                @account.stubs(:sis_syncing).returns({value: true, locked: false, inherited: true })
+                allow(@account).to receive(:sis_syncing).and_return({value: true, locked: false, inherited: true })
                 do_render(current_user)
               end
 
@@ -283,18 +281,18 @@ describe "accounts/settings.html.erb" do
   describe "quotas" do
     before do
       @account = Account.default
-      assigns[:account] = @account
-      assigns[:account_users] = []
-      assigns[:root_account] = @account
-      assigns[:associated_courses_count] = 0
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:account, @account)
+      assign(:account_users, [])
+      assign(:root_account, @account)
+      assign(:associated_courses_count, 0)
+      assign(:announcements, AccountNotification.none.paginate)
     end
 
     context "with :manage_storage_quotas" do
       before do
         admin = account_admin_user
         view_context(@account, admin)
-        assigns[:current_user] = admin
+        assign(:current_user, admin)
       end
 
       it "should show quota options" do
@@ -309,7 +307,7 @@ describe "accounts/settings.html.erb" do
       before do
         admin = account_admin_user_with_role_changes(:account => @account, :role_changes => {'manage_storage_quotas' => false})
         view_context(@account, admin)
-        assigns[:current_user] = admin
+        assign(:current_user, admin)
       end
 
       it "should not show quota options" do
@@ -325,12 +323,12 @@ describe "accounts/settings.html.erb" do
     it "should not show add admin button if don't have permission to any roles" do
       role = custom_account_role('CustomAdmin', :account => Account.site_admin)
       account_admin_user_with_role_changes(
-          :account => Account.site_admin,
-          :role => role,
-          :role_changes => {manage_account_memberships: true})
+        :account => Account.site_admin,
+        :role => role,
+        :role_changes => {manage_account_memberships: true})
       view_context(Account.default, @user)
-      assigns[:account] = Account.default
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:account, Account.default)
+      assign(:announcements, AccountNotification.none.paginate)
       render
       expect(response).not_to have_tag '#enroll_users_form'
     end
@@ -339,17 +337,17 @@ describe "accounts/settings.html.erb" do
   context "theme editor" do
     before do
       @account = Account.default
-      assigns[:account] = @account
-      assigns[:account_users] = []
-      assigns[:root_account] = @account
-      assigns[:associated_courses_count] = 0
-      assigns[:announcements] = AccountNotification.none.paginate
+      assign(:account, @account)
+      assign(:account_users, [])
+      assign(:root_account, @account)
+      assign(:associated_courses_count, 0)
+      assign(:announcements, AccountNotification.none.paginate)
     end
 
     it "should show sub account theme editor option for non siteadmin admins" do
       admin = account_admin_user
       view_context(@account, admin)
-      assigns[:current_user] = admin
+      assign(:current_user, admin)
       render
       expect(response).to include("Let sub-accounts use the Theme Editor")
     end

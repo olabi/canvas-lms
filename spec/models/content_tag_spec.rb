@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -92,7 +92,7 @@ describe ContentTag do
       end
     end
   end
-  
+
   describe "#sync_workflow_state_to_asset?" do
     it "true when content_type is Quiz" do
       content_tag = ContentTag.new(:content_type => "Quiz")
@@ -162,17 +162,17 @@ describe ContentTag do
     expect(tag.content_type).to eql('DiscussionTopic')
     expect(tag.content_id).to eql(5)
   end
-  
+
   it "should not allow setting an invalid content_asset_string" do
     tag = ContentTag.new
     tag.content_asset_string = 'bad_class_41'
     expect(tag.content_type).to eql(nil)
     expect(tag.content_id).to eql(nil)
-    
+
     tag.content_asset_string = 'bad_class'
     expect(tag.content_type).to eql(nil)
     expect(tag.content_id).to eql(nil)
-    
+
     tag.content_asset_string = 'course_55'
     expect(tag.content_type).to eql(nil)
     expect(tag.content_id).to eql(nil)
@@ -223,7 +223,7 @@ describe ContentTag do
     expect(tags).not_to be_empty
     expect(tags.any?{ |t| t.id == tag.id }).to be_truthy
   end
-  
+
   it "should not rename the linked external tool if the tag is renamed" do
     course_factory
     @tool = @course.context_external_tools.create!(:name => "new tool", :consumer_key => "key", :shared_secret => "secret", :domain => 'example.com', :custom_fields => {'a' => '1', 'b' => '2'})
@@ -240,7 +240,7 @@ describe ContentTag do
     @tag.reload
     expect(@tag.title).to eq "Example"
   end
-    
+
   it "should not rename the tag if the linked external tool is renamed" do
     course_factory
     @tool = @course.context_external_tools.create!(:name => "new tool", :consumer_key => "key", :shared_secret => "secret", :domain => 'example.com', :custom_fields => {'a' => '1', 'b' => '2'})
@@ -273,7 +273,7 @@ describe ContentTag do
     @assignment.reload
     expect(@assignment.title).to eq 'some assignment (renamed)'
   end
-  
+
   it "should rename the tag if the linked assignment is renamed" do
     course_factory
     @assignment = @course.assignments.create!(:title => "some assignment")
@@ -294,6 +294,23 @@ describe ContentTag do
     expect(@tag.title).to eq 'some assignment (renamed)'
     @assignment.reload
     expect(@assignment.title).to eq 'some assignment (renamed)'
+  end
+
+  it "should associate the tag with an external tool matching the url" do
+    course_factory
+    url = 'http://quiz-lti.docker/lti/launch'
+    tool = @course.context_external_tools.create!({
+      name: 'tool',
+      consumer_key: 'key',
+      shared_secret: 'secret',
+      url: url
+    })
+    assignment = @course.assignments.create!(
+      title: 'some assignment',
+      submission_types: 'external_tool',
+      external_tool_tag_attributes: { url: url }
+    )
+    expect(assignment.external_tool_tag.content).to eq(tool)
   end
 
   describe ".update_for" do
@@ -321,7 +338,7 @@ describe ContentTag do
 
         @quiz.publish!
         @quiz.reload
-        
+
         ContentTag.update_for @quiz
 
         @tag.reload
@@ -330,9 +347,40 @@ describe ContentTag do
     end
   end
 
+  # I really want to change this to "duplicable?" but we're already returning "is_duplicate_able" in API json ಠ益ಠ
+  describe "duplicate_able?" do
+    before :once do
+      course_factory
+      @module = @course.context_modules.create!(:name => "module")
+    end
+
+    it "returns true for discussion_topic tags" do
+      topic = @course.discussion_topics.create! :title => "topic"
+      topic_tag = @module.add_item({:type => 'DiscussionTopic', :id => topic.id})
+      expect(topic_tag).to be_duplicate_able
+    end
+
+    it "returns true for wiki_page tags" do
+      page = @course.wiki_pages.create! :title => "page"
+      page_tag = @module.add_item({:type => 'WikiPage', :id => page.id})
+      expect(page_tag).to be_duplicate_able
+    end
+
+    it "defers to Assignment#can_duplicate? for assignment tags" do
+      assignment1 = @course.assignments.create! :title => "assignment1"
+      assignment2 = @course.assignments.create! :title => "assignment2"
+      allow_any_instantiation_of(assignment1).to receive(:can_duplicate?).and_return(true)
+      allow_any_instantiation_of(assignment2).to receive(:can_duplicate?).and_return(false)
+      assignment1_tag = @module.add_item({:type => 'Assignment', :id => assignment1.id})
+      assignment2_tag = @module.add_item({:type => 'Assignment', :id => assignment2.id})
+      expect(assignment1_tag).to be_duplicate_able
+      expect(assignment2_tag).not_to be_duplicate_able
+    end
+  end
+
   it "should not attempt to update asset name attribute if it's over the db limit" do
     course_factory
-    @page = @course.wiki.wiki_pages.create!(:title => "some page")
+    @page = @course.wiki_pages.create!(:title => "some page")
     @module = @course.context_modules.create!(:name => "module")
     @tag = @module.add_item({:type => 'WikiPage', :title => 'oh noes!' * 35, :id => @page.id})
 
@@ -356,7 +404,7 @@ describe ContentTag do
 
   it "should publish/unpublish the tag if the linked wiki page is published/unpublished" do
     course_factory
-    @page = @course.wiki.wiki_pages.create!(:title => "some page")
+    @page = @course.wiki_pages.create!(:title => "some page")
     @page.workflow_state = 'unpublished'
     @page.save!
     @module = @course.context_modules.create!(:name => "module")
@@ -378,7 +426,7 @@ describe ContentTag do
 
   it "should publish/unpublish the linked wiki page (and its tags) if the tag is published/unpublished" do
     course_factory
-    @page = @course.wiki.wiki_pages.create!(:title => "some page")
+    @page = @course.wiki_pages.create!(:title => "some page")
     @page.workflow_state = 'unpublished'
     @page.save!
     @module = @course.context_modules.create!(:name => "module")
@@ -421,7 +469,7 @@ describe ContentTag do
     @module = @course.context_modules.create!
     @tag = @module.add_item(type: 'Assignment', id: @assignment.id)
     @tag.workflow_state = 'active'
-    @tag.content.expects(:publish!).once
+    expect(@tag.content).to receive(:publish!).once
     @tag.save!
     @tag.update_asset_workflow_state!
   end
@@ -431,11 +479,11 @@ describe ContentTag do
     @module = @course.context_modules.create!
     @tag = @module.add_item(type: 'Quiz', id: @quiz.id)
     @tag.workflow_state = 'unpublished'
-    @tag.content.expects(:unpublish!).once
+    expect(@tag.content).to receive(:unpublish!).once
     @tag.save!
     @tag.update_asset_workflow_state!
   end
-  
+
   it "should not rename tag if linked attachment is renamed" do
     course_factory
     att = Attachment.create!(:filename => 'important title.txt', :display_name => "important title.txt", :uploaded_data => StringIO.new("It's what's on the inside of the file that doesn't matter.'"), :folder => Folder.unfiled_folder(@course), :context => @course)
@@ -443,13 +491,13 @@ describe ContentTag do
     a_module = @course.context_modules.create!(:name => "module")
     tag = a_module.add_item({ :type => 'attachment', :title => 'important title.txt', :id => att.id })
     tag.update_asset_name!
-    
+
     att.display_name = "no longer important.txt"
     ContentTag.update_for(att)
     tag.reload
     expect(tag.title).to eq 'important title.txt'
   end
-  
+
   it "should not rename attachment if linked tag is renamed" do
     course_factory
     att = Attachment.create!(:filename => 'important title.txt', :display_name => "important title.txt", :uploaded_data => StringIO.new("It's what's on the inside of the file that doesn't matter.'"), :folder => Folder.unfiled_folder(@course), :context => @course)
@@ -457,7 +505,7 @@ describe ContentTag do
     a_module = @course.context_modules.create!(:name => "module")
     tag = a_module.add_item({ :type => 'attachment', :title => 'Differently Important Title', :id => att.id })
     tag.update_asset_name!
-    
+
     att.reload
     expect(att.display_name).to eq 'important title.txt'
   end
@@ -499,24 +547,6 @@ describe ContentTag do
     @tag.save
 
     expect(@module.reload.updated_at.to_i).to eq yesterday.to_i
-  end
-
-  describe '.content_type' do
-    it 'returns the correct representation of a quiz' do
-      content_tag = ContentTag.create! content: quiz_model, context: course_model
-      expect(content_tag.content_type).to eq 'Quizzes::Quiz'
-
-      content_tag.content_type = 'Quiz'
-      content_tag.send(:save_without_callbacks)
-
-      expect(ContentTag.find(content_tag.id).content_type).to eq 'Quizzes::Quiz'
-    end
-
-    it 'returns the content type attribute if not a quiz' do
-      content_tag = ContentTag.create! content: assignment_model, context: course_model
-
-      expect(content_tag.content_type).to eq 'Assignment'
-    end
   end
 
   describe "visible_to_students_in_course_with_da" do
@@ -593,7 +623,7 @@ describe ContentTag do
     end
     context "other" do
       it "it properly returns wiki pages" do
-        @page = @course.wiki.wiki_pages.create!(:title => "some page")
+        @page = @course.wiki_pages.create!(:title => "some page")
         @module = @course.context_modules.create!(:name => "module")
         @tag = @module.add_item({:type => 'WikiPage', :title => 'oh noes!' * 35, :id => @page.id})
         expect(ContentTag.visible_to_students_in_course_with_da(@student.id, @course.id)).to include(@tag)

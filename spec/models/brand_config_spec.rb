@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -106,57 +106,106 @@ describe BrandConfig do
     end
   end
 
+  describe "to_js" do
+    before :once do
+      setup_subaccount_with_config
+    end
+
+    it "exports to the correct global variable" do
+      expect(@subaccount_bc.to_js).to eq "CANVAS_ACTIVE_BRAND_VARIABLES = #{@subaccount_bc.to_json};"
+    end
+  end
+
+  describe "to_css" do
+    before :once do
+      setup_subaccount_with_config
+    end
+
+    it "defines right-looking css in the :root scope" do
+      expect(@subaccount_bc.to_css).to match /:root \{
+[\s|\S]*--ic-brand-primary-darkened-5: #312111;
+--ic-brand-primary-darkened-10: #2E1F10;
+--ic-brand-primary-darkened-15: #2C1D0F;
+--ic-brand-primary-lightened-5: #3D2D1C;
+--ic-brand-primary-lightened-10: #473828;
+--ic-brand-primary-lightened-15: #514334;
+--ic-brand-button--primary-bgd-darkened-5: #312111;
+--ic-brand-button--primary-bgd-darkened-15: #2C1D0F;
+--ic-brand-button--secondary-bgd-darkened-5: #2B3942;
+--ic-brand-button--secondary-bgd-darkened-15: #27333B;
+[\s|\S]*--ic-brand-primary: #321;
+[\s|\S]*--ic-brand-global-nav-bgd: #123;
+/
+    end
+  end
+
   describe "save_all_files!" do
     before :once do
       setup_subaccount_with_config
     end
 
-    before :each do
+    before do
       @json_file = StringIO.new
-      @scss_file = StringIO.new
-      @subaccount_bc.stubs(:json_file).returns(@json_file)
-      @subaccount_bc.stubs(:scss_file).returns(@scss_file)
+      @js_file = StringIO.new
+      @css_file = StringIO.new
+      allow(@subaccount_bc).to receive(:json_file).and_return(@json_file)
+      allow(@subaccount_bc).to receive(:js_file).and_return(@js_file)
+      allow(@subaccount_bc).to receive(:css_file).and_return(@css_file)
     end
 
     describe "with cdn disabled" do
-      before :each do
-        Canvas::Cdn.expects(:enabled?).returns(false)
-        @subaccount_bc.expects(:s3_uploader).never
-        File.expects(:delete).never
+      before do
+        expect(Canvas::Cdn).to receive(:enabled?).at_least(:once).and_return(false)
+        expect(@subaccount_bc).to receive(:s3_uploader).never
+        expect(File).to receive(:delete).never
       end
 
-      it "writes the json represendation to the json file" do
+      it "writes the json representation to the json file" do
         @subaccount_bc.save_all_files!
         expect(@json_file.string).to eq @subaccount_bc.to_json
       end
 
-      it "writes the scss represendation to scss file" do
+      it "writes the JavaScript representation to the js file" do
         @subaccount_bc.save_all_files!
-        expect(@scss_file.string).to eq @subaccount_bc.to_scss
+        expect(@js_file.string).to eq "CANVAS_ACTIVE_BRAND_VARIABLES = #{@subaccount_bc.to_json};"
       end
+
+      it "writes the CSS variables to the css file" do
+        @subaccount_bc.save_all_files!
+        expect(@css_file.string).to eq @subaccount_bc.to_css
+      end
+
     end
 
     describe "with cdn enabled" do
       before :each do
-        Canvas::Cdn.expects(:enabled?).returns(true)
-        s3 = stub(bucket: nil)
-        Aws::S3::Resource.stubs(:new).returns(s3)
-        @upload_expectation = @subaccount_bc.s3_uploader.expects(:upload_file).once
-        @delete_expectation = File.expects(:delete).once
+        expect(Canvas::Cdn).to receive(:enabled?).at_least(:once).and_return(true)
+        s3 = double(bucket: nil)
+        allow(Aws::S3::Resource).to receive(:new).and_return(s3)
+        @upload_expectation = expect(@subaccount_bc.s3_uploader).to receive(:upload_file).exactly(3).times
+        expect(File).to receive(:delete).exactly(3).times
       end
 
-      it "writes the json represendation to the json file" do
+      it "writes the json representation to the json file" do
         @subaccount_bc.save_all_files!
         expect(@json_file.string).to eq @subaccount_bc.to_json
       end
 
-      it 'uploads json file to s3 if cdn enabled' do
-        @upload_expectation.with(@subaccount_bc.public_json_path)
+      it "writes the javascript representation to the js file" do
         @subaccount_bc.save_all_files!
+        expect(@js_file.string).to eq @subaccount_bc.to_js
       end
 
-      it 'deletes local json file if cdn enabled' do
-        @delete_expectation.with(@subaccount_bc.json_file)
+      it "writes the CSS variables representation to the css file" do
+        @subaccount_bc.save_all_files!
+        expect(@css_file.string).to eq @subaccount_bc.to_css
+      end
+
+      it 'uploads json, css & js file to s3' do
+        @upload_expectation.with(eq(
+          @subaccount_bc.public_json_path).or eq(
+          @subaccount_bc.public_css_path).or eq(
+          @subaccount_bc.public_js_path))
         @subaccount_bc.save_all_files!
       end
     end
@@ -175,5 +224,14 @@ describe BrandConfig do
   it "returns a k12 config" do
     CreateK12Theme.new.up
     expect(BrandConfig.k12_config).to be_present
+  end
+
+  it "expects md5 to be correct" do
+    current_calculated_md5 = BrandableCSS.migration_version
+    expect(current_calculated_md5 == (92630630174579589147 || 75072935522965904110132)).to be true
+    # if this spec fails, you have probably made a change to app/stylesheets/brandable_variables.json
+    # you will need to update the migration that runs brand_configs and update these md5s that are
+    # with and without running `rake canvas:compile_assets`
+    # Also update the other use of 92630630174579589147 in lib/brandable_css.rb
   end
 end

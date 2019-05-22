@@ -30,7 +30,7 @@ describe ConversationsController, type: :request do
     @other_section = @course.course_sections.create(:name => "the other section")
     @me = @user
 
-    @bob = student_in_course(:name => "bob")
+    @bob = student_in_course(:name => "bob smith", :short_name => "bob")
     @billy = student_in_course(:name => "billy")
     @jane = student_in_course(:name => "jane")
     @joe = student_in_course(:name => "joe")
@@ -41,6 +41,15 @@ describe ConversationsController, type: :request do
     section = options.delete(:section)
     u = User.create(options)
     enrollment = @course.enroll_user(u, 'StudentEnrollment', :section => section)
+    enrollment.workflow_state = 'active'
+    enrollment.save
+    u
+  end
+
+  def observer_in_course(options = {})
+    section = options.delete(:section)
+    u = User.create(options)
+    enrollment = @course.enroll_user(u, 'ObserverEnrollment', :section => section)
     enrollment.workflow_state = 'active'
     enrollment.save
     u
@@ -77,9 +86,9 @@ describe ConversationsController, type: :request do
             "courses" => {@course.id.to_s => []}
           },
           "participants" => [
-            {"id" => @me.id, "name" => @me.name},
-            {"id" => @billy.id, "name" => @billy.name},
-            {"id" => @bob.id, "name" => @bob.name}
+            {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name},
+            {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name},
+            {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name}
           ],
           "context_name" => @c2.context_name,
           "context_code" => @c2.conversation.context_code,
@@ -104,8 +113,8 @@ describe ConversationsController, type: :request do
             "courses" => {@course.id.to_s => ["StudentEnrollment"]}
           },
           "participants" => [
-            {"id" => @me.id, "name" => @me.name},
-            {"id" => @bob.id, "name" => @bob.name}
+            {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name},
+            {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name}
           ],
           "context_name" => @c1.context_name,
           "context_code" => @c1.conversation.context_code,
@@ -122,6 +131,21 @@ describe ConversationsController, type: :request do
       json.each do |conversation|
         conversation["participants"].each do |user|
           expect(user).to have_key "avatar_url"
+        end
+      end
+    end
+
+    it "should ignore include[]=participant_avatars if you're going to break everything" do
+      conversation(@bob, :workflow_state => 'read')
+
+      Setting.set('max_conversation_participant_count_for_avatars', '1')
+
+      json = api_call(:get, "/api/v1/conversations.json",
+        { :controller => 'conversations', :action => 'index',
+          :format => 'json', :include => ["participant_avatars"] })
+      json.each do |conversation|
+        conversation["participants"].each do |user|
+          expect(user).to_not have_key "avatar_url"
         end
       end
     end
@@ -198,9 +222,9 @@ describe ConversationsController, type: :request do
             "courses" => {@course.id.to_s => []}
           },
           "participants" => [
-            {"id" => @me.id, "name" => @me.name},
-            {"id" => @billy.id, "name" => @billy.name},
-            {"id" => @bob.id, "name" => @bob.name}
+            {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name},
+            {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name},
+            {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name}
           ],
           "context_name" => @c2.context_name,
           "context_code" => @c2.conversation.context_code,
@@ -368,13 +392,22 @@ describe ConversationsController, type: :request do
     context "sent scope" do
       it "should sort by last authored date" do
         expected_times = 5.times.to_a.reverse.map{ |h| Time.parse((Time.now.utc - h.hours).to_s) }
-        ConversationMessage.any_instance.expects(:current_time_from_proper_timezone).times(5).returns(*expected_times)
-        @c1 = conversation(@bob)
-        @c2 = conversation(@bob, @billy)
-        @c3 = conversation(@jane)
+        Timecop.travel(expected_times[0]) do
+          @c1 = conversation(@bob)
+        end
+        Timecop.travel(expected_times[1]) do
+          @c2 = conversation(@bob, @billy)
+        end
+        Timecop.travel(expected_times[2]) do
+          @c3 = conversation(@jane)
+        end
 
-        @m1 = @c1.conversation.add_message(@bob, 'ohai')
-        @m2 = @c2.conversation.add_message(@bob, 'ohai')
+        Timecop.travel(expected_times[3]) do
+          @m1 = @c1.conversation.add_message(@bob, 'ohai')
+        end
+        Timecop.travel(expected_times[4]) do
+          @m2 = @c2.conversation.add_message(@bob, 'ohai')
+        end
 
         json = api_call(:get, "/api/v1/conversations.json?scope=sent",
                 { :controller => 'conversations', :action => 'index', :format => 'json', :scope => 'sent' })
@@ -473,6 +506,20 @@ describe ConversationsController, type: :request do
     end
 
     context "create" do
+
+      it "should render error if no body is provided" do
+        course_with_teacher(:active_course => true, :active_enrollment => true, :user => @me)
+        @bob = student_in_course(:name => "bob")
+
+        @message = conversation(@me, :sender => @bob).messages.first
+
+        api_call(:post, "/api/v1/conversations/#{@conversation.conversation_id}/add_message",
+          { :controller => 'conversations', :action => 'add_message',
+           :id => @conversation.conversation_id.to_s, :format => 'json' })
+
+        assert_status(400)
+      end
+
       it "should create a private conversation" do
         json = api_call(:post, "/api/v1/conversations",
                 { :controller => 'conversations', :action => 'create', :format => 'json' },
@@ -508,8 +555,8 @@ describe ConversationsController, type: :request do
               "courses" => {@course.id.to_s => ["StudentEnrollment"]}
             },
             "participants" => [
-              {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-              {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+              {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+              {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
             ],
             "messages" => [
               {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort}
@@ -522,7 +569,89 @@ describe ConversationsController, type: :request do
         json = api_call(:post, "/api/v1/conversations",
                 { :controller => 'conversations', :action => 'create', :format => 'json' },
                 { :recipients => [@bob.id], :body => "test", :context_code => "course_#{@course.id}" })
-        expect(conversation(@bob).conversation.context).to eql(@course)
+        expect(@bob.conversations.last.conversation.context).to eql(@course)
+      end
+
+      it "should not re-use a private conversation with a different explicit context" do
+        course1 = @course
+        course2 = course_with_teacher(:user => @me, :active_all => true).course
+        course_with_student(:course => course2, :user => @bob, :active_all => true)
+
+        json = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :context_code => "course_#{course1.id}" })
+        conv1 = Conversation.find(json.first["id"])
+        expect(conv1.context).to eql(course1)
+
+        json2 = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :context_code => "course_#{course2.id}" })
+        conv2 = Conversation.find(json2.first["id"])
+        expect(conv2.context).to eql(course2)
+      end
+
+      it "should re-use a private conversation with an old contextless private hash if the original context matches" do
+        course1 = @course
+        course2 = course_with_teacher(:user => @me, :active_all => true).course
+        course_with_student(:course => course2, :user => @bob, :active_all => true)
+
+        json = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :context_code => "course_#{course1.id}" })
+        conv1 = Conversation.find(json.first["id"])
+        expect(conv1.context).to eql(course1)
+
+        # revert it to the old format
+        old_hash = Conversation.private_hash_for(conv1.conversation_participants.pluck(:user_id))
+        ConversationParticipant.where(:conversation_id => conv1).update_all(:private_hash => old_hash)
+        Conversation.where(:id => conv1).update_all(:private_hash => old_hash)
+
+        json2 = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :context_code => "course_#{course1.id}" })
+        expect(json2.first["id"]).to eq conv1.id # should reuse the conversation
+
+        json3 = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :context_code => "course_#{course2.id}" })
+        expect(json3.first["id"]).to_not eq conv1.id # should make a new one
+      end
+
+      it "should create a new conversation if force_new parameter is provided" do
+        json = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :subject => "subject_1", :force_new => "true" })
+        conv1 = Conversation.find(json.first["id"])
+
+        json2 = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id], :body => "test", :subject => "subject_2", :force_new => "true" })
+        conv2 = Conversation.find(json2.first["id"])
+        expect(conv2.id).to_not eq conv1.id # should make a new one
+      end
+
+      it "should not break trying to pull cached conversations for re-use" do
+        course1 = @course
+        course_with_student(:course => course1, :user => @billy, :active_all => true)
+        course2 = course_with_teacher(:user => @me, :active_all => true).course
+        course_with_student(:course => course2, :user => @bob, :active_all => true)
+
+        @user = @me
+        json = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id, @billy.id], :body => "test", :context_code => "course_#{course1.id}" })
+        conv1 = Conversation.find(json.first["id"])
+        expect(conv1.context).to eql(course1)
+
+        # revert one to the old format - leave the other alone
+        old_hash = Conversation.private_hash_for(conv1.conversation_participants.pluck(:user_id))
+        ConversationParticipant.where(:conversation_id => conv1).update_all(:private_hash => old_hash)
+        Conversation.where(:id => conv1).update_all(:private_hash => old_hash)
+
+        json2 = api_call(:post, "/api/v1/conversations",
+          { :controller => 'conversations', :action => 'create', :format => 'json' },
+          { :recipients => [@bob.id, @billy.id], :body => "test", :context_code => "course_#{course1.id}" })
+        expect(json2.map{|r| r["id"]}).to include(conv1.id) # should reuse the conversation
       end
 
       describe "context is an account for admins validation" do
@@ -549,6 +678,51 @@ describe ConversationsController, type: :request do
                   { :recipients => [@bob.id], :body => "test", :context_code => @course.asset_string })
           conv = Conversation.find(json.first['id'])
           expect(conv.context).to eq @course
+        end
+
+        # Otherwise, students can't reply to admins because admins are not in the course
+        # context
+        it "should use account context if messages are coming from an admin through a course" do
+          account_admin_user active_all: true
+          json = api_call(:post, "/api/v1/conversations",
+                  { :controller => 'conversations', :action => 'create', :format => 'json'},
+                  { :recipients => [@bob.id], :body => "test", :context_code => @course.asset_string })
+          expect(json.first["context_code"]).to eq "account_#{Account.default.id}"
+        end
+
+        it "should still use course context if messages are NOT coming from an admin through a course " do
+          conversation = conversation(@bob, :context_type => "Course", :context_id => @course.id)
+          json = api_call(:get, "/api/v1/conversations/#{conversation.conversation_id}",
+                          { :controller => 'conversations', :action => 'show', :id => conversation.conversation_id.to_s,
+                            :format => 'json',  })
+          expect(json["context_code"]).to eq @course.asset_string
+        end
+
+        it "should always have the right tags when sending a bulk message in course context" do
+          other_course = Account.default.courses.create!(:workflow_state => 'available')
+          other_course.enroll_teacher(@user).accept!
+          other_course.enroll_student(@bob).accept!
+          # if they happen to be in another course it shouldn't use those tags - otherwise it will show up in the "sent" for other courses
+          @course.account.role_overrides.where(permission: 'send_messages_all', role: teacher_role).update_all(enabled: true)
+
+          json = api_call(:post, "/api/v1/conversations",
+            { :controller => 'conversations', :action => 'create', :format => 'json' },
+            { :recipients => [@course.asset_string], :body => "test", :context_code => @course.asset_string,
+              :bulk_message => "1", :group_conversation => "1"}
+          )
+
+          @user.all_conversations.sent.each do |cp|
+            expect(cp.tags).to eq [@course.asset_string]
+          end
+        end
+
+        it "allows users to send messages to themselves" do
+          json = api_call(:post, "/api/v1/conversations",
+            { :controller => 'conversations', :action => 'create', :format => 'json' },
+            { :recipients => [@user.id], :body => "hello, me", :context_code => @course.asset_string }
+          )
+          expect(response).to be_successful
+          expect(json[0]['messages'][0]['participating_user_ids']).to eq([@user.id])
         end
 
         it "should allow site admin to set any account context" do
@@ -622,9 +796,9 @@ describe ConversationsController, type: :request do
               "courses" => {@course.id.to_s => []}
             },
             "participants" => [
-              {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-              {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-              {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+              {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+              {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+              {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
             ],
             "messages" => [
               {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @billy.id, @bob.id].sort}
@@ -673,8 +847,8 @@ describe ConversationsController, type: :request do
                 "courses" => {@course.id.to_s => ["StudentEnrollment"]}
               },
               "participants" => [
-                {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-                {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+                {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+                {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
               ],
               "messages" => [
                 {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort}
@@ -706,14 +880,21 @@ describe ConversationsController, type: :request do
                   { :controller => 'conversations', :action => 'create', :format => 'json' },
                   { :recipients => [@bob.id, @joe.id, @billy.id], :body => "test", :context_code => "course_#{@course.id}" })
           expect(json.size).to eql 3
-          expect(json.map{ |c| c['id'] }.sort).to eql @me.all_conversations.map(&:conversation_id).sort
 
           batch = ConversationBatch.first
           expect(batch).not_to be_nil
           expect(batch).to be_sent
 
-          [@me, @bob].each {|u| expect(u.conversations.first.conversation.context).to be_nil} # an existing conversation does not get a context
-          [@billy, @joe].each {|u| expect(u.conversations.first.conversation.context).to eql(@course)}
+          expect(@me.all_conversations.last.conversation.context).to eq @course
+          [@bob, @billy, @joe].each {|u| expect(u.conversations.first.conversation.context).to eql(@course)}
+        end
+
+        it "constraints the length of the subject of a conversation batch" do
+          json = api_call(:post, "/api/v1/conversations",
+              { :controller => 'conversations', :action => 'create', :format => 'json' },
+              { :recipients => [@bob.id, @joe.id, @billy.id], :subject => 'Z' * 300, :body => "test",
+                :context_code => "course_#{@course.id}" }, {}, { :expected_status => 400 })
+          expect(json['errors']['subject']).to be_present
         end
 
         it "should create/update bulk private conversations asynchronously" do
@@ -745,8 +926,8 @@ describe ConversationsController, type: :request do
           expect(batch).to be_created
           batch.deliver
 
-         [@me, @bob].each {|u| expect(u.conversations.first.conversation.context).to be_nil} # an existing conversation does not get a context
-          [@billy, @joe].each {|u| expect(u.conversations.first.conversation.context).to eql(@course)}
+          expect(@me.all_conversations.last.conversation.context).to eq @course
+          [@bob, @billy, @joe].each {|u| expect(u.conversations.first.conversation.context).to eql(@course)}
         end
       end
 
@@ -795,9 +976,9 @@ describe ConversationsController, type: :request do
               "courses" => {@course.id.to_s => ["StudentEnrollment"]}
             },
             "participants" => [
-              {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-              {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-              {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+              {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+              {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+              {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
             ],
             "messages" => [
               {
@@ -806,10 +987,12 @@ describe ConversationsController, type: :request do
                   "id" => forwarded_message.id, "created_at" => forwarded_message.created_at.to_json[1, 20], "body" => "test", "author_id" => @bob.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [],
                   "attachments" => [{
                     'filename' => attachment.filename,
+                    'workflow_state' => 'processed',
                     'url' => "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}",
                     'content-type' => 'image/png',
                     'display_name' => 'test my file? hai!&.png',
                     'id' => attachment.id,
+                    'uuid' => attachment.uuid,
                     'folder_id' => attachment.folder_id,
                     'size' => attachment.size,
                     'unlock_at' => nil,
@@ -820,8 +1003,9 @@ describe ConversationsController, type: :request do
                     'hidden_for_user' => false,
                     'created_at' => attachment.created_at.as_json,
                     'updated_at' => attachment.updated_at.as_json,
+                    'upload_status' => "success",
                     'modified_at' => attachment.modified_at.as_json,
-                    'thumbnail_url' => attachment.thumbnail_url,
+                    'thumbnail_url' => thumbnail_image_url(attachment, attachment.uuid, host: 'www.example.com'),
                     'mime_class' => attachment.mime_class,
                     'media_entry_id' => attachment.media_entry_id }], "participating_user_ids" => [@me.id, @bob.id].sort
                   }
@@ -843,12 +1027,12 @@ describe ConversationsController, type: :request do
 
             @message = conversation(@me, :sender => @bob).messages.first
           end
-
           json = api_call(:post, "/api/v1/conversations/#{@conversation.conversation_id}/add_message",
             { :controller => 'conversations', :action => 'add_message', :id => @conversation.conversation_id.to_s, :format => 'json' },
             { :body => "wut wut", :included_messages => [@message.id]})
 
           expect(json['last_message']).to eq "wut wut"
+          expect(@conversation.reload.message_count).to eq 2 # should not double-update
         end
       end
 
@@ -887,8 +1071,8 @@ describe ConversationsController, type: :request do
               "courses" => {@course.id.to_s => ["StudentEnrollment"]}
             },
             "participants" => [
-              {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-              {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+              {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+              {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
             ],
             "messages" => [
               {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort}
@@ -927,6 +1111,24 @@ describe ConversationsController, type: :request do
         expect(json[0]["message"]).to eql "restricted by role"
       end
 
+      it "requires send_messages_all to send to all students" do
+        json = api_call(:post, "/api/v1/conversations",
+                { :controller => 'conversations', :action => 'create', :format => 'json' },
+                { :recipients => [@bob.id, "course_#{@course.id}_students"], :body => "test", :subject => "hey ho" },
+                headers={},
+                {expected_status: 400})
+        expect(json[0]["attribute"]).to eql "recipients"
+        expect(json[0]["message"]).to eql "restricted by role"
+      end
+
+      it "does not require send_messages_all to send to all teachers" do
+        api_call(:post, "/api/v1/conversations",
+                { :controller => 'conversations', :action => 'create', :format => 'json' },
+                { :recipients => [@bob.id, "course_#{@course.id}_teachers"], :body => "test", :subject => "halp" },
+                headers={},
+                {expected_status: 201})
+      end
+
       it "should send bulk group messages" do
         json = api_call(:post, "/api/v1/conversations",
                 { :controller => 'conversations', :action => 'create', :format => 'json' },
@@ -941,6 +1143,26 @@ describe ConversationsController, type: :request do
                 { :recipients => [@bob.id], :body => "test",
                   :group_conversation => "true", :bulk_message => "true" })
         expect(json.size).to eql 1
+      end
+
+      context "cross-shard creation" do
+        specs_require_sharding
+
+        it "should create the conversation on the context's shard" do
+          @shard1.activate do
+            @other_account = Account.create
+            course_with_teacher(:active_all => true, :account => @other_account, :user => @me)
+            @other_course = @course
+            @other_student = user_with_pseudonym(:active_all => true, :account => @other_account)
+            @other_course.enroll_student(@other_student, :enrollment_state => "active")
+          end
+
+          @user = @me
+          json = api_call(:post, "/api/v1/conversations",
+            { :controller => 'conversations', :action => 'create', :format => 'json' },
+            { :recipients => [@other_student.id], :body => "test", :context_code => "course_#{@other_course.id}" })
+          expect(@other_student.conversations.last.conversation.shard).to eq @shard1
+        end
       end
     end
   end
@@ -989,8 +1211,8 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => ["StudentEnrollment"]}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {
@@ -1010,10 +1232,12 @@ describe ConversationsController, type: :request do
             "attachments" => [
               {
                 "filename" => "test.txt",
+                "workflow_state" => "processed",
                 "url" => "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}",
                 "content-type" => "unknown/unknown",
                 "display_name" => "test.txt",
                 "id" => attachment.id,
+                "uuid" => attachment.uuid,
                 "folder_id" => attachment.folder_id,
                 "size" => attachment.size,
                 'unlock_at' => nil,
@@ -1024,7 +1248,8 @@ describe ConversationsController, type: :request do
                 'hidden_for_user' => false,
                 'created_at' => attachment.created_at.as_json,
                 'updated_at' => attachment.updated_at.as_json,
-                'thumbnail_url' => attachment.thumbnail_url,
+                'upload_status' => "success",
+                'thumbnail_url' => nil,
                 'modified_at' => attachment.modified_at.as_json,
                 'mime_class' => attachment.mime_class,
                 'media_entry_id' => attachment.media_entry_id
@@ -1119,8 +1344,8 @@ describe ConversationsController, type: :request do
               "courses" => {@course.id.to_s => ["StudentEnrollment"]}
           },
           "participants" => [
-              {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-              {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+              {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+              {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
           ],
           "messages" => [
               {"id" => @conversation.messages.last.id, "created_at" => @conversation.messages.last.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort}
@@ -1221,8 +1446,8 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => ["StudentEnrollment"]}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "another", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort}
@@ -1265,14 +1490,25 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => []}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "another", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @billy.id].sort}
         ]
       })
+    end
+
+    it "should return an error if trying to add more participants than the maximum group size on add_message" do
+      conversation = conversation(@bob, private: false)
+
+      Setting.set("max_group_conversation_size", 1)
+
+      json = api_call(:post, "/api/v1/conversations/#{conversation.conversation_id}/add_message",
+        { :controller => 'conversations', :action => 'add_message', :id => conversation.conversation_id.to_s, :format => 'json' },
+        { :body => "another", :recipients => [@billy.id]}, {}, {:expected_status => 400})
+      expect(json.first["message"]).to include("too many participants")
     end
 
     it "should add participants for the given messages to the given recipients" do
@@ -1311,9 +1547,9 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => []}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "partially hydrogenated context oils", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @billy.id].sort}
@@ -1359,9 +1595,9 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => []}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "partially hydrogenated context oils", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @billy.id].sort}
@@ -1415,9 +1651,9 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => []}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "partially hydrogenated context oils", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id, @billy.id].sort}
@@ -1511,17 +1747,28 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => []}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @jane.id, "name" => @jane.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @joe.id, "name" => @joe.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @tommy.id, "name" => @tommy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @jane.id, "name" => @jane.short_name, "full_name" => @jane.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @joe.id, "name" => @joe.short_name, "full_name" => @joe.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @tommy.id, "name" => @tommy.short_name, "full_name" => @tommy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ],
         "messages" => [
           {"id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "jane, joe, and tommy were added to the conversation by nobody@example.com", "author_id" => @me.id, "generated" => true, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @billy.id, @bob.id, @jane.id, @joe.id, @tommy.id].sort}
         ]
       })
+    end
+
+    it "should return an error if trying to add more participants than the maximum group size on add_recipients" do
+      conversation = conversation(@bob, @billy, @joe)
+
+      Setting.set("max_group_conversation_size", 2)
+
+      json = api_call(:post, "/api/v1/conversations/#{conversation.conversation_id}/add_recipients",
+        { :controller => 'conversations', :action => 'add_recipients', :id => conversation.conversation_id.to_s, :format => 'json' },
+        { :recipients => [@jane.id.to_s, "course_#{@course.id}"] }, {}, {:expected_status => 400})
+      expect(json.first["message"]).to include("too many participants")
     end
 
     it "should not cache an old audience when adding recipients" do
@@ -1572,9 +1819,9 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => []}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @billy.id, "name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @billy.id, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ]
       })
     end
@@ -1641,8 +1888,8 @@ describe ConversationsController, type: :request do
           "courses" => {@course.id.to_s => ["StudentEnrollment"]}
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ]
       })
     end
@@ -1677,8 +1924,8 @@ describe ConversationsController, type: :request do
           "courses" => {} # tags, and by extension audience_contexts, get cleared out when the conversation is deleted
         },
         "participants" => [
-          {"id" => @me.id, "name" => @me.name, "common_courses" => {}, "common_groups" => {}},
-          {"id" => @bob.id, "name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+          {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {}},
+          {"id" => @bob.id, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
         ]
       })
     end
@@ -1696,13 +1943,13 @@ describe ConversationsController, type: :request do
       json.each { |c| c.delete("avatar_url") }
       expect(json).to eql [
         {"id" => "course_#{@course.id}", "name" => "the course", "type" => "context", "user_count" => 6, "permissions" => {}},
-        {"id" => "section_#{@other_section.id}", "name" => "the other section", "type" => "context", "user_count" => 1, "context_name" => "the course", "permissions" => {}},
-        {"id" => "section_#{@course.default_section.id}", "name" => "the section", "type" => "context", "user_count" => 5, "context_name" => "the course", "permissions" => {}},
-        {"id" => "group_#{@group.id}", "name" => "the group", "type" => "context", "user_count" => 3, "context_name" => "the course", "permissions" => {}},
-        {"id" => @bob.id, "name" => "bob", "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {@group.id.to_s => ["Member"]}},
-        {"id" => @joe.id, "name" => "joe", "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {@group.id.to_s => ["Member"]}},
-        {"id" => @me.id, "name" => @me.name, "common_courses" => {@course.id.to_s => ["TeacherEnrollment"]}, "common_groups" => {@group.id.to_s => ["Member"]}},
-        {"id" => @tommy.id, "name" => "tommy", "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
+        {"id" => "section_#{@other_section.id}", "name" => "the other section", "type" => "context", "user_count" => 1, "permissions" => {}, "context_name" => "the course"},
+        {"id" => "section_#{@course.default_section.id}", "name" => "the section", "type" => "context", "user_count" => 5, "permissions" => {}, "context_name" => "the course"},
+        {"id" => "group_#{@group.id}", "name" => "the group", "type" => "context", "user_count" => 3, "permissions" => {}, "context_name" => "the course"},
+        {"id" => @joe.id, "name" => "joe", "full_name" => "joe", "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {@group.id.to_s => ["Member"]}},
+        {"id" => @me.id, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {@course.id.to_s => ["TeacherEnrollment"]}, "common_groups" => {@group.id.to_s => ["Member"]}},
+        {"id" => @bob.id, "name" => "bob", "full_name" => "bob smith", "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {@group.id.to_s => ["Member"]}},
+        {"id" => @tommy.id, "name" => "tommy", "full_name" => "tommy", "common_courses" => {@course.id.to_s => ["StudentEnrollment"]}, "common_groups" => {}}
       ]
     end
   end
@@ -1912,21 +2159,17 @@ describe ConversationsController, type: :request do
         end
 
         it "should fail progress if exception is raised in job" do
-          begin
-            Progress.any_instance.stubs(:complete!).raises "crazy exception"
+          allow_any_instance_of(Progress).to receive(:complete!).and_raise "crazy exception"
 
-            c1 = conversation(@me, @jane, :workflow_state => 'unread')
-            conversation_ids = [c1.conversation.id]
-            json = api_call(:put, "/api/v1/conversations",
-              { :controller => 'conversations', :action => 'batch_update', :format => 'json' },
-              { :event => 'mark_as_read', :conversation_ids => conversation_ids })
-            run_jobs
-            progress = Progress.find(json['id'])
-            expect(progress).to be_failed
-            expect(progress.message).to include 'crazy exception'
-          ensure
-            Progress.any_instance.unstub(:complete!)
-          end
+          c1 = conversation(@me, @jane, :workflow_state => 'unread')
+          conversation_ids = [c1.conversation.id]
+          json = api_call(:put, "/api/v1/conversations",
+            { :controller => 'conversations', :action => 'batch_update', :format => 'json' },
+            { :event => 'mark_as_read', :conversation_ids => conversation_ids })
+          run_jobs
+          progress = Progress.find(json['id'])
+          expect(progress).to be_failed
+          expect(progress.message).to include 'crazy exception'
         end
       end
     end
@@ -2152,7 +2395,7 @@ describe ConversationsController, type: :request do
     end
 
     it 'returns an error when the user_id is not provided' do
-      @c1.all_messages.first()
+      message = @c1.all_messages.first()
 
       raw_api_call(:put, "/api/v1/conversations/restore",
               { :controller => "conversations", :action => "restore_message", :format => "json",
@@ -2162,7 +2405,7 @@ describe ConversationsController, type: :request do
     end
 
     it 'returns an error when the conversation_id is not provided' do
-      @c1.all_messages.first()
+      message = @c1.all_messages.first()
 
       raw_api_call(:put, "/api/v1/conversations/restore",
               { :controller => "conversations", :action => "restore_message", :format => "json",

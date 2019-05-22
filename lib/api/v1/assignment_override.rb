@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2016 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -110,7 +110,7 @@ module Api::V1::AssignmentOverride
 
   def interpret_assignment_override_data(assignment, data, set_type=nil)
     data ||= {}
-    return {}, ["invalid override data"] unless data.is_a?(Hash)
+    return {}, ["invalid override data"] unless data.is_a?(Hash) || data.is_a?(ActionController::Parameters)
 
     # validate structure of parameters
     override_data = {}
@@ -127,10 +127,12 @@ module Api::V1::AssignmentOverride
         errors << "invalid student_ids #{student_ids.inspect}"
         students = []
       else
-        # look up all the active students since the assignment will affect all
-        # active students in the course on this override and not just what the
+        # look up all students since the assignment will affect all current and
+        # previous students in the course on this override and not just what the
         # teacher can see that were sent in the request object
-        students = api_find_all(assignment.context.students.active, student_ids).uniq
+        students = api_find_all(assignment.context.all_students, student_ids)
+        students = students.distinct if students.is_a?(ActiveRecord::Relation)
+        students = students.uniq if students.is_a?(Array)
 
         # make sure they were all valid
         found_ids = students.map{ |s| [
@@ -191,12 +193,16 @@ module Api::V1::AssignmentOverride
     [:due_at, :unlock_at, :lock_at].each do |field|
       next unless data.key?(field)
 
-      if data[field].blank?
-        # override value of nil/'' is meaningful
-        override_data[field] = nil
-      elsif value = Time.zone.parse(data[field].to_s)
-        override_data[field] = value
-      else
+      begin
+        if data[field].blank?
+          # override value of nil/'' is meaningful
+          override_data[field] = nil
+        elsif value = Time.zone.parse(data[field].to_s)
+          override_data[field] = value
+        else
+          errors << "invalid #{field} #{data[field].inspect}"
+        end
+      rescue
         errors << "invalid #{field} #{data[field].inspect}"
       end
     end
@@ -289,6 +295,7 @@ module Api::V1::AssignmentOverride
         else
           # link will be saved with the override
           link = override.assignment_override_students.build
+          link.workflow_state = 'active'
           link.assignment_override = override
           link.user = student
           override.changed_student_ids << student.id
@@ -299,6 +306,7 @@ module Api::V1::AssignmentOverride
         override.changed_student_ids.merge(defunct_student_ids)
         override.assignment_override_students.
           where(:user_id => defunct_student_ids.to_a).
+          in_batches.
           delete_all
       end
     end
@@ -313,7 +321,7 @@ module Api::V1::AssignmentOverride
 
     if override.set_type == 'ADHOC'
       override.title = override_data[:title] ||
-                         override.title_from_students(override_data[:students]) ||
+                         (override_data[:students] && override.title_from_students(override_data[:students])) ||
                          override.title
     end
 
@@ -326,16 +334,26 @@ module Api::V1::AssignmentOverride
     end
   end
 
-  def update_assignment_override(override, override_data)
-    override.transaction do
-      update_assignment_override_without_save(override, override_data)
-      override.save!
+  def update_assignment_override(override, override_data, updating_user: nil)
+    DueDateCacher.with_executing_user(updating_user) do
+      override_changed = false
+      override.transaction do
+        update_assignment_override_without_save(override, override_data)
+        override_changed = override.changed? || override.changed_student_ids.present?
+        override.save! if override_changed
+      end
+      if override_changed
+        if override.set_type == 'ADHOC' && override.changed_student_ids.present?
+          override.assignment.run_if_overrides_changed_later!(
+            student_ids: override.changed_student_ids.to_a,
+            updating_user: updating_user
+          )
+        else
+          override.assignment.run_if_overrides_changed_later!(updating_user: updating_user)
+        end
+      end
     end
-    if override.set_type == 'ADHOC' && override.changed_student_ids.present?
-      override.assignment.run_if_overrides_changed_later!(override.changed_student_ids.to_a)
-    else
-      override.assignment.run_if_overrides_changed_later!
-    end
+
     true
   rescue ActiveRecord::RecordInvalid
     false
@@ -344,7 +362,7 @@ module Api::V1::AssignmentOverride
   # updates only the selected overrides; compare with
   # batch_update_assignment_overrides below, which updates
   # all overrides for assignment
-  def update_assignment_overrides(overrides, overrides_data)
+  def update_assignment_overrides(overrides, overrides_data, updating_user: nil)
     overrides.zip(overrides_data).each do |override, data|
       update_assignment_override_without_save(override, data)
     end
@@ -353,7 +371,9 @@ module Api::V1::AssignmentOverride
     AssignmentOverride.transaction do
       overrides.each(&:save!)
     end
-    overrides.map(&:assignment).uniq.each(&:run_if_overrides_changed_later!)
+    overrides.map(&:assignment).uniq.each do |assignment|
+      assignment.run_if_overrides_changed_later!(updating_user: updating_user)
+    end
   rescue ActiveRecord::RecordInvalid
     false
   end
@@ -420,10 +440,12 @@ module Api::V1::AssignmentOverride
     }
   end
 
-  def perform_batch_update_assignment_overrides(assignment, prepared_overrides)
+  def perform_batch_update_assignment_overrides(assignment, prepared_overrides, updating_user: nil)
     prepared_overrides[:override_errors].each do |error|
       assignment.errors.add(:base, error)
     end
+
+    raise ActiveRecord::RecordInvalid.new(assignment) if assignment.errors.any?
 
     if prepared_overrides[:overrides_to_delete].any?
       assignment.assignment_overrides.where(id: prepared_overrides[:overrides_to_delete]).destroy_all
@@ -434,12 +456,16 @@ module Api::V1::AssignmentOverride
     prepared_overrides[:overrides_to_create].each(&:save!)
     prepared_overrides[:overrides_to_update].each(&:save!)
 
-    assignment.run_if_overrides_changed_later!
+    @overrides_affected = prepared_overrides[:overrides_to_delete].size +
+      prepared_overrides[:overrides_to_create].size + prepared_overrides[:overrides_to_update].size
+
+    assignment.touch # invalidate cached list of overrides for the assignment
+    assignment.run_if_overrides_changed_later!(updating_user: updating_user)
   end
 
   def batch_update_assignment_overrides(assignment, overrides_params, user)
     prepared_overrides = prepare_assignment_overrides_for_batch_update(assignment, overrides_params, user)
-    perform_batch_update_assignment_overrides(assignment, prepared_overrides)
+    perform_batch_update_assignment_overrides(assignment, prepared_overrides, updating_user: user)
   end
 
   def get_override_from_params(override_params, assignment, potential_overrides)
@@ -456,7 +482,7 @@ module Api::V1::AssignmentOverride
   private :get_override_from_params
 
   def deserialize_overrides(overrides)
-    if overrides.is_a?(Hash)
+    if overrides.is_a?(Hash) || overrides.is_a?(ActionController::Parameters)
       return unless overrides.keys.all?{ |k| k.to_i.to_s == k.to_s }
       indices = overrides.keys.sort_by(&:to_i)
       return unless indices.map(&:to_i) == (0...indices.size).to_a

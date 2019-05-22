@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module Calendar2Common
@@ -26,7 +43,7 @@ module Calendar2Common
   end
 
   def create_appointment_group(params={})
-    tomorrow = (Date.today + 1.day).to_s
+    tomorrow = (Time.now.utc.to_date + 1.day).to_s
     default_params = {
         :title => "new appointment group",
         :contexts => [@course],
@@ -40,7 +57,7 @@ module Calendar2Common
   end
 
   def create_appointment_group_early(params={})
-    tomorrow = (Date.today + 1.day).to_s
+    tomorrow = (Time.now.utc.to_date + 1.day).to_s
     default_params = {
         :title => "new appointment group",
         :contexts => [@course],
@@ -285,5 +302,29 @@ module Calendar2Common
     assert_agenda_view(title,due)
     assert_week_view(title,due)
     assert_month_view(title,due)
+  end
+
+  def agenda_item
+    f('.agenda-event__item-container')
+  end
+
+  def all_agenda_items
+    ff('.agenda-event__item-container')
+  end
+
+  def delete_event_button
+    f('.event-details .delete_event_link')
+  end
+
+  def agenda_view_header
+    f('.navigation_title')
+  end
+
+  def agenda_item_title
+    f('.agenda-event__title')
+  end
+
+  def find_appointment_button
+    f('#FindAppointmentButton')
   end
 end

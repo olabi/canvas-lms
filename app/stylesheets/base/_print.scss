@@ -1,4 +1,22 @@
 // # encoding: UTF-8
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @media print {
 
   html, body {
@@ -24,7 +42,7 @@
   }
 
   .ic-Layout-wrapper,
-  .ic-Layout-columns { margin-left: 0 !important; }
+  .ic-Layout-columns { margin-#{direction(left)}: 0 !important; }
 
   // this is for firefox, if things dont have overflow:visible then it wont print any more than one page.
   .ic-Layout-wrapper,
@@ -72,15 +90,15 @@
       margin: 0; padding: 0;
       li {
         margin: 0; padding: 0;
-        padding-left: 10px;
+        padding-#{direction(left)}: 10px;
         &:after {
-          content: "   →   ";
+          content: "   #{direction-ltr("→", "←")}   ";
         }
         &:last-child:after {
           content: "";
         }
         &:first-of-type {
-          padding-left: 0;
+          padding-#{direction(left)}: 0;
         }
         &.home {
           display: none;
@@ -88,7 +106,7 @@
       }
       a {
         text-decoration: none !important;
-        padding-right: 10px;
+        padding-#{direction(right)}: 10px;
       }
     }
   }

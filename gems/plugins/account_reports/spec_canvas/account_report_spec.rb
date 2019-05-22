@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -39,6 +39,19 @@ describe "Account Reports" do
       expect(report1.attachment.md5).to eq report2.attachment.md5
       expect(report1.attachment.filename).not_to be == report2.attachment.filename
     end
+
+  end
+
+  it "uses instfs if instfs is enabled" do
+    allow(InstFS).to receive(:enabled?).and_return(true)
+    uuid = "1234-abcd"
+    allow(InstFS).to receive(:direct_upload).and_return(uuid)
+
+    report1 = run_report('unpublished_courses_csv')
+    report2 = run_report('unpublished_courses_csv')
+
+    expect(report1.attachment.md5).to eq report2.attachment.md5
+    expect(report1.attachment.filename).not_to be == report2.attachment.filename
 
   end
 end

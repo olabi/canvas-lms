@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,12 +32,13 @@ module Api::V1::UserProfile
 
     json[:title] = profile.title
     json[:bio] = profile.bio
-    json[:primary_email] = user.email
+    json[:primary_email] = user.email if user.grants_right?(current_user, :read_email_addresses)
     json[:login_id] ||= user.primary_pseudonym.try(:unique_id)
     json[:integration_id] ||= user.primary_pseudonym.try(:integration_id)
     zone = user.time_zone || @domain_root_account.try(:default_time_zone) || Time.zone
     json[:time_zone] = zone.tzinfo.name
     json[:locale] = user.locale
+    json[:effective_locale] = I18n.locale if user == current_user
 
     if user == current_user
       json[:calendar] = {:ics => "#{feeds_calendar_url(user.feed_code)}.ics"}

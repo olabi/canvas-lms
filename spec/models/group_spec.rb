@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -59,6 +59,67 @@ describe Group do
     zone = ActiveSupport::TimeZone["America/Denver"]
     @course.time_zone = zone
     expect(@group.time_zone.to_s).to match /Mountain Time/
+  end
+
+  it "should correctly identify group as active" do
+    course_with_student(:active_all => true)
+    group_model(:group_category => @communities, :is_public => true)
+    group.add_user(@student)
+    expect(@group.inactive?).to eq false
+  end
+
+  it "should correctly identify destroyed course as not active" do
+    course_with_student(:active_all => true)
+    group_model(:group_category => @communities, :is_public => true)
+    group.add_user(@student)
+    @group.context = @course
+    @course.destroy!
+    expect(@group.inactive?).to eq true
+  end
+
+  it "should correctly identify concluded course as not active" do
+    course_with_student(:active_all => true)
+    group_model(:group_category => @communities, :is_public => true)
+    group.add_user(@student)
+    @group.context = @course
+    @course.complete!
+    expect(@group.inactive?).to eq true
+  end
+
+  it "should correctly identify account group as not active" do
+    @account = account_model
+    group_model(:group_category => @communities, :is_public => true, :context => @account)
+    group.add_user(@student)
+    @group.context.destroy
+    expect(@group.inactive?).to eq true
+  end
+
+  it "should correctly identify account group as active" do
+    @account = account_model
+    group_model(:group_category => @communities, :is_public => true, :context => @account)
+    group.add_user(@student)
+    expect(@group.inactive?).to eq false
+  end
+
+  describe '#grading_standard_or_default' do
+    context 'when the Group belongs to a Course' do
+      it 'returns the grading scheme being used by the course, if one exists' do
+        standard = grading_standard_for(@course)
+        @course.update!(default_grading_standard: standard)
+        expect(@group.grading_standard_or_default).to be standard
+      end
+
+      it 'returns the Canvas default grading scheme if the course is not using a grading scheme' do
+        expect(@group.grading_standard_or_default.data).to eq GradingStandard.default_grading_standard
+      end
+    end
+
+    context 'Group belonging to an Account' do
+      it 'returns the Canvas default grading scheme' do
+        group = group_model(context: Account.default)
+        expect(group.grading_standard_or_default.data).to eq GradingStandard.default_grading_standard
+      end
+    end
   end
 
   context "#peer_groups" do
@@ -441,7 +502,7 @@ describe Group do
     it "defers to the context if that context is a course" do
       course_with_student
       group = @course.groups.create
-      group.context.stubs(:user_can_manage_own_discussion_posts?).returns(false)
+      allow(group.context).to receive(:user_can_manage_own_discussion_posts?).and_return(false)
       expect( group.user_can_manage_own_discussion_posts?(nil) ).to be_falsey
     end
   end
@@ -634,7 +695,7 @@ describe Group do
         # should reload
         account.default_group_storage_quota = 20.megabytes
         account.save!
-        @group = Group.find(@group)
+        @group = Group.find(@group.id)
 
         expect(@group.quota).to eq 20.megabytes
       end
@@ -658,7 +719,7 @@ describe Group do
 
   describe '#destroy' do
     before :once do
-      @gc = GroupCategory.create! name: "groups"
+      @gc = GroupCategory.create! name: "groups", course: @course
       @group = @gc.groups.create! name: "group1", context: @course
     end
 
@@ -675,7 +736,7 @@ describe Group do
 
       expect(@group.users).to eq [@student]
       @group.destroy
-      expect(@group.users(true)).to eq [@student]
+      expect(@group.users.reload).to eq [@student]
     end
   end
 
@@ -737,6 +798,26 @@ describe Group do
       f.submission_context_code = 'root'
       f.save!
       expect(@group.submissions_folder).to eq f
+    end
+  end
+
+  describe 'participating_users_in_context' do
+    before :once do
+      context = course_model
+      @group = Group.create(:name => "group1", :context => context)
+      @group.add_user(@user)
+      @user.enrollments.first.deactivate
+    end
+
+    it "filter inactive users if requested" do
+      users = @group.participating_users_in_context
+      expect(users.length).to eq 0
+    end
+
+    it "don't filter inactive users if not requested" do
+      users = @group.participating_users_in_context(include_inactive_users: true)
+      expect(users.length).to eq 1
+      expect(users.first.id).to eq @user.id
     end
   end
 end

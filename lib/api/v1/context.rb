@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,14 +18,20 @@
 
 module Api::V1::Context
 
-  def context_data(obj)
-    if obj.context_type.present?
+  def context_data(obj, use_effective_code: false)
+    if obj.respond_to?(:context_type) && obj.context_type.present?
       context_type = obj.context_type
       id = obj.context_id
     elsif (obj.respond_to?(:context_code) || obj.is_a?(OpenObject)) && obj.context_code.present?
       context_type, id = obj.context_code.split("_", 2)
+    elsif obj.respond_to?(:context) && obj.context.present?
+      context_type = obj.context.class.to_s
+      id = obj.context.id
     else
       return {}
+    end
+    if obj.try(:effective_context_code) && use_effective_code
+      context_type, _, id = obj.effective_context_code.rpartition('_')
     end
     {
       'context_type' => context_type.camelcase,

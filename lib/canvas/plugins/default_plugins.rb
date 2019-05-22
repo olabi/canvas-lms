@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 Canvas::Plugin.register('clever', nil,
   name: 'Clever',
   description: -> { t :description, 'Clever Login' },
@@ -70,26 +87,6 @@ Canvas::Plugin.register('twitter', nil,
   validator: 'TwitterValidator',
   encrypted_settings: [:consumer_secret]
 )
-Canvas::Plugin.register('yo', nil, {
-  :name => lambda{ t :name, 'Yo'},
-  :description => lambda{ t :description, 'Just Yo' },
-  :website => 'http://www.justyo.co',
-  :author => 'Instructure',
-  :author_website => 'http://www.instructure.com',
-  :version => '1.0.0',
-  :settings_partial => 'plugins/yo_settings',
-  :validator => 'YoValidator'
-})
-Canvas::Plugin.register('scribd', nil, {
-  :name => lambda{ t :name, 'Scribd' },
-  :description => lambda{ t :description, 'Scribd document previews' },
-  :website => 'http://www.scribd.com',
-  :author => 'Instructure',
-  :author_website => 'http://www.instructure.com',
-  :version => '1.0.0',
-  :settings_partial => 'plugins/scribd_settings',
-  :validator => 'ScribdValidator'
-})
 Canvas::Plugin.register('etherpad', :collaborations, {
   :name => lambda{ t :name, 'EtherPad' },
   :description => lambda{ t :description, 'EtherPad document sharing' },
@@ -130,7 +127,6 @@ Canvas::Plugin.register('mathman', nil, {
   :author_website => 'http://www.instructure.com',
   :version => '1.0.0',
   :settings_partial => 'plugins/mathman_settings',
-  :validator => 'MathmanValidator',
   :settings => {
     use_for_svg: false,
     use_for_mml: false
@@ -243,7 +239,8 @@ Canvas::Plugin.register('grade_export', :sis, {
   :author_website => 'http://www.instructure.com',
   :version => '1.0.0',
   :settings_partial => 'plugins/grade_export_settings',
-  :settings => { :publish_endpoint => "",
+  :settings => { :include_final_grade_overrides => "no",
+                 :publish_endpoint => "",
                  :wait_for_success => "no",
                  :success_timeout => "600",
                  :format_type => "instructure_csv" }
@@ -280,7 +277,7 @@ Canvas::Plugin.register('sessions', nil, {
   :version => '1.0.0',
   :settings_partial => 'plugins/sessions_timeout',
   :validator => 'SessionsValidator',
-  :settings => nil
+  :settings => { session_timeout: CanvasRails::Application.config.session_options[:expire_after].to_f / 60 }
 })
 
 Canvas::Plugin.register('assignment_freezer', nil, {
@@ -381,6 +378,7 @@ Canvas::Plugin.register('live_events', nil, {
   :author_website => 'http://www.instructure.com',
   :version => '1.0.0',
   :settings => {
+    :use_consul => false,
     :kinesis_stream_name => nil,
     :aws_access_key_id => nil,
     :aws_secret_access_key => nil,
@@ -407,5 +405,14 @@ Canvas::Plugin.register('live_events', nil, {
   :encrypted_settings => [ :aws_secret_access_key ],
   :settings_partial => 'plugins/live_events_settings',
   :validator => 'LiveEventsValidator'
+})
+Canvas::Plugin.register('inst_fs', nil, {
+  :name =>lambda{ t :name, 'Inst-FS' },
+  :description => lambda{ t :description, 'File service that proxies for S3.' },
+  :author => 'Instructure',
+  :author_website => 'http://www.instructure.com',
+  :version => '0.0.1',
+  :settings => nil,
+  :settings_partial => 'plugins/inst_fs_settings'
 })
 require_dependency 'canvas/plugins/address_book'

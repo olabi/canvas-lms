@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../helpers/assignments_common'
 require_relative '../helpers/discussions_common'
 require_relative '../helpers/files_common'
@@ -11,16 +28,6 @@ describe "discussion assignments" do
   before(:each) do
     @domain_root_account = Account.default
     course_with_teacher_logged_in
-  end
-
-  context "created on the index page" do
-    it "should create a discussion topic when created", priority: "1", test_id: 209964 do
-      ag = @course.assignment_groups.create!(:name => "Stuff")
-      get "/courses/#{@course.id}/assignments"
-      build_assignment_with_type("Discussion", :assignment_group_id => ag.id, :name => "This discussion was created on the assignments page", :submit => true)
-      expect_new_page_load { f("#section-tabs .discussions").click }
-      expect(f('#open-discussions')).to include_text("This discussion was created on the assignments page")
-    end
   end
 
   context "created with 'more options'" do

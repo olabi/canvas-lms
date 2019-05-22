@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,13 +24,13 @@ module Api
     describe TrackTag do
       describe '#to_node' do
         let(:url_helper) do
-          stub({
+          double({
             show_media_tracks_url: 'media/track/vtt'
           })
         end
 
         let(:media_track) do
-          stub(
+          double(
             kind: 'subtitles',
             locale: 'en',
             id: 1,

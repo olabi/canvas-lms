@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,6 @@ shared_context "discussions_page_shared_context" do
   let(:permissions_page) { "/account/#{@account.id}/permissions" }
   let(:discussion_link) { '.discussions' }
   let(:discussion_message) { '.message.user_content.enhanced:contains("Discussion 1 message")' }
-  let(:discussion_reply_button) { '.discussion-reply-action .icon-replied' }
   let(:discussion_edit_button) { '.btn.edit-btn' }
   let(:course_navigation_items) { '#section-tabs' }
   let(:discussions_link) { 'Discussions' }
@@ -80,8 +79,8 @@ module DiscussionHelpers
   end
 
   class << self
-    def create_discussion_topic(course, user, title, message, assignment = nil)
-      course.discussion_topics.create!(
+    def create_discussion_topic(context, user, title, message, assignment = nil)
+      context.discussion_topics.create!(
         user: user,
         title: title,
         message: message,
@@ -97,6 +96,12 @@ module DiscussionHelpers
 
     def disable_moderate_discussions(course, context_role)
       course.root_account.role_overrides.create!(permission: 'moderate_forum',
+                                                  role: context_role,
+                                                  enabled: false)
+    end
+
+    def disable_create_discussions(course, context_role)
+      course.root_account.role_overrides.create!(permission: 'create_forum',
                                                   role: context_role,
                                                   enabled: false)
     end

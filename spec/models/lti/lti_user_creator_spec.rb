@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,26 +22,24 @@ describe Lti::LtiUserCreator do
   describe '#convert' do
     let(:tool) do
       ContextExternalTool.new.tap do |tool|
-        tool.stubs(:opaque_identifier_for).returns('this is opaque')
+        allow(tool).to receive(:opaque_identifier_for).and_return('this is opaque')
       end
     end
 
     let(:canvas_user) { user_factory(name: 'Shorty McLongishname') }
     let(:canvas_user2) { user_factory(name: 'Observer Dude') }
     let(:root_account) { Account.create! }
+    let(:sis_pseudonym) { managed_pseudonym(canvas_user, account: root_account, username: 'login_id', sis_user_id: 'sis id!') }
 
     it 'converts a canvas user to an lti user' do
       canvas_user.email = 'user@email.com'
 
-      sub_account = Account.create!
+      sub_account = Account.new
       sub_account.root_account = root_account
       sub_account.save!
-      pseudonym = pseudonym(canvas_user, account: sub_account.root_account, username: 'login_id')
+      sis_pseudonym
 
-      pseudonym.sis_user_id = 'sis id!'
-      pseudonym.save!
-
-      Time.zone.tzinfo.stubs(:name).returns('my/zone')
+      allow(Time.zone.tzinfo).to receive(:name).and_return('my/zone')
 
       user_factory = Lti::LtiUserCreator.new(canvas_user, root_account, tool, sub_account)
       lti_user = user_factory.convert
@@ -55,7 +53,7 @@ describe Lti::LtiUserCreator do
       expect(lti_user.sis_source_id).to eq 'sis id!'
       expect(lti_user.opaque_identifier).to eq 'this is opaque'
 
-      expect(lti_user.avatar_url).to include 'https://secure.gravatar.com/avatar/'
+      expect(lti_user.avatar_url).to include 'http://localhost/images/messages/avatar-50.png'
       expect(lti_user.login_id).to eq 'login_id'
       expect(lti_user.id).to eq canvas_user.id
       expect(lti_user.timezone).to eq 'my/zone'
@@ -101,10 +99,41 @@ describe Lti::LtiUserCreator do
         observer_in_course(course: canvas_course, user: canvas_user2, associated_user: canvas_user)
 
         lti_user = course_observer_creator.convert
-        expect(lti_user.current_observee_ids).to match_array ['blah']
+        expect(lti_user.current_observee_ids).to match_array [canvas_user.lti_context_id]
       end
 
       describe "#current_enrollments" do
+        it "returns correct sis_user_id" do
+          second_sis = managed_pseudonym(canvas_user, account: root_account, username: 'second_login_id', sis_user_id: 'wrong_sis')
+          enrollment = student_in_course(user: canvas_user, course: canvas_course, active_enrollment: true, sis_pseudonym_id: sis_pseudonym.id)
+
+          user_factory = Lti::LtiUserCreator.new(canvas_user, root_account, tool, canvas_course)
+          lti_user = user_factory.convert
+          expect(lti_user.sis_source_id).to eq 'sis id!'
+          enrollment.update_attribute(:sis_pseudonym_id, second_sis.id)
+          user_factory = Lti::LtiUserCreator.new(canvas_user, root_account, tool, canvas_course)
+          lti_user = user_factory.convert
+          expect(lti_user.sis_source_id).to eq 'wrong_sis'
+        end
+
+        it "doesn't return deleted sis_user_id" do
+          second_sis = managed_pseudonym(canvas_user, account: root_account, username: 'second_login_id', sis_user_id: 'wrong_sis')
+          enrollment = student_in_course(user: canvas_user, course: canvas_course, active_enrollment: true, sis_pseudonym_id: sis_pseudonym.id)
+          enrollment.update_attribute(:sis_pseudonym_id, second_sis.id)
+          second_sis.destroy
+          user_factory = Lti::LtiUserCreator.new(canvas_user, root_account, tool, canvas_course)
+          lti_user = user_factory.convert
+          expect(lti_user.sis_source_id).to eq 'sis id!'
+        end
+
+        it "returns a sis_user_id when no sis_id tied to enrollment" do
+          student_in_course(user: canvas_user, course: canvas_course, active_enrollment: true)
+          sis_pseudonym
+          user_factory = Lti::LtiUserCreator.new(canvas_user, root_account, tool, canvas_course)
+          lti_user = user_factory.convert
+          expect(lti_user.sis_source_id).to eq 'sis id!'
+        end
+
         it "collects current active student enrollments" do
           student_in_course(user: canvas_user, course: canvas_course, active_enrollment: true)
 
@@ -199,7 +228,7 @@ describe Lti::LtiUserCreator do
         end
 
         it "does not return any course enrollments when the context is an account" do
-          canvas_account.stubs(:id).returns(canvas_course.id)
+          allow(canvas_account).to receive(:id).and_return(canvas_course.id)
           student_in_course(user: canvas_user, course: canvas_course, active_enrollment: true)
           expect(account_user_creator.convert.current_roles).to eq ["urn:lti:sysrole:ims/lis/None"]
         end
@@ -239,7 +268,7 @@ describe Lti::LtiUserCreator do
         end
 
         it "does not return any course enrollments when the context is an account" do
-          canvas_account.stubs(:id).returns(canvas_course.id)
+          allow(canvas_account).to receive(:id).and_return(canvas_course.id)
           student_in_course(user: canvas_user, course: canvas_course, active_enrollment: true).conclude
           expect(account_user_creator.convert.concluded_roles.size).to eq 0
         end

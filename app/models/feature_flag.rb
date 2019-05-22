@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -52,12 +52,13 @@ class FeatureFlag < ActiveRecord::Base
 
   def clear_cache
     if self.context
-      self.class.connection.after_transaction_commit { MultiCache.delete(self.context.feature_flag_cache_key(feature)) }
-      self.context.touch if Feature.definitions[feature].touch_context
+      self.class.connection.after_transaction_commit { self.context.feature_flag_cache.delete(self.context.feature_flag_cache_key(feature)) }
+      self.context.touch if Feature.definitions[feature].try(:touch_context)
     end
   end
 
-private
+  private
+
   def valid_state
     errors.add(:state, "is not valid in context") unless %w(off on).include?(state) || context.is_a?(Account) && state == 'allowed'
   end

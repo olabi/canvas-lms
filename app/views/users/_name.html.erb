@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% unless @read_only
     account = @context && (@context.is_a?(Account) ? @context : @context.account)
     managed_accounts = @user.associated_root_accounts.active.select{|a| can_do(a, @current_user, :manage_admin_users) }
@@ -36,10 +54,12 @@
           </td>
         </tr>
       <% end %>
-      <tr>
-        <th><%= before_label('default_email', 'Default Email') %></th>
-        <td class="email"><%=h @user.email %></td>
-      </tr>
+      <% if @context.grants_right? @current_user, :read_email_addresses %>
+        <tr>
+          <th><%= before_label('default_email', 'Default Email') %></th>
+          <td class="email"><%=h @user.email %></td>
+        </tr>
+      <% end %>
       <tr>
         <th><%= before_label('time_zone', 'Time Zone') %></th>
         <td class="time_zone"><%= @user.time_zone.try(:name) || t('none', "None") %></td>
@@ -47,7 +67,7 @@
       <% unless @read_only %>
       <%# order important: the can_do(...) check filters out contexts that don't respond to root_account (e.g. User) %>
         <% first = true %>
-        <td class="links" colspan="2" style="text-align: right; font-size: 0.8em; padding-top: 10px;">
+        <td class="links" colspan="2" style="text-align: <%= direction('right') %>; font-size: 0.8em; padding-top: 10px;">
           <% if @user.grants_right?(@current_user, :rename) %>
             <% first = false %>
             <a href="#" class="edit_user_link"><%= t('edit', 'Edit') %></a>
@@ -56,9 +76,9 @@
           <% if @user != @current_user && @user.can_masquerade?(@real_current_user || @current_user, @domain_root_account) %>
             <%= "|" unless first %><% first = false %>
             <% if @context && !@context.is_a?(Account) && !@context.is_a?(User) %>
-              <a href="<%= context_url(@context, :context_url, :become_user_id => @user.id) %>"> <%= t('become', 'Become') %></a>
+              <a href="<%= context_url(@context, :context_url, :become_user_id => @user.id) %>"> <%= t('Act as User') %></a>
             <% else %>
-              <a href="<%= dashboard_url(:become_user_id => @user.id) %>"> <%= t('become', 'Become') %></a>
+              <a href="<%= dashboard_url(:become_user_id => @user.id) %>"> <%= t('Act as User') %></a>
             <% end %>
           <% end %>
 

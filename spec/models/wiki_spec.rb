@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,10 +26,12 @@ describe Wiki do
 
   context "unset_front_page!" do
     it "should unset front page" do
+      @course.default_view = "wiki"
       @wiki.unset_front_page!
 
       expect(@wiki.has_front_page?).to eq false
       expect(@wiki.front_page_url).to eq nil
+      expect(@wiki.course.default_view).to eq @wiki.course.default_home_page
     end
   end
 
@@ -55,14 +57,14 @@ describe Wiki do
     end
 
     it "should find front_page by url" do
-      page = @wiki.wiki_pages.create!(:title => "stuff and stuff")
+      page = @course.wiki_pages.create!(:title => "stuff and stuff")
 
       @wiki.set_front_page_url!(page.url)
       expect(page).to eq @wiki.front_page
     end
 
     it "should find front_page by default url (legacy support)" do
-      page = @wiki.wiki_pages.create!(:title => "front page")
+      page = @course.wiki_pages.create!(:title => "front page")
       page.update_attribute(:url, Wiki::DEFAULT_FRONT_PAGE_URL )
       @wiki.update_attribute(:has_no_front_page, false)
 
@@ -153,6 +155,30 @@ describe Wiki do
       it 'should give update_page_content rights to students' do
         expect(@course.wiki.grants_right?(@user, :update_page_content)).to be_truthy
       end
+    end
+  end
+
+  context "find_page" do
+    before :once do
+      @page1 = @course.wiki_pages.create!(title: 'Some Page')
+      @pageN = @course.wiki_pages.create!(title: @page1.id.to_s)
+    end
+
+    it "finds page by URL" do
+      expect(@wiki.find_page('some-page')).to eq @page1
+    end
+
+    it "finds page by title" do
+      expect(@wiki.find_page('Some Page')).to eq @page1
+    end
+
+    it "falls back to ID if url/title don't match" do
+      expect(@wiki.find_page(@page1.id.to_s)).to eq @pageN
+      expect(@wiki.find_page(@pageN.id.to_s)).to eq @pageN
+    end
+
+    it "finds page by ID specifically with page_id:N" do
+      expect(@wiki.find_page("page_id:#{@page1.id}")).to eq @page1
     end
   end
 

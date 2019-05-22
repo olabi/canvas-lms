@@ -1,4 +1,22 @@
 <%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
    add_crumb(@user.name, user_path(@user) )
    add_crumb t('crumbs.faculty_journal', "Faculty Journal")
    js_bundle :user_notes
@@ -15,7 +33,23 @@
 <h1 class="page-header"><%= t 'titles.journal_for', "Faculty Journal for %{user}", :user => @user.name %><span id="proccessing">&nbsp;</span></h1>
 <div id="create_entry" style="display: none; margin-bottom: 10px;">
   <%= form_for(@user_note, :url => user_user_notes_path, :html=>{:id=>'add_entry_form'}) do |f| %>
-    <%= f.error_messages %>
+
+    <% if @user_note.errors.any? %>
+      <div id="error_explanation">
+        <h2><%= t({
+          one: "1 error prohibited this note from being saved:",
+          other: "%{count} errors prohibited this note from being saved:" },
+          count: @user_note.errors.count
+        ) %></h2>
+
+        <ul>
+        <% @user_note.errors.full_messages.each do |msg| %>
+          <li><%= msg %></li>
+        <% end %>
+        </ul>
+      </div>
+    <% end %>
+
     <%= f.hidden_field :user_id, :value=>@user.id %>
     <table class="formtable" style="width: 100%;">
       <tr>
@@ -44,11 +78,9 @@
 
 <div id="#no_user_notes_message" style="display: none;"><%= t 'messages.no_entries', "There are no journal entries for this student." %></div>
 
-<div id="user_note_list" class="user_note_list">
+<div id="user_note_list" class="user_note_list" role="list">
   <%= render :partial => 'user_note', :collection => @user_notes %>
   <%= will_paginate(@user_notes, :style=>"margin-bottom: 1em;") %>
-  <% js_block do %>
-    <%= pageless(@user_notes.total_pages, user_user_notes_path) %>
-  <% end %>
+  <% pageless(@user_notes.total_pages, user_user_notes_path) %>
   <%= render :partial => 'user_note', :locals => {:user_note => @user_note}%>
 </div>

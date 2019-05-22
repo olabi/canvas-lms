@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,6 +35,13 @@ class ErrorReport < ActiveRecord::Base
   end
 
   class Reporter
+
+    IGNORED_CATEGORIES = "404,ActionDispatch::RemoteIp::IpSpoofAttackError".freeze
+
+    def ignored_categories
+      Setting.get('ignored_error_report_categories', IGNORED_CATEGORIES).split(',')
+    end
+
     include ActiveSupport::Callbacks
     define_callbacks :on_log_error
 
@@ -46,6 +53,7 @@ class ErrorReport < ActiveRecord::Base
 
     def log_error(category, opts)
       opts[:category] = category.to_s.presence || 'default'
+      return if ignored_categories.include? category
       @opts = opts
       # sanitize invalid encodings
       @opts[:message] = Utf8Cleaner.strip_invalid_utf8(@opts[:message]) if @opts[:message]
@@ -182,6 +190,13 @@ class ErrorReport < ActiveRecord::Base
 
   def url=(val)
     write_attribute(:url, LoggingFilter.filter_uri(val))
+  end
+
+  def safe_url?
+    uri = URI.parse(url)
+    ['http', 'https'].include?(uri.scheme)
+  rescue
+    false
   end
 
   def guess_email

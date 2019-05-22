@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class Quizzes::QuizQuestionBuilder
   QUIZ_GROUP_ENTRY = 'quiz_group'
   DEFAULT_OPTIONS = {
@@ -145,7 +162,8 @@ class Quizzes::QuizQuestionBuilder
         variable_answers = q[:answers].select { |a| a[:blank_id] == variable }
 
         options = variable_answers.map do |a|
-          "<option value='#{a[:id]}'>#{CGI::escapeHTML(a[:text])}</option>"
+          answer_text = Utf8Cleaner.strip_invalid_utf8(a[:text])
+          "<option value='#{a[:id]}'>#{CGI.escapeHTML(answer_text)}</option>"
         end
 
         select = <<-HTML

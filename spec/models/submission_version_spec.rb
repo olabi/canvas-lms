@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,9 +22,7 @@ describe SubmissionVersion do
   def unversioned_submission
     # bypass the built-in submission versioning
     course_with_student
-    submission = @user.submissions.build(:assignment => @course.assignments.create!)
-    submission.without_versioning{ submission.save! }
-    submission
+    @user.submissions.find_by(assignment: @course.assignments.create!)
   end
 
   before do
@@ -82,7 +80,7 @@ describe SubmissionVersion do
       it "should error on invalid yaml by default" do
         expect{
           SubmissionVersion.index_versions([@version])
-        }.to raise_error
+        }.to raise_error(Psych::SyntaxError)
       end
 
       it "should allow ignoring invalid yaml errors" do
@@ -105,11 +103,25 @@ describe SubmissionVersion do
 
   it "should not create a SubmissionVersion when the Version doesn't save" do
     version = @submission.versions.build(yaml: {"assignment_id" => @submission.assignment_id}.to_yaml)
-    @submission.versions.expects(:create).returns(version)
+    expect(@submission.versions).to receive(:create).and_return(version)
     expect do
       @submission.with_versioning(explicit: true) do
         @submission.send(:simply_versioned_create_version)
       end
     end.not_to change(SubmissionVersion, :count)
+  end
+
+  it "should let you preload current_version in one query" do
+    sub1 = unversioned_submission
+    3.times { Version.create(:versionable => sub1, :yaml => sub1.attributes.to_yaml) }
+    sub2 = unversioned_submission
+    2.times { Version.create(:versionable => sub2, :yaml => sub2.attributes.to_yaml) }
+
+    Version.preload_version_number([sub1, sub2])
+
+    [sub1, sub2].each{|s| expect(s).to receive(:versions).never}
+
+    expect(sub1.version_number).to eq 3
+    expect(sub2.version_number).to eq 2
   end
 end

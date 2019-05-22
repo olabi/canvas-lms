@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -43,17 +43,20 @@
 #
 class FavoritesController < ApplicationController
 
-  before_filter :require_user
-  before_filter :check_defaults, :only => [:remove_favorite_course]
-  after_filter :touch_user, :only => [:add_favorite_course, :remove_favorite_course, :reset_course_favorites]
+  before_action :require_user
+  before_action :check_defaults, :only => [:remove_favorite_course]
+  after_action :touch_user, :only => [:add_favorite_course, :remove_favorite_course, :reset_course_favorites]
 
   include Api::V1::Favorite
   include Api::V1::Course
   include Api::V1::Group
 
   # @API List favorite courses
-  # Retrieve the list of favorite courses for the current user. If the user has not chosen
+  # Retrieve the paginated list of favorite courses for the current user. If the user has not chosen
   # any favorites, then a selection of currently enrolled courses will be returned.
+  #
+  # @argument exclude_blueprint_courses [Boolean]
+  #   When set, only return courses that are not configured as blueprint courses.
   #
   # See the {api:CoursesController#index List courses API} for details on accepted include[] parameters.
   #
@@ -66,7 +69,14 @@ class FavoritesController < ApplicationController
   def list_favorite_courses
     includes = Set.new(Array(params[:include]))
 
-    render :json => @current_user.menu_courses.map { |course|
+    courses = @current_user.menu_courses
+    if courses.any? && value_to_boolean(params[:exclude_blueprint_courses])
+      mc_ids = MasterCourses::MasterTemplate.active.where(:course_id => courses).pluck(:course_id)
+      courses.reject!{|c| mc_ids.include?(c.id)}
+    end
+
+    all_precalculated_permissions = @current_user.precalculate_permissions_for_courses(courses, [:read_sis, :manage_sis])
+    render :json => courses.map { |course|
       enrollments = nil
       unless Array(params[:exclude]).include?('enrollments')
         enrollments = course.current_enrollments.where(:user_id => @current_user).to_a
@@ -76,12 +86,13 @@ class FavoritesController < ApplicationController
         end
       end
 
-      course_json(course, @current_user, session, includes, enrollments)
+      course_json(course, @current_user, session, includes, enrollments,
+        precalculated_permissions: all_precalculated_permissions&.dig(course.global_id))
     }
   end
 
   # @API List favorite groups
-  # Retrieve the list of favorite groups for the current user. If the user has not chosen
+  # Retrieve the paginated list of favorite groups for the current user. If the user has not chosen
   # any favorites, then a selection of groups that the user is a member of will be returned.
   #
   #
@@ -179,9 +190,8 @@ class FavoritesController < ApplicationController
   def remove_favorite_course
     # allow removing a Favorite whose context object no longer exists
     # but also allow referencing by sis id, if possible
-    courses = api_find_all(Course, [params[:id]])
-    course_id = Shard.relative_id_for(courses.any? ? courses.first.id : params[:id], Shard.current, @current_user.shard)
-    fave = @current_user.favorites.where(:context_type => 'Course', :context_id => course_id).first
+    course = api_find(Course, params[:id])
+    fave = @current_user.favorites.where(:context_type => 'Course', :context_id => course.id).first
     if fave
       result = favorite_json(fave, @current_user, session)
       fave.destroy
@@ -208,9 +218,8 @@ class FavoritesController < ApplicationController
   #       -H 'Authorization: Bearer <ACCESS_TOKEN>'
   #
   def remove_favorite_groups
-    group = api_find_all(Group, [params[:id]])
-    group_id= Shard.relative_id_for(group.any? ? group.first.id : params[:id], Shard.current, @current_user.shard)
-    fave = @current_user.favorites.where(:context_type => 'Group', :context_id => group_id).first
+    group = api_find(Group, params[:id])
+    fave = @current_user.favorites.where(:context_type => 'Group', :context_id => group.id).first
     if fave
       result = favorite_json(fave, @current_user, session)
       fave.destroy

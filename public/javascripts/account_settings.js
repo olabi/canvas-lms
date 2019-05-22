@@ -1,21 +1,42 @@
-define([
-  'i18n!account_settings',
-  'jquery', // $
-  'tinymce.config',
-  'global_announcements',
-  'jquery.ajaxJSON', // ajaxJSON
-  'jquery.instructure_date_and_time', // date_field, time_field, datetime_field, /\$\.datetime/
-  'jquery.instructure_forms', // formSubmit, getFormData, validateForm
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers', // replaceTags
-  'jquery.instructure_misc_plugins', // confirmDelete, showIf, /\.log/
-  'jquery.loadingImg', // loadingImg, loadingImage
-  'vendor/date', // Date.parse
-  'vendor/jquery.scrollTo', // /\.scrollTo/
-  'jqueryui/tabs' // /\.tabs/
-], function(I18n, $, EditorConfig, globalAnnouncements) {
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-  function openReportDescriptionLink (event) {
+import 'jqueryui/dialog'
+import I18n from 'i18n!account_settings'
+import $ from 'jquery'
+import htmlEscape from 'str/htmlEscape'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import axios from 'axios'
+import {setupCache} from 'axios-cache-adapter'
+import 'jqueryui/tabs'
+import globalAnnouncements from './global_announcements'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' // date_field, time_field, datetime_field, /\$\.datetime/
+import './jquery.instructure_forms' // formSubmit, getFormData, validateForm
+import './jquery.instructure_misc_helpers' // replaceTags
+import './jquery.instructure_misc_plugins' // confirmDelete, showIf, /\.log/
+import './jquery.loadingImg'
+import './vendor/date' // Date.parse
+import './vendor/jquery.scrollTo'
+
+let reportsTabHasLoaded = false
+
+  export function openReportDescriptionLink (event) {
     event.preventDefault();
     var title = $(this).parents('.title').find('span.title').text();
     var $desc = $(this).parent('.reports').find('.report_description');
@@ -25,7 +46,7 @@ define([
     });
   }
 
-  function addUsersLink (event) {
+  export function addUsersLink (event) {
     event.preventDefault();
     var $enroll_users_form = $('#enroll_users_form');
     $(this).hide();
@@ -35,14 +56,13 @@ define([
   }
 
   $(document).ready(function() {
-    checkFutureListingSetting = function() {
-
+    function checkFutureListingSetting () {
       if ($('#account_settings_restrict_student_future_view_value').is(':checked')) {
         $('.future_listing').show();
       } else {
         $('.future_listing').hide();
       }
-    };
+    }
     checkFutureListingSetting();
     $('#account_settings_restrict_student_future_view_value').change(checkFutureListingSetting);
 
@@ -101,7 +121,104 @@ define([
     globalAnnouncements.augmentView()
     globalAnnouncements.bindDomEvents()
 
-    $("#account_settings_tabs").tabs().show();
+    $('#account_settings_tabs')
+    .tabs({
+      beforeActivate: (event, ui) => {
+        if (ui.newTab.context.id === 'tab-reports-link' && !reportsTabHasLoaded) {
+          reportsTabHasLoaded = true
+          const splitContext = window.ENV.context_asset_string.split('_')
+          fetch(`/${splitContext[0]}s/${splitContext[1]}/reports_tab`).then(req => req.text()).then(html => {
+            $('#tab-reports').html(html)
+            $("#tab-reports .datetime_field").datetime_field();
+
+            $(".open_report_description_link").click(openReportDescriptionLink);
+
+            $(".run_report_link").click(function(event) {
+              event.preventDefault();
+              $(this).parent("form").submit();
+            });
+
+            $(".run_report_form").formSubmit({
+              resetForm: true,
+              beforeSubmit: function(data) {
+                $(this).loadingImage();
+                return true;
+              },
+              success: function(data) {
+                $(this).loadingImage('remove');
+                var report = $(this).attr('id').replace('_form', '');
+                $("#" + report).find('.run_report_link').hide()
+                  .end().find('.configure_report_link').hide()
+                  .end().find('.running_report_message').show();
+                $(this).parent(".report_dialog").dialog('close');
+              },
+              error: function(data) {
+                $(this).loadingImage('remove');
+                $(this).parent(".report_dialog").dialog('close');
+              }
+            });
+
+            $(".configure_report_link").click(function(event) {
+              event.preventDefault();
+              var data = $(this).data(),
+                $dialog = data.$report_dialog;
+              if (!$dialog) {
+                $dialog = data.$report_dialog = $(this).parent("td").find(".report_dialog").dialog({
+                  autoOpen: false,
+                  width: 400,
+                  title: I18n.t('titles.configure_report', 'Configure Report')
+                });
+              }
+              $dialog.dialog('open');
+            })
+
+          }).catch(() => {
+            $('#tab-reports').text(I18n.t('There are no reports for you to view.'))
+          })
+        } else if (ui.newTab.context.id === 'tab-security-link') {
+          // Set up axios and send a prefetch request to get the data we need,
+          // this should make things appear to be much quicker once the bundle
+          // loads in.
+          const cache = setupCache({
+            maxAge: 0.5 * 60 * 1000, // Hold onto the data for 30 seconds
+            debug: true
+          })
+
+          const api = axios.create({
+            adapter: cache.adapter
+          })
+
+          const splitContext = window.ENV.context_asset_string.split('_')
+
+          api
+            .get(`/api/v1/${splitContext[0]}s/${splitContext[1]}/csp_settings`)
+            .then(() => {
+              // Bring in the actual bundle of files to use
+              import('jsx/account_settings')
+                .then(({ start }) => {
+                  start(document.getElementById('tab-security'), {
+                    context: splitContext[0],
+                    contextId: splitContext[1],
+                    isSubAccount: !ENV.ACCOUNT.root_account,
+                    initialCspSettings: ENV.CSP,
+                    api
+                  })
+                })
+                .catch(() => {
+                  // We really should never get here... but if we do... do something.
+                  $('#tab-security').text(I18n.t('Security Tab failed to load'))
+                })
+            })
+            .catch(() => {
+              // We really should never get here... but if we do... do something.
+              $('#tab-security').text(I18n.t('Security Tab failed to load'))
+            })
+        }
+      }
+    })
+    .show()
+
+
     $(".add_ip_filter_link").click(function(event) {
       event.preventDefault();
       var $filter = $(".ip_filter.blank:first").clone(true).removeClass('blank');
@@ -173,10 +290,11 @@ define([
       '#account_settings_sis_syncing_value, ' +
       '#account_settings_sis_default_grade_export_value').change(function () {
         var $myFieldset = $('#'+ $(this).attr('id') + '_settings');
-        var iAmChecked = $(this).attr('checked');
+        var iAmChecked = $(this).prop('checked');
       $myFieldset.showIf(iAmChecked);
       if (!iAmChecked) {
-        $myFieldset.find("input,textarea").val("");
+        $myFieldset.find(":text").val("");
+        $myFieldset.find(":checkbox").prop("checked", false);
       }
     }).change();
 
@@ -192,6 +310,15 @@ define([
     $(".turnitin_account_settings").change(function() {
       $(".confirm_turnitin_settings_link").text(I18n.t('links.turnitin.confirm_settings', "confirm Turnitin settings"));
     });
+
+    $("input[name='account[services][avatars]']").change(function() {
+      if(this.checked) {
+        $("#account_settings_gravatar_checkbox").show();
+      } else {
+        $("#account_settings_gravatar_checkbox").hide();
+      }
+    }).change();
+
     $(".confirm_turnitin_settings_link").click(function(event) {
       event.preventDefault();
       var $link = $(this);
@@ -217,46 +344,7 @@ define([
     // Admins tab
     $(".add_users_link").click(addUsersLink);
 
-    $(".open_report_description_link").click(openReportDescriptionLink);
 
-    $(".run_report_link").click(function(event) {
-      event.preventDefault();
-      $(this).parent("form").submit();
-    });
-
-    $(".run_report_form").formSubmit({
-      resetForm: true,
-      beforeSubmit: function(data) {
-        $(this).loadingImage();
-        return true;
-      },
-      success: function(data) {
-        $(this).loadingImage('remove');
-        var report = $(this).attr('id').replace('_form', '');
-        $("#" + report).find('.run_report_link').hide()
-          .end().find('.configure_report_link').hide()
-          .end().find('.running_report_message').show();
-        $(this).parent(".report_dialog").dialog('close');
-      },
-      error: function(data) {
-        $(this).loadingImage('remove');
-        $(this).parent(".report_dialog").dialog('close');
-      }
-    });
-
-    $(".configure_report_link").click(function(event) {
-      event.preventDefault();
-      var data = $(this).data(),
-        $dialog = data.$report_dialog;
-      if (!$dialog) {
-        $dialog = data.$report_dialog = $(this).parent("td").find(".report_dialog").dialog({
-          autoOpen: false,
-          width: 400,
-          title: I18n.t('titles.configure_report', 'Configure Report')
-        });
-      }
-      $dialog.dialog('open');
-    })
 
     $('.service_help_dialog').each(function(index) {
       var $dialog = $(this),
@@ -267,8 +355,11 @@ define([
         width: 560
       });
 
-      $('<a href="#"><i class="icon-question standalone-icon"></i></a>')
-        .click(function(event){
+      $(`<button class="Button Button--icon-action" type="button">
+        <i class="icon-question"></i>
+        <span class="screenreader-only">${htmlEscape(I18n.t("About this service"))}</span>
+      </button>`)
+        .click((event) => {
           event.preventDefault();
           $dialog.dialog('open');
         })
@@ -276,15 +367,15 @@ define([
     });
 
     function displayCustomEmailFromName(){
-      var displayText = $('#account_settings_outgoing_email_default_name').val();
+      let displayText = $('#account_settings_outgoing_email_default_name').val();
       if (displayText == '') {
         displayText = I18n.t('custom_text_blank', '[Custom Text]');
       }
       $('#custom_default_name_display').text(displayText);
     }
-    $('.notification_from_name_option').on('change', function(){
-      var $useCustom = $('#account_settings_outgoing_email_default_name_option_custom');
-      var $customName = $('#account_settings_outgoing_email_default_name');
+    $('.notification_from_name_option').on('change', () => {
+      const $useCustom = $('#account_settings_outgoing_email_default_name_option_custom');
+      const $customName = $('#account_settings_outgoing_email_default_name');
       if ($useCustom.attr('checked')) {
         $customName.removeAttr('disabled');
         $customName.focus()
@@ -293,7 +384,7 @@ define([
         $customName.attr('disabled', 'disabled');
       }
     });
-    $('#account_settings_outgoing_email_default_name').on('keyup', function(){
+    $('#account_settings_outgoing_email_default_name').on('keyup', () =>{
       displayCustomEmailFromName();
     });
     // Setup initial display state
@@ -307,11 +398,32 @@ define([
     $('#account_settings_global_includes').change(function() {
       $('#global_includes_warning_message_wrapper').toggleClass('alert', this.checked);
     }).trigger('change');
+
+    const $rce_container = $('#custom_tos_rce_container')
+    $('#terms_of_service_modal').hide()
+    if ($rce_container.length > 0) {
+      const $textarea = $rce_container.find('textarea');
+      RichContentEditor.preloadRemoteModule();
+      if ($("#account_terms_of_service_terms_type").find(":selected").text() === 'Custom') {
+        $('#terms_of_service_modal').show()
+        $rce_container.show();
+        setTimeout (() => {
+          RichContentEditor.loadNewEditor($textarea, { manageParent: true, defaultContent: ENV.TERMS_OF_SERVICE_CUSTOM_CONTENT || ''})
+        }, 1000);
+      }
+      $( "#account_terms_of_service_terms_type" ).change(function() {
+        if (this.value === 'custom') {
+          $('#terms_of_service_modal').show()
+          $rce_container.show();
+          RichContentEditor.loadNewEditor($textarea, {
+            focus: true,
+            manageParent: true,
+            defaultContent: ENV.TERMS_OF_SERVICE_CUSTOM_CONTENT || ''
+          });
+        } else {
+          $rce_container.hide();
+          $('#terms_of_service_modal').hide()
+        }
+      });
+    }
   });
-
-  return {
-    addUsersLink: addUsersLink,
-    openReportDescriptionLink: openReportDescriptionLink
-  }
-
-});

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,14 +30,22 @@ class EnrollmentTerm < ActiveRecord::Base
   has_many :course_sections
 
   validates_presence_of :root_account_id, :workflow_state
+  validate :prevent_default_term_name_change
   validate :check_if_deletable
   validate :consistent_account_associations
 
   before_validation :verify_unique_sis_source_id
   after_save :update_courses_later_if_necessary
+  after_save :recompute_course_scores_later, if: :grading_period_group_id_has_changed?
 
   include StickySisFields
   are_sis_sticky :name, :start_at, :end_at
+
+  def prevent_default_term_name_change
+    if self.name_changed? && self.name_was == DEFAULT_TERM_NAME && self == self.root_account.default_enrollment_term
+      self.errors.add(:name, t("Cannot change the default term name"))
+    end
+  end
 
   def check_if_deletable
     if self.workflow_state_changed? && self.workflow_state == "deleted"
@@ -50,7 +58,7 @@ class EnrollmentTerm < ActiveRecord::Base
   end
 
   def update_courses_later_if_necessary
-    if !self.new_record? && (self.start_at_changed? || self.end_at_changed?)
+    if !self.new_record? && (self.saved_change_to_start_at? || self.saved_change_to_end_at?)
       self.update_courses_and_states_later
     end
   end
@@ -75,6 +83,22 @@ class EnrollmentTerm < ActiveRecord::Base
 
   def self.i18n_default_term_name
     t '#account.default_term_name', "Default Term"
+  end
+
+  def recompute_course_scores_later(update_all_grading_period_scores: true, strand_identifier: "EnrollmentTerm:#{global_id}")
+    courses_to_recompute.find_ids_in_ranges(batch_size: 1000) do |min_id, max_id|
+      send_later_if_production_enqueue_args(
+        :recompute_scores_for_batch,
+        {
+          n_strand: "EnrollmentTerm#recompute_scores_for_batch:#{strand_identifier}",
+          max_attempts: 1,
+          priority: Delayed::LOW_PRIORITY
+        },
+        min_id,
+        max_id,
+        update_all_grading_period_scores
+      )
+    end
   end
 
   def default_term?
@@ -123,7 +147,7 @@ class EnrollmentTerm < ActiveRecord::Base
     return true unless scope.exists?
 
     self.errors.add(:sis_source_id, t('errors.not_unique', "SIS ID \"%{sis_source_id}\" is already in use", :sis_source_id => self.sis_source_id))
-    false
+    throw :abort
   end
 
   def self.user_counts(root_account, terms)
@@ -131,7 +155,7 @@ class EnrollmentTerm < ActiveRecord::Base
     Enrollment.active.joins(:course).
       where(root_account_id: root_account, courses: {enrollment_term_id: terms}).
       group(:enrollment_term_id).
-      uniq.
+      distinct.
       count(:user_id)
   end
 
@@ -186,4 +210,30 @@ class EnrollmentTerm < ActiveRecord::Base
   scope :not_started, -> { where('enrollment_terms.start_at IS NOT NULL AND enrollment_terms.start_at > ?', Time.now.utc) }
   scope :not_default, -> { where.not(name: EnrollmentTerm::DEFAULT_TERM_NAME)}
   scope :by_name, -> { order(best_unicode_collation_key('name')) }
+
+  private
+
+  def recompute_scores_for_batch(min_id, max_id, update_all_grading_period_scores)
+    courses_to_recompute.where(id: min_id..max_id).find_each do |course|
+      # we don't need to recompute scores for each grading period if only weight has changed.
+      # run_immediately: true because we're already in a delayed job
+      course.recompute_student_scores(
+        update_all_grading_period_scores: update_all_grading_period_scores,
+        run_immediately: true
+      )
+      # DueDateCacher handles updating the cached grading_period_id on submissions.
+      # run_immediately: true because we're already in a delayed job
+      DueDateCacher.recompute_course(course, run_immediately: true) if update_all_grading_period_scores
+    end
+  end
+
+  def courses_to_recompute
+    courses.active
+  end
+
+  def grading_period_group_id_has_changed?
+    # migration 20111111214313_add_trust_link_for_default_account
+    # will throw an error without this check
+    respond_to?(:saved_change_to_grading_period_group_id?) && saved_change_to_grading_period_group_id?
+  end
 end

@@ -1,4 +1,5 @@
-# Copyright (C) 2015 Instructure, Inc.
+#
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -65,7 +66,7 @@ describe Canvas::LockExplanation do
               }
 
               it "should use the group's course in the link " do
-                host.expects(:course_context_modules_url).with(course, {:anchor => 'module_1'})
+                expect(host).to receive(:course_context_modules_url).with(course, {:anchor => 'module_1'})
                 result
               end
 

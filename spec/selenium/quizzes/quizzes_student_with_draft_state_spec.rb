@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 require_relative '../helpers/assignment_overrides'
@@ -29,13 +46,13 @@ describe 'quizzes with draft state' do
       it 'shows an error', priority: "1", test_id: 209419 do
         open_quiz_edit_form
         wait_for_ajaximations
-        expect(f('.ui-state-error')).to include_text 'Unauthorized'
+        expect(f('#unauthorized_message')).to include_text 'Access Denied'
       end
 
       it 'can\'t take an unpublished quiz', priority: "1", test_id: 209420 do
         get "/courses/#{@course.id}/quizzes/#{@quiz.id}/take"
         wait_for_ajaximations
-        expect(f('.ui-state-error')).to include_text 'Unauthorized'
+        expect(f('#unauthorized_message')).to include_text 'Access Denied'
       end
     end
 

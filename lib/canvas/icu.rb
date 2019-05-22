@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::ICU
   module NaiveCollator
     def self.rules
@@ -100,12 +117,19 @@ module Canvas::ICU
       end
     end
 
-    def self.collator
+    def self.collator(locale = I18n.locale)
       @collations ||= {}
-      @collations[I18n.locale] ||= begin
-        collator = ICU::Collation::Collator.new(I18n.locale.to_s)
-        collator.normalization_mode = true
+      @collations[locale] ||= begin
+        collator = ICU::Collation::Collator.new(locale.to_s)
+
+        # Reference documentation (some option names differ in ruby-space)for these options is at
+        # http://userguide.icu-project.org/collation/customization#TOC-Default-Options
+        # if you change these settings, also match the settings in best_unicode_collation_key
+        # and natcompare.js
+        collator.normalization_mode = false # default; other languages override as appropriate
         collator.numeric_collation = true
+        collator.strength = :tertiary # default
+        collator.alternate_handling = :non_ignorable # default
         collator
       end
     end
@@ -117,6 +141,7 @@ module Canvas::ICU
   end
 
   def self.locale_for_collation
+    I18n.set_locale_with_localizer
     collator.rules.empty? ? 'root' : I18n.locale
   end
 

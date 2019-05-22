@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,7 @@
 class Feature
   ATTRS = [:feature, :display_name, :description, :applies_to, :state,
            :root_opt_in, :enable_at, :beta, :development,
-           :release_notes_url, :custom_transition_proc,
+           :release_notes_url, :custom_transition_proc, :visible_on,
            :after_state_change_proc, :autoexpand, :touch_context].freeze
   attr_reader *ATTRS
 
@@ -60,16 +60,18 @@ class Feature
   end
 
   def self.production_environment?
-    Rails.env.production? && !(ApplicationController.respond_to?(:test_cluster?) && ApplicationController.test_cluster?)
+    Rails.env.production? && !ApplicationController.test_cluster?
   end
 
   # Register one or more features.  Must be done during application initialization.
+  # NOTE: there is refactoring going on for feature flags: ADMIN-2538
+  #       if you need to add/modify/delete a FF, they have been moved to ./lib/feature_flags/*yml
   # The feature_hash is as follows:
   #   automatic_essay_grading: {
   #     display_name: -> { I18n.t('features.automatic_essay_grading', 'Automatic Essay Grading') },
   #     description: -> { I18n.t('features.automatic_essay_grading_description, 'Popup text describing the feature goes here') },
   #     applies_to: 'Course', # or 'RootAccount' or 'Account' or 'User'
-  #     state: 'allowed',     # or 'off', 'on', 'hidden', or 'hidden_in_prod'
+  #     state: 'allowed',     # or 'on', 'hidden', or 'hidden_in_prod'
   #                           # - 'hidden' means the feature must be set by a site admin before it will be visible
   #                           #   (in that context and below) to other users
   #                           # - 'hidden_in_prod' registers 'hidden' in production environments or 'allowed' elsewhere
@@ -95,435 +97,30 @@ class Feature
   #     # queue a delayed_job to perform any nontrivial processing
   #     after_state_change_proc:  ->(user, context, old_state, new_state) { ... }
   #   }
+  VALID_STATES = %w(on allowed hidden hidden_in_prod).freeze
+  VALID_APPLIES_TO = %w(Course Account RootAccount User).freeze
+
+  DISABLED_FEATURE = Feature.new.freeze
 
   def self.register(feature_hash)
     @features ||= {}
     feature_hash.each do |feature_name, attrs|
-      next if attrs[:development] && production_environment?
       feature = feature_name.to_s
-      @features[feature] = Feature.new({feature: feature}.merge(attrs))
+      validate_attrs(attrs, feature)
+      if attrs[:development] && production_environment?
+        @features[feature] = DISABLED_FEATURE
+      else
+        @features[feature] = Feature.new({ feature: feature }.merge(attrs))
+      end
     end
   end
 
-  # TODO: register built-in features here
-  # (plugins may register additional features during application initialization)
-  register(
-    'google_docs_domain_restriction' =>
-    {
-      display_name: -> { I18n.t('features.google_docs_domain_restriction', 'Google Docs Domain Restriction') },
-      description: -> { I18n.t('google_docs_domain_restriction_description', <<END) },
-Google Docs Domain Restriction allows Google Docs submissions and collaborations
-to be restricted to a single domain. Students attempting to submit assignments or
-join collaborations on an unapproved domain will receive an error message notifying them
-that they will need to update their Google Docs integration.
-END
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      root_opt_in: true
-    },
-    'epub_export' =>
-    {
-      display_name: -> { I18n.t('ePub Exporting') },
-      description: -> { I18n.t(<<END) },
-      This enables users to generate and download course ePub.
-END
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: true,
-      beta: true
-    },
-    'high_contrast' =>
-    {
-      display_name: -> { I18n.t('features.high_contrast', 'High Contrast UI') },
-      description: -> { I18n.t('high_contrast_description', <<-END) },
-High Contrast enhances the color contrast of the UI (text, buttons, etc.), making those items more
-distinct and easier to identify. Note: Institution branding will be disabled.
-END
-      applies_to: 'User',
-      state: 'allowed',
-      autoexpand: true
-    },
-    'underline_all_links' =>
-    {
-      display_name: -> { I18n.t('Underline Links') },
-      description: -> { I18n.t('underline_all_links_description', <<-END, wrapper: { '*' => '<span class="feature-detail-underline">\1</span>' })},
-Underline Links displays hyperlinks in navigation menus, the Dashboard, and page sidebars as
-*underlined text*. This feature option does not apply to user-generated content links in the
-Rich Content Editor, which always underlines links for all users.
-END
-      applies_to: 'User',
-      state: 'allowed',
-      beta: true
-    },
-    'outcome_gradebook' =>
-    {
-      display_name: -> { I18n.t('features.learning_mastery_gradebook', 'Learning Mastery Gradebook') },
-      description:  -> { I18n.t('learning_mastery_gradebook_description', <<-END) },
-Learning Mastery Gradebook provides a way for teachers to quickly view student and course
-progress on course learning outcomes. Outcomes are presented in a Gradebook-like
-format and student progress is displayed both as a numerical score and as mastered/near
-mastery/remedial.
-END
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: false
-    },
-    'student_outcome_gradebook' =>
-    {
-      display_name: -> { I18n.t('features.student_outcome_gradebook', 'Student Learning Mastery Gradebook') },
-      description:  -> { I18n.t('student_outcome_gradebook_description', <<-END) },
-Student Learning Mastery Gradebook provides a way for students to quickly view progress
-on course learning outcomes. Outcomes are presented in a Gradebook-like
-format and progress is displayed both as a numerical score and as mastered/near
-mastery/remedial.
-END
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: false
-    },
-    'post_grades' =>
-    {
-      display_name: -> { I18n.t('features.post_grades', 'Post Grades to SIS') },
-      description:  -> { I18n.t('post_grades_description', <<-END) },
-Post Grades allows teachers to post grades back to enabled SIS systems: Powerschool,
-Aspire (SIS2000), JMC, and any other SIF-enabled SIS that accepts the SIF elements GradingCategory,
-GradingAssignment, GradingAssignmentScore.
-END
-      applies_to: 'Course',
-      state: 'hidden',
-      root_opt_in: true,
-      beta: true
-    },
-    'k12' =>
-    {
-      display_name: -> { I18n.t('features.k12', 'K-12 Specific Features') },
-      description:  -> { I18n.t('k12_description', <<-END) },
-Features, settings and styles that make more sense specifically in a K-12 environment. For now, this only
-applies some style changes, but more K-12 specific things may be added in the future.
-END
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      root_opt_in: true,
-      beta: true
-    },
-    'recurring_calendar_events' =>
-    {
-      display_name: -> { I18n.t('Recurring Calendar Events') },
-      description: -> { I18n.t("Allows the scheduling of recurring calendar events") },
-      applies_to: 'Course',
-      state: 'hidden',
-      root_opt_in: true,
-      beta: true
-    },
-    'allow_opt_out_of_inbox' =>
-    {
-      display_name: -> { I18n.t('features.allow_opt_out_of_inbox', "Allow Users to Opt-out of the Inbox") },
-      description:  -> { I18n.t('allow_opt_out_of_inbox', <<-END) },
-Allow users to opt out of the Conversation's Inbox. This will cause all conversation messages and notifications to be sent as ASAP notifications to the user's primary email, hide the Conversation's Inbox unread messages badge on the Inbox, and hide the Conversation's notification preferences.
-END
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      root_opt_in: true
-    },
-    'lor_for_user' =>
-    {
-      display_name: -> { I18n.t('features.lor', "LOR External Tools") },
-      description:  -> { I18n.t('allow_lor_tools', <<-END) },
-Allow users to view and use external tools configured for LOR.
-END
-      applies_to: 'User',
-      state: 'hidden'
-    },
-    'lor_for_account' =>
-    {
-      display_name: -> { I18n.t('features.lor', "LOR External Tools") },
-      description:  -> { I18n.t('allow_lor_tools', <<-END) },
-Allow users to view and use external tools configured for LOR.
-END
-      applies_to: 'RootAccount',
-      state: 'hidden'
-    },
-    'multiple_grading_periods' =>
-    {
-      display_name: -> { I18n.t('features.multiple_grading_periods', 'Multiple Grading Periods') },
-      description: -> { I18n.t('enable_multiple_grading_periods', <<-END) },
-      Multiple Grading Periods allows teachers and admins to create grading periods with set
-      cutoff dates. Assignments can be filtered by these grading periods in the gradebook.
-END
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: true
-    },
-    'course_catalog' =>
-    {
-      display_name: -> { I18n.t("Public Course Index") },
-      description:  -> { I18n.t('display_course_catalog', <<-END) },
-Show a searchable list of courses in this root account with the "Include this course in the public course index" flag enabled.
-END
-      applies_to: 'RootAccount',
-      state: 'allowed',
-      beta: true,
-      root_opt_in: true
-    },
-    'gradebook_list_students_by_sortable_name' =>
-    {
-      display_name: -> { I18n.t('features.gradebook_list_students_by_sortable_name', "Gradebook - List Students by Sortable Name") },
-      description: -> { I18n.t('enable_gradebook_list_students_by_sortable_name', <<-END) },
-List students by their sortable names in the Gradebook. Sortable name defaults to 'Last Name, First Name' and can be changed in settings.
-END
-      applies_to: 'Course',
-      state: 'allowed'
-    },
-    'usage_rights_required' =>
-    {
-      display_name: -> { I18n.t('Require Usage Rights for Uploaded Files') },
-      description: -> { I18n.t('If enabled, content designers must provide copyright and license information for files before they are published. Only applies if Better File Browsing is also enabled.') },
-      applies_to: 'Course',
-      state: 'hidden',
-      root_opt_in: true
-    },
-    'lti2_rereg' =>
-    {
-      display_name: -> {I18n.t('LTI 2 Reregistration')},
-      description: -> { I18n.t('Enable reregistration for LTI 2 ')},
-      applies_to:'RootAccount',
-      state: 'hidden',
-      beta: true
-    },
-    'quizzes_lti' =>
-    {
-      display_name: -> { I18n.t('Quiz LTI Plugin') },
-      description: -> { I18n.t('Use the new quiz LTI tool in place of regular canvas quizzes') },
-      applies_to: 'Course',
-      state: 'hidden',
-      beta: true,
-      root_opt_in: true
-    },
-    'disable_lti_post_only' =>
-    {
-      display_name: -> { I18n.t('Don\'t Move LTI Query Params to POST Body') },
-      description: -> { I18n.t('If enabled, query parameters will not be copied to the POST body during an LTI launch.') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      root_opt_in: true
-    },
-    'new_sis_integrations' =>
-    {
-      display_name: -> { I18n.t('Enable new SIS integration settings') },
-      description:  -> { I18n.t('Make new settings for SIS integrations visible and active') },
-      applies_to: 'Account',
-      state: 'hidden',
-      root_opt_in: true,
-      beta: true
-    },
-    'bulk_sis_grade_export' =>
-      {
-        display_name: -> { I18n.t('Allow Bulk Grade Export to SIS') },
-        description:  -> { I18n.t('Allows teachers to mark grade data to be exported in bulk to SIS integrations.') },
-        applies_to: 'RootAccount',
-        state: 'hidden',
-        root_opt_in: true,
-        beta: true
-      },
-    'notification_service' =>
-    {
-      display_name: -> { I18n.t('Use remote service for notifications') },
-      description: -> { I18n.t('Allow the ability to send notifications through our dispatch queue') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      development: false,
-      root_opt_in: false
-    },
-    'better_scheduler' =>
-    {
-      display_name: -> { I18n.t('Use the new scheduler') },
-      description: -> { I18n.t('Uses the new scheduler and its functionality') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      development: false,
-      root_opt_in: false
-    },
-    'use_new_tree' =>
-    {
-      display_name: -> { I18n.t('Use New Folder Tree in Files')},
-      description: -> {I18n.t('Replaces the current folder tree with a new accessible and more feature rich folder tree.')},
-      applies_to: 'Course',
-      state: 'hidden',
-      development: true,
-      root_opt_in: true
-    },
-    'course_card_images' =>
-    {
-      display_name: -> { I18n.t('Enable Dashboard Images for Courses')},
-      description: -> {I18n.t('Allow course images to be assigned to a course and used on the dashboard cards.')},
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: true,
-      beta: true
-    },
-    'dashcard_reordering' =>
-    {
-      display_name: -> { I18n.t('Allow Reorder Dashboard Cards') },
-      description: -> { I18n.t('Allow dashboard cards to be reordered for each user.') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      development: true,
-      root_opt_in: false
-    },
-    'anonymous_grading' => {
-      display_name: -> { I18n.t('Anonymous Grading') },
-      description: -> { I18n.t("Anonymous grading forces student names to be hidden in SpeedGrader™") },
-      applies_to: 'Course',
-      state: 'allowed'
-    },
-    'international_sms' => {
-      display_name: -> { I18n.t('International SMS') },
-      description: -> { I18n.t('Allows users with international phone numbers to receive text messages from Canvas.') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      root_opt_in: true
-    },
-    'all_grading_periods_totals' =>
-    {
-      display_name: -> { I18n.t('Display Totals for "All Grading Periods"') },
-      description: -> { I18n.t('Display total grades when the "All Grading Periods" dropdown option is selected (Multiple Grading Periods must be enabled).') },
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: true
-    },
-    'course_user_search' => {
-      display_name: -> { I18n.t('Account Course and User Search') },
-      description: -> { I18n.t('Updated UI for searching and displaying users and courses within an account.') },
-      applies_to: 'Account',
-      state: 'hidden',
-      beta: true,
-      development: true,
-      root_opt_in: true,
-      touch_context: true
-    },
-    'rich_content_service' =>
-    {
-      display_name: -> { I18n.t('Use remote version of Rich Content Editor') },
-      description: -> { I18n.t('In cases where it is available, load the RCE from a canvas rich content service') },
-      applies_to: 'RootAccount',
-      state: 'allowed',
-      beta: true,
-      development: false,
-      root_opt_in: false
-    },
-    'rich_content_service_with_sidebar' =>
-    {
-      display_name: -> { I18n.t('Use remote version of Rich Content Editor AND sidebar') },
-      description: -> { I18n.t('In cases where it is available, load the RCE and the wiki sidebar from a canvas rich content service') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      development: false,
-      root_opt_in: false
-    },
-    'rich_content_service_high_risk' =>
-    {
-      display_name: -> { I18n.t('Use remote version of Rich Content Editor AND sidebar in high-risk areas like quizzes') },
-      description: -> { I18n.t('Always load the RCE and Sidebar from a canvas rich content service everywhere') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      development: false,
-      root_opt_in: false
-    },
-    'conditional_release' =>
-    {
-      display_name: -> { I18n.t('Mastery Paths') },
-      description: -> { I18n.t('Configure individual learning paths for students based on assessment results.') },
-      applies_to: 'Course',
-      state: 'allowed',
-      beta: true,
-      development: false,
-      root_opt_in: true,
-      after_state_change_proc:  ->(user, context, _old_state, new_state) {
-        if %w(on allowed).include?(new_state) && context.is_a?(Account)
-          @service_account = ConditionalRelease::Setup.new(context.id, user.id)
-          @service_account.activate!
-        end
-      }
-    },
-    'wrap_calendar_event_titles' =>
-    {
-      display_name: -> { I18n.t('Wrap event titles in Calendar month view') },
-      description: -> { I18n.t("Show calendar events in the month view on multiple lines if the title doesn't fit on a single line") },
-      applies_to: 'RootAccount',
-      state: 'allowed',
-      root_opt_in: true
-    },
-    'new_collaborations' =>
-    {
-      display_name: -> { I18n.t("External Collaborations Tool") },
-      description: -> { I18n.t("Use the new Collaborations external tool enabling more options for tools to use to collaborate") },
-      applies_to: 'Course',
-      state: 'hidden',
-      development: false,
-      root_opt_in: true,
-      touch_context: true
-    },
-    'new_annotations' =>
-    {
-      display_name: -> { I18n.t('New Annotations') },
-      description: -> { I18n.t('Use the new document annotation tool') },
-      applies_to: 'Course',
-      state: 'hidden',
-      beta: true,
-      root_opt_in: true
-    },
-    'plagiarism_detection_platform' =>
-    {
-      display_name: -> { I18n.t('Plagiarism Detection Platform') },
-      description: -> { I18n.t('Enable the plagiarism detection platform') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      root_opt_in: true,
-      development: true,
-    },
-    'master_courses' =>
-    {
-      display_name: -> { I18n.t('Blueprint Courses') }, # this won't be confusing at all
-      description: -> { I18n.t('Enable the creation of Blueprint Courses') },
-      applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true,
-      development: true,
-    },
-    'student_context_cards' =>
-    {
-      display_name: -> { I18n.t('Student Context Card') },
-      description: -> { I18n.t('Enable student context card links') },
-      applies_to: "RootAccount",
-      state: "allowed",
-      beta: true
-    },
-    'gradezilla' =>
-    {
-      display_name: -> { I18n.t('Gradezilla') },
-      description: -> { I18n.t('Enable Gradezilla (name is only a placeholder as it will replace Gradebook in the future).') },
-      applies_to: "RootAccount",
-      state: "hidden",
-      beta: true,
-      development: true,
-    },
-    'modules_home_page' =>
-    {
-      display_name: -> { I18n.t('Modules Home Page') },
-      description: -> { I18n.t('Default to modules for the course home page') },
-      applies_to: "RootAccount",
-      state: "hidden",
-      beta: true,
-      development: true,
-    },
-  )
+  def self.validate_attrs(attrs, feature)
+    raise "state is required for feature #{feature}" unless attrs[:state]
+    raise "applies_to is required for feature #{feature}" unless attrs[:applies_to]
+    raise "invalid 'state' for feature #{feature}: must be one of #{VALID_STATES}, is #{attrs[:state]}" unless VALID_STATES.include? attrs[:state]
+    raise "invalid 'applies_to' for feature #{feature}: must  be one of #{VALID_APPLIES_TO}, is #{attrs[:applies_to]}" unless VALID_APPLIES_TO.include? attrs[:applies_to]
+  end
 
   def self.definitions
     @features ||= {}
@@ -564,7 +161,7 @@ END
     elsif object.is_a?(User)
       applicable_types << 'User'
     end
-    definitions.values.select{ |fd| applicable_types.include?(fd.applies_to) }
+    definitions.values.select { |fd| applicable_types.include?(fd.applies_to) }
   end
 
   def default_transitions(context, orig_state)
@@ -572,7 +169,7 @@ END
     valid_states << 'allowed' if context.is_a?(Account)
     (valid_states - [orig_state]).inject({}) do |transitions, state|
       transitions[state] = { 'locked' => (state == 'allowed' && @applies_to == 'RootAccount' &&
-          context.is_a?(Account) && context.root_account? && !context.site_admin?) }
+        context.is_a?(Account) && context.root_account? && !context.site_admin?) }
       transitions
     end
   end
@@ -592,5 +189,4 @@ END
   end
 end
 
-# load feature definitions
-Dir.glob("#{Rails.root}/lib/features/*.rb").each { |file| require_dependency file }
+FeatureFlags::Loader.load_feature_flags

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,6 +19,19 @@
 require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper.rb')
 
 describe Account do
+  include_examples "outcome import context examples"
+
+  describe 'relationships' do
+    it { is_expected.to have_many(:feature_flags) }
+    it { is_expected.to have_one(:outcome_proficiency).dependent(:destroy) }
+  end
+
+  it 'retrieves parent account\'s outcome proficiency' do
+    root_account = Account.create!
+    proficiency = outcome_proficiency_model(root_account)
+    subaccount = root_account.sub_accounts.create!
+    expect(subaccount.resolved_outcome_proficiency).to eq proficiency
+  end
 
   it "should provide a list of courses" do
     expect{ Account.new.courses }.not_to raise_error
@@ -141,6 +154,27 @@ describe Account do
         expect(@account.fast_all_courses({:term => EnrollmentTerm.where(sis_source_id: "T003").first}).map(&:sis_source_id).sort).to eq ["C005", "C006", "C007", "C008", "C009", "C005S", "C006S", "C007S", "C008S", "C009S"].sort
       end
 
+      it "counting cross-listed courses only if requested" do
+        def check_account(account, include_crosslisted_courses, expected_length, expected_course_names)
+          actual_courses = account.fast_all_courses({ :include_crosslisted_courses => include_crosslisted_courses })
+          expect(actual_courses.length).to eq expected_length
+          actual_course_names = actual_courses.pluck("name").sort!
+          expect(actual_course_names).to eq(expected_course_names.sort!)
+        end
+
+        root_account = Account.create!
+        account_a = Account.create!({ :root_account => root_account })
+        account_b = Account.create!({ :root_account => root_account })
+        course_a = course_factory({ :account => account_a, :course_name => "course_a" })
+        course_b = course_factory({ :account => account_b, :course_name => "course_b" })
+        course_b.course_sections.create!({ :name => "section_b" })
+        course_b.course_sections.first.crosslist_to_course(course_a)
+        check_account(account_a, false, 1, ["course_a"])
+        check_account(account_a, true, 1, ["course_a"])
+        check_account(account_b, false, 1, ["course_b"])
+        check_account(account_b, true, 2, ["course_a", "course_b"])
+      end
+
       it "should list associated nonenrollmentless courses" do
         expect(@account.fast_all_courses({:hide_enrollmentless_courses => true}).map(&:sis_source_id).sort).to eq ["C001", "C005", "C007", "C001S", "C005S", "C007S"].sort #C007 probably shouldn't be here, cause the enrollment section is deleted, but we kinda want to minimize database traffic
       end
@@ -153,7 +187,7 @@ describe Account do
 
       it "should order list by specified parameter" do
         order = "courses.created_at ASC"
-        @account.expects(:fast_course_base).with(order: order)
+        expect(@account).to receive(:fast_course_base).with(order: order)
         @account.fast_all_courses(order: order)
       end
     end
@@ -207,7 +241,7 @@ describe Account do
     end
 
     it "should allow settings services" do
-      expect {@a.enable_service(:completly_bogs)}.to raise_error
+      expect {@a.enable_service(:completly_bogs)}.to raise_error("Invalid Service")
 
       @a.disable_service(:twitter)
       expect(@a.service_enabled?(:twitter)).to be_falsey
@@ -216,7 +250,7 @@ describe Account do
       expect(@a.service_enabled?(:twitter)).to be_truthy
     end
 
-    it "should use + and - by default when setting service availabilty" do
+    it "should use + and - by default when setting service availability" do
       @a.enable_service(:twitter)
       expect(@a.service_enabled?(:twitter)).to be_truthy
       expect(@a.allowed_services).to be_nil
@@ -420,6 +454,11 @@ describe Account do
       expect(root_account.closest_turnitin_pledge).not_to be_empty
       expect(sub_account.closest_turnitin_pledge).not_to be_empty
     end
+
+    it 'uses the default message if pledge is nil or empty' do
+      account = Account.create!(turnitin_pledge: '')
+      expect(account.closest_turnitin_pledge).to eq 'This assignment submission is my own, original work'
+    end
   end
 
   it "should make a default enrollment term if necessary" do
@@ -441,10 +480,10 @@ describe Account do
   end
 
   it "should set up access policy correctly" do
-    # stub out any "if" permission conditions
+    # double out any "if" permission conditions
     RoleOverride.permissions.each do |k, v|
       next unless v[:if]
-      Account.any_instance.stubs(v[:if]).returns(true)
+      allow_any_instance_of(Account).to receive(v[:if]).and_return(true)
     end
     site_admin = Account.site_admin
 
@@ -474,7 +513,7 @@ describe Account do
       hash[k][:user] = user
     end
 
-    limited_access = [ :read, :manage, :update, :delete, :read_outcomes ]
+    limited_access = [ :read, :read_as_admin, :manage, :update, :delete, :read_outcomes, :read_terms ]
     conditional_access = RoleOverride.permissions.select { |_, v| v[:account_allows] }.map(&:first)
     full_access = RoleOverride.permissions.keys +
                   limited_access - conditional_access +
@@ -505,8 +544,8 @@ describe Account do
     hash.each do |k, v|
       next unless k == :site_admin || k == :root
       account = v[:account]
-      expect(account.check_policy(hash[:sub][:admin])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes])
-      expect(account.check_policy(hash[:sub][:user])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes])
+      expect(account.check_policy(hash[:sub][:admin])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes, :read_terms])
+      expect(account.check_policy(hash[:sub][:user])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes, :read_terms])
     end
     hash.each do |k, v|
       next if k == :site_admin || k == :root
@@ -523,7 +562,7 @@ describe Account do
       account.role_overrides.create!(:permission => 'reset_any_mfa', :role => @sa_role, :enabled => true)
       # clear caches
       account.tap{|a| a.settings[:mfa_settings] = :optional; a.save!}
-      v[:account] = Account.find(account)
+      v[:account] = Account.find(account.id)
     end
     RoleOverride.clear_cached_contexts
     AdheresToPolicy::Cache.clear
@@ -550,8 +589,8 @@ describe Account do
     hash.each do |k, v|
       next unless k == :site_admin || k == :root
       account = v[:account]
-      expect(account.check_policy(hash[:sub][:admin])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes])
-      expect(account.check_policy(hash[:sub][:user])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes])
+      expect(account.check_policy(hash[:sub][:admin])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes, :read_terms])
+      expect(account.check_policy(hash[:sub][:user])).to match_array(k == :site_admin ? [:read_global_outcomes] : [:read_outcomes, :read_terms])
     end
     hash.each do |k, v|
       next if k == :site_admin || k == :root
@@ -586,6 +625,7 @@ describe Account do
   it "does not allow create_courses even to admins on site admin and children" do
     a = Account.site_admin
     a.settings = { :no_enrollments_can_create_courses => true }
+    a.save!
     manual = a.manually_created_courses_account
     user_factory
 
@@ -658,15 +698,17 @@ describe Account do
     expect(account.group_categories.to_a).to eq [category2]
   end
 
-  it "all_group_categories should include deleted categories" do
+  it "group_categories.active should not include deleted categories" do
     account = Account.default
-    expect(account.all_group_categories.count).to eq 0
-    category1 = account.group_categories.create(:name => 'category 1')
-    category2 = account.group_categories.create(:name => 'category 2')
-    expect(account.all_group_categories.count).to eq 2
+    expect(account.group_categories.active.count).to eq 0
+    category1 = account.group_categories.create(name: 'category 1')
+    category2 = account.group_categories.create(name: 'category 2')
+    expect(account.group_categories.active.count).to eq 2
     category1.destroy
     account.reload
+    expect(account.group_categories.active.count).to eq 1
     expect(account.all_group_categories.count).to eq 2
+    expect(account.group_categories.active.to_a).to eq [category2]
   end
 
   it "should return correct values for login_handle_name_with_inference" do
@@ -860,7 +902,7 @@ describe Account do
         :hidden => false,
         :args => [1, 2]
       }
-      Lti::MessageHandler.stubs(:lti_apps_tabs).returns([mock_tab])
+      allow(Lti::MessageHandler).to receive(:lti_apps_tabs).and_return([mock_tab])
       expect(@account.tabs_available(nil)).to include(mock_tab)
     end
 
@@ -989,7 +1031,6 @@ describe Account do
 
     before do
       account.authentication_providers.scope.delete_all
-      expect(account.delegated_authentication?).to eq false
     end
 
     it "is false for LDAP" do
@@ -1088,12 +1129,12 @@ describe Account do
         au = sa.account_users.create!(user: @user)
         # out-of-proc cache should clear, but we have to manually clear
         # the in-proc cache
-        sa = Account.find(sa)
+        sa = Account.find(sa.id)
         expect(sa.account_users_for(@user)).to eq [au]
 
         au.destroy
         #ditto
-        sa = Account.find(sa)
+        sa = Account.find(sa.id)
         expect(sa.account_users_for(@user)).to eq []
       end
     end
@@ -1111,12 +1152,12 @@ describe Account do
             au = sa.account_users.create!(user: @user)
             # out-of-proc cache should clear, but we have to manually clear
             # the in-proc cache
-            sa = Account.find(sa)
+            sa = Account.find(sa.id)
             expect(sa.account_users_for(@user)).to eq [au]
 
             au.destroy
             #ditto
-            sa = Account.find(sa)
+            sa = Account.find(sa.id)
             expect(sa.account_users_for(@user)).to eq []
           end
         end
@@ -1200,13 +1241,13 @@ describe Account do
     end
 
     it "doesn't have permission, it returns false" do
-      account.stubs(:grants_right?).returns(false)
+      allow(account).to receive(:grants_right?).and_return(false)
       account_admin_user(:account => account)
       expect(account.can_see_admin_tools_tab?(@admin)).to be_falsey
     end
 
     it "does have permission, it returns true" do
-      account.stubs(:grants_right?).returns(true)
+      allow(account).to receive(:grants_right?).and_return(true)
       account_admin_user(:account => account)
       expect(account.can_see_admin_tools_tab?(@admin)).to be_truthy
     end
@@ -1265,8 +1306,15 @@ describe Account do
     end
   end
 
+  it 'should set allow_sis_import if root_account' do
+    account = Account.create!
+    expect(account.allow_sis_import).to eq true
+    sub = account.sub_accounts.create!
+    expect(sub.allow_sis_import).to eq false
+  end
+
   describe "#ensure_defaults" do
-    it "assigns an lti_guid postfixed by canvas-lms" do``
+    it "assigns an lti_guid postfixed by canvas-lms" do
       account = Account.new
       account.uuid = '12345'
       account.ensure_defaults
@@ -1348,7 +1396,7 @@ describe Account do
     it "should only clear the quota cache if something changes" do
       account = account_model
 
-      Account.expects(:invalidate_inherited_caches).once
+      expect(Account).to receive(:invalidate_inherited_caches).once
 
       account.default_storage_quota = 10.megabytes
       account.save! # clear here
@@ -1377,7 +1425,7 @@ describe Account do
         account = Account.find(account.id)
         expect(account.default_storage_quota).to eq 20.megabytes
 
-        subaccount = Account.find(subaccount)
+        subaccount = Account.find(subaccount.id)
         expect(subaccount.default_storage_quota).to eq 20.megabytes
       end
     end
@@ -1498,6 +1546,11 @@ describe Account do
         expect(account_model.terms_required?).to eq true
       end
 
+      it "returns false by default for new accounts" do
+        TermsOfService.skip_automatic_terms_creation = false
+        expect(account_model.terms_required?).to eq false
+      end
+
       it "returns false if Setting is false" do
         Setting.set(:terms_required, "false")
         expect(account_model.terms_required?).to eq false
@@ -1560,7 +1613,7 @@ describe Account do
       specs_require_sharding
 
       it "should work cross-shard" do
-        ActiveRecord::Base.connection.stubs(:use_qualified_names?).returns(true)
+        allow(ActiveRecord::Base.connection).to receive(:use_qualified_names?).and_return(true)
         @shard1.activate do
           @account = Account.create!
           @user = user_factory(:name => "silly name")
@@ -1568,6 +1621,22 @@ describe Account do
         end
         expect(@account.users_name_like("silly").first).to eq @user
       end
+    end
+  end
+
+  describe "#migrate_to_canvadocs?" do
+    before(:once) do
+      @account = Account.create!
+    end
+
+    it "is true if hijack_crocodoc_sessions is true" do
+      allow(Canvadocs).to receive(:hijack_crocodoc_sessions?).and_return(true)
+      expect(@account).to be_migrate_to_canvadocs
+    end
+
+    it "is false if hijack_crocodoc_sessions is false" do
+      allow(Canvadocs).to receive(:hijack_crocodoc_sessions?).and_return(false)
+      expect(@account).not_to be_migrate_to_canvadocs
     end
   end
 
@@ -1579,5 +1648,76 @@ describe Account do
     non_cached.save!
 
     expect(Account.default.settings[:blah]).to eq true
+  end
+
+  it_behaves_like 'a learning outcome context'
+
+  describe "#default_dashboard_view" do
+    before(:once) do
+      @account = Account.create!
+    end
+
+    it "should be nil by default" do
+      expect(@account.default_dashboard_view).to be_nil
+    end
+
+    it "should update if view is valid" do
+      @account.default_dashboard_view = "activity"
+      @account.save!
+
+      expect(@account.default_dashboard_view).to eq "activity"
+    end
+
+    it "should not update if view is invalid" do
+      @account.default_dashboard_view = "junk"
+      expect { @account.save! }.not_to change { @account.default_dashboard_view }
+    end
+
+    it "should contain planner" do
+      @account.default_dashboard_view = "planner"
+      @account.save!
+      expect(@account.default_dashboard_view).to eq "planner"
+    end
+  end
+
+  describe "#update_user_dashboards" do
+    before :once do
+      @account = Account.create!
+
+      @user1 = user_factory(:active_all => true)
+      @account.account_users.create!(user: @user1)
+      @user1.dashboard_view = 'activity'
+      @user1.save
+
+      @user2 = user_factory(:active_all => true)
+      @account.account_users.create!(user: @user2)
+      @user2.dashboard_view = 'cards'
+      @user2.save
+    end
+
+    it "should add or overwrite all account users' dashboard_view preference" do
+      @account.enable_feature!(:student_planner)
+      @account.default_dashboard_view = 'planner'
+      @account.save!
+      @account.reload
+
+      expect([@user1.dashboard_view(@account), @user2.dashboard_view(@account)]).to match_array(['activity', 'cards'])
+      @account.update_user_dashboards_without_send_later
+      @account.reload
+      expect([@user1.reload.dashboard_view(@account), @user2.reload.dashboard_view(@account)]).to match_array(Array.new(2, 'planner'))
+    end
+  end
+
+  it "should only send new account user notifications to active admins" do
+    active_admin = account_admin_user(:active_all => true)
+    deleted_admin = account_admin_user(:active_all => true)
+    deleted_admin.account_users.destroy_all
+    n = Notification.create(:name => "New Account User", :category => "TestImmediately")
+    [active_admin, deleted_admin].each do |u|
+      NotificationPolicy.create(:notification => n, :communication_channel => u.communication_channel, :frequency => "immediately")
+    end
+    user_factory(:active_all => true)
+    au = Account.default.account_users.create!(:user => @user)
+    expect(au.messages_sent[n.name].map(&:user)).to match_array [active_admin, @user]
   end
 end

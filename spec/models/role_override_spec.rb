@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -88,22 +88,36 @@ describe RoleOverride do
 
     AdheresToPolicy::Cache.clear
     RoleOverride.clear_cached_contexts
-    c2 = Course.find(c2)
+    c2 = Course.find(c2.id)
 
     expect(c2.grants_right?(u2, :moderate_forum)).to be_truthy
   end
 
   it "should not fail when a context's associated accounts are missing" do
     group_model
-    @group.stubs(:account).returns(nil)
+    allow(@group).to receive(:account).and_return(nil)
     expect{
       RoleOverride.permission_for(@group, :read_course_content, teacher_role)
     }.to_not raise_error
   end
 
+  it "should update the roles updated_at timestamp on save" do
+    account = account_model(:parent_account => Account.default)
+    role = teacher_role
+    role_override = RoleOverride.create!(:context => account, :permission => 'moderate_forum',
+                                         :role => role, :enabled => false)
+    role.update!(updated_at: 1.day.ago)
+    old_updated_at = role.updated_at
+
+    role_override.update!(enabled: true)
+    new_updated_at = role.updated_at
+
+    expect(old_updated_at).not_to eq(new_updated_at)
+  end
+
   describe "student view permissions" do
     it "should mirror student permissions" do
-      permission = 'comment_on_others_submissions'
+      permission = 'moderate_forum'
 
       course_with_teacher(:active_all => true)
       student_in_course(:active_all => true)
@@ -261,13 +275,6 @@ describe RoleOverride do
         expect(permission_data[:explicit]).to be_falsey
       end
 
-      it "should be enabled for account if not specified" do
-        permission_data = RoleOverride.permission_for(@account, :view_grade_changes, admin_role)
-        expect(permission_data[:account_allows]).to be_truthy
-        expect(permission_data[:enabled]).to be_truthy
-        expect(permission_data[:explicit]).to be_falsey
-      end
-
       it "should be enabled for account if specified" do
         root_account = @account.root_account
         root_account.settings[:admins_can_view_notifications] = true
@@ -391,6 +398,13 @@ describe RoleOverride do
         expect(Account.site_admin.grants_right?(@site_admin, :manage_site_settings)).to be_truthy
       end
 
+      it "should grant permissions on root accounts to custom site admins" do
+        custom_role = custom_account_role("somerole", :account => Account.site_admin)
+        Account.site_admin.role_overrides.create!(role: custom_role, enabled: true, permission: :manage_site_settings)
+        custom_site_admin = account_admin_user(account: Account.site_admin, role: custom_role)
+        expect(Account.default.grants_right?(@site_admin, :manage_site_settings)).to be_truthy
+      end
+
       it "should not grant root only permissions to sub account admins" do
         expect(Account.default.grants_right?(@root_admin, :become_user)).to be_truthy
         expect(@sub_account.grants_right?(@sub_admin, :become_user)).to be_falsey
@@ -419,7 +433,7 @@ describe RoleOverride do
           @account = Account.create!
           @account.role_overrides.create!(:permission => 'become_user', :enabled => false, :role => admin_role)
         end
-        expect(RoleOverride.permission_for(@account, :become_user, admin_role)[:enabled]).to eq nil
+        expect(RoleOverride.permission_for(@account, :become_user, admin_role)[:enabled]).to eq false
       end
 
       it "should find site-admin role overrides on a non-current shard" do
@@ -514,4 +528,35 @@ describe RoleOverride do
       expect(RoleOverride.manageable_permissions(@account).keys).to include(:manage_frozen_assignments)
     end
   end
+
+  describe 'specific permissions' do
+    before(:once) do
+      account_model
+    end
+
+    describe 'select_final_grade' do
+      let(:permission) { RoleOverride.permissions[:select_final_grade] }
+
+      it 'is enabled by default for account admins, teachers, and TAs' do
+        expect(permission[:true_for]).to match_array %w(AccountAdmin TeacherEnrollment TaEnrollment)
+      end
+
+      it 'is available to account admins, account memberships, teachers, and TAs' do
+        expect(permission[:available_to]).to match_array %w(AccountAdmin AccountMembership TeacherEnrollment TaEnrollment)
+      end
+    end
+
+    describe 'view_audit_trail' do
+      let(:permission) { RoleOverride.permissions[:view_audit_trail] }
+
+      it 'is enabled by default for teachers, TAs and admins' do
+        expect(permission[:true_for]).to match_array %w(AccountAdmin)
+      end
+
+      it 'is available to teachers, TAs, admins and account memberships' do
+        expect(permission[:available_to]).to match_array %w(TeacherEnrollment AccountAdmin AccountMembership)
+      end
+    end
+  end
+
 end

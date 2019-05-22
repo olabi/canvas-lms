@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -86,6 +86,7 @@ class MediaObjectsController < ApplicationController
       media_object.send_later_enqueue_args(:retrieve_details, {
         :singleton => "retrieve_media_details:#{media_object.media_id}"
       })
+      increment_request_cost(Setting.get("missed_media_additional_request_cost", "200").to_i)
     end
 
     media_object.viewed!

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,7 +42,16 @@ module Api::V1::RubricAssessment
     json_attributes = API_ALLOWED_RUBRIC_ASSESSMENT_OUTPUT_FIELDS
     hash = api_json(rubric_assessment, user, session, json_attributes)
     hash['data'] = rubric_assessment.data if opts[:style] == "full"
+    if opts[:style] == "full" && rubric_assessment.rubric_association.present?
+      hash['rubric_association'] = rubric_assessment.rubric_association.as_json['rubric_association']
+    end
     hash['comments'] = rubric_assessment.data.map{|rad| rad[:comments]} if opts[:style] == "comments_only"
     hash
+  end
+
+  def indexed_rubric_assessment_json(rubric_assessment)
+    rubric_assessment.data.map do |r|
+      [r[:criterion_id], { rating_id: r[:id] }.merge(r.slice(:comments, :points))]
+    end.to_h
   end
 end

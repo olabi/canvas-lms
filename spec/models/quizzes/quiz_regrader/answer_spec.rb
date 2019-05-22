@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'active_support'
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 
@@ -6,14 +23,14 @@ describe Quizzes::QuizRegrader::Answer do
   let(:points) { 15 }
 
   let(:question) do
-    stub(:id => 1, :question_data => {:id => 1,
+    double(:id => 1, :question_data => {:id => 1,
                                       :regrade_option => 'full_credit',
                                       :points_possible => points},
                    :quiz_group => nil)
   end
 
   let(:question_regrade) do
-    stub(:quiz_question  => question,
+    double(:quiz_question  => question,
          :regrade_option => "full_credit")
   end
 
@@ -57,7 +74,7 @@ describe Quizzes::QuizRegrader::Answer do
     end
 
     sent_params = {}
-    Quizzes::SubmissionGrader.expects(:score_question).with do |*args|
+    expect(Quizzes::SubmissionGrader).to receive(:score_question).at_least(:once) do |*args|
       sent_params, sent_answer_data = args
       if question.question_data[:question_type] == 'multiple_answers_question'
         answer.each do |k,v|
@@ -68,7 +85,9 @@ describe Quizzes::QuizRegrader::Answer do
       else
         expect(sent_answer_data).to eq answer.merge("question_#{question.id}" => answer[:text])
       end
-    end.returns(sent_params.merge(:points => points, :correct => correct)).at_least_once
+
+      sent_params.merge(:points => points, :correct => correct)
+    end
   end
 
   describe "#initialize" do
@@ -82,14 +101,14 @@ describe Quizzes::QuizRegrader::Answer do
     end
 
     it 'raises an error if the question has an unrecognized regrade_option' do
-      question_regrade = stub(:quiz_question  => question,
+      question_regrade = double(:quiz_question  => question,
                               :regrade_option => "be_a_jerk")
 
-      expect { Quizzes::QuizRegrader::Answer.new(answer, question_regrade) }.to raise_error
+      expect { Quizzes::QuizRegrader::Answer.new(answer, question_regrade) }.to raise_error("Regrade option not valid!")
     end
 
     it 'does not raise an error if question has recognized regrade_option' do
-      question_regrade = stub(:quiz_question  => question,
+      question_regrade = double(:quiz_question  => question,
                               :regrade_option => "current_correct_only")
 
       Quizzes::QuizRegrader::Answer::REGRADE_OPTIONS.each do |regrade_option|

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -6,7 +23,7 @@ describe 'quizzes question creation' do
   include QuizzesCommon
 
   before(:once) do
-    course_with_teacher
+    course_with_teacher(active_all: true)
   end
 
   before(:each) do
@@ -29,7 +46,6 @@ describe 'quizzes question creation' do
 
       quiz.reload
       refresh_page # make sure the quizzes load up from the database
-      dismiss_flash_messages # clears success flash message if exists
       click_questions_tab
       3.times do |i|
         expect(f("#question_#{quiz.quiz_questions[i].id}")).to be_truthy
@@ -65,10 +81,11 @@ describe 'quizzes question creation' do
       replace_content(answers[1].find_element(:css, '.select_answer input'), 'b')
 
       # save the question
-      submit_form(question)
+      driver.execute_script("$('.question_form:visible button[type=\"submit\"]').click();")
       wait_for_ajax_requests
 
       # check to see if the questions displays correctly
+      dismiss_flash_messages_if_present
       move_to_click('label[for=show_question_details]')
       quiz.reload
       finished_question = f("#question_#{quiz.quiz_questions[0].id}")
@@ -80,6 +97,7 @@ describe 'quizzes question creation' do
     end
 
     it 'respects character limits on short answer questions', priority: "2", test_id: 197493 do
+      skip_if_safari(:alert)
       question = fj('.question_form:visible')
       click_option('.question_form:visible .question_type', 'Fill In the Blank')
 

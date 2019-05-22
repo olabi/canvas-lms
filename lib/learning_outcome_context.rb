@@ -1,11 +1,30 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module LearningOutcomeContext
   def self.included(klass)
     if klass < ActiveRecord::Base
-      klass.has_many :linked_learning_outcomes, -> { where(content_tags: { content_type: 'LearningOutcome' }) }, through: :learning_outcome_links, source: :learning_outcome_content
       klass.has_many :learning_outcome_links, -> { where("content_tags.tag_type='learning_outcome_association' AND content_tags.workflow_state<>'deleted'") }, as: :context, inverse_of: :context, class_name: 'ContentTag'
+      klass.has_many :linked_learning_outcomes, -> { distinct.where(content_tags: { content_type: 'LearningOutcome' }) }, through: :learning_outcome_links, source: :learning_outcome_content
       klass.has_many :created_learning_outcomes, :class_name => 'LearningOutcome', :as => :context, :inverse_of => :context
       klass.has_many :learning_outcome_groups, :as => :context, :inverse_of => :context
       klass.send :include, InstanceMethods
+
+      klass.after_save :update_root_outcome_group_name, if: -> { saved_change_to_name? }
     end
   end
 
@@ -56,5 +75,12 @@ module LearningOutcomeContext
       LearningOutcomeGroup.find_or_create_root(self, force)
     end
 
+    def update_root_outcome_group_name
+      root = root_outcome_group(false)
+      return unless root
+      self.class.connection.after_transaction_commit do
+        root.update! title: self.name
+      end
+    end
   end
 end

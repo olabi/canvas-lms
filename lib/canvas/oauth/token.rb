@@ -1,9 +1,27 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Oauth
   class Token
     attr_reader :key, :code
 
     REDIS_PREFIX = 'oauth2:'
     USER_KEY = 'user'
+    REAL_USER_KEY = 'real_user'
     CLIENT_KEY = 'client_id'
     SCOPES_KEY = 'scopes'
     PURPOSE_KEY = 'purpose'
@@ -29,6 +47,14 @@ module Canvas::Oauth
 
     def user
       @user ||= User.find(code_data[USER_KEY])
+    end
+
+    def real_user
+      @real_user ||=
+        begin
+          real_user_id = code_data[REAL_USER_KEY]
+          real_user_id ? User.find(real_user_id) : user
+        end
     end
 
     def scopes
@@ -86,10 +112,23 @@ module Canvas::Oauth
 
     def as_json(_options={})
       json = {
-          'access_token' => access_token.full_token,
-          'token_type' => 'Bearer',
-          'user' => user.as_json(:only => [:id, :name], :include_root => false)
+        'access_token' => access_token.full_token,
+        'token_type' => 'Bearer',
+        'user' => {
+          'id' => user.id,
+          'name' => user.name,
+          'global_id' => user.global_id.to_s,
+          'effective_locale' => I18n.locale&.to_s
+        }
       }
+
+      unless real_user == user
+        json['real_user'] = {
+          'id' => real_user.id,
+          'name' => real_user.name,
+          'global_id' => real_user.global_id.to_s
+        }
+      end
 
       json['refresh_token'] = access_token.plaintext_refresh_token if access_token.plaintext_refresh_token
 
@@ -111,14 +150,16 @@ module Canvas::Oauth
       end
     end
 
-    def self.generate_code_for(user_id, client_id, options = {})
+    def self.generate_code_for(user_id, real_user_id, client_id, options = {})
       code = SecureRandom.hex(64)
       code_data = {
         USER_KEY => user_id,
+        REAL_USER_KEY => real_user_id,
         CLIENT_KEY => client_id,
         SCOPES_KEY => options[:scopes],
         PURPOSE_KEY => options[:purpose],
-        REMEMBER_ACCESS => options[:remember_access] }
+        REMEMBER_ACCESS => options[:remember_access]
+      }
       Canvas.redis.setex("#{REDIS_PREFIX}#{code}", Setting.get('oath_token_request_timeout', 10.minutes.to_s).to_i, code_data.to_json)
       return code
     end

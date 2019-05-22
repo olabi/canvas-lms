@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../helpers/gradebook_common'
 
 describe "gradebook - concluded courses and enrollments" do
@@ -21,14 +38,14 @@ describe "gradebook - concluded courses and enrollments" do
       get course_gradebook_path(@course)
       f('#gradebook_settings').click
       expect do
-        f('label[for="show_inactive_enrollments"]').click
-        wait_for_ajax_requests
+        wait_for_new_page_load(f('label[for="show_inactive_enrollments"]').click)
       end
         .to change { gradebook_settings_for_course.call(@teacher, @course)}
         .from(nil)
         .to({
           "show_inactive_enrollments" => "true",
           "show_concluded_enrollments" => "false",
+          "enter_grades_as" => nil
         })
     end
 
@@ -36,14 +53,14 @@ describe "gradebook - concluded courses and enrollments" do
       get course_gradebook_path(@course)
       f('#gradebook_settings').click
       expect do
-        f('label[for="show_concluded_enrollments"]').click
-        wait_for_ajax_requests
+        wait_for_new_page_load{ f('label[for="show_concluded_enrollments"]').click }
       end
         .to change { gradebook_settings_for_course.call(@teacher, @course) }
         .from(nil)
         .to({
           "show_inactive_enrollments" => "false",
           "show_concluded_enrollments" => "true",
+          "enter_grades_as" => nil
         })
     end
 
@@ -107,7 +124,7 @@ describe "gradebook - concluded courses and enrollments" do
     it "does not allow editing grades", priority: "1", test_id: 210027 do
       @course.complete!
       get "/courses/#{@course.id}/gradebook"
-      cell = f('#gradebook_grid .container_1 .slick-row:nth-child(1) .l2')
+      cell = f('#gradebook_grid .container_1 .slick-row:nth-child(1) .b2')
       expect(cell).to include_text '10'
       cell.click
       expect(cell).not_to contain_css('.grade') # no input box for entry

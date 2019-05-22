@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,10 +21,11 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 describe CourseLinkValidator do
 
   it "should validate all the links" do
-    CourseLinkValidator.any_instance.stubs(:reachable_url?).returns(false).once # don't actually ping the links for the specs
+    allow_any_instance_of(CourseLinkValidator).to receive(:reachable_url?).and_return(false) # don't actually ping the links for the specs
 
     course_factory
     attachment_model
+    @ua = assignment_model(:workflow_state => 'unpublished', :name => 'Unpublished assignment eh')
 
     bad_url = "http://www.notarealsitebutitdoesntmattercauseimstubbingitanwyay.com"
     bad_url2 = "/courses/#{@course.id}/file_contents/baaaad"
@@ -33,8 +34,9 @@ describe CourseLinkValidator do
       <img src="#{bad_url2}">Bad file link</a>
       <img src="/courses/#{@course.id}/file_contents/#{CGI.escape(@attachment.full_display_path)}">Ok file link</a>
       <a href="/courses/#{@course.id}/quizzes">Ok other link</a>
+      <a href="/courses/#{@course.id}/assignments/#{@ua.id}">Unpublished thing</a>
     }
-
+    @course.image_url = bad_url
     @course.syllabus_body = html
     @course.save!
 
@@ -47,7 +49,7 @@ describe CourseLinkValidator do
     topic = @course.discussion_topics.create!(:title => "discussion title", :message => html)
     mod = @course.context_modules.create!(:name => "some module")
     tag = mod.add_item(:type => 'external_url', :url => bad_url, :title => 'pls view')
-    page = @course.wiki.wiki_pages.create!(:title => "wiki", :body => html)
+    page = @course.wiki_pages.create!(:title => "wiki", :body => html)
     quiz = @course.quizzes.create!(:title => 'quiz1', :description => html)
 
     qq = quiz.quiz_questions.create!(:question_data => aq.question_data)
@@ -57,19 +59,28 @@ describe CourseLinkValidator do
 
     issues = CourseLinkValidator.current_progress(@course).results[:issues]
     issues.each do |issue|
-      expect(issue[:invalid_links]).to include({:reason => :unreachable, :url => bad_url})
-      next if issue[:type] == :module_item
-      expect(issue[:invalid_links]).to include({:reason => :missing_file, :url => bad_url2})
+      if issue[:type] == :course_card_image
+        expect(issue[:content_url]).to eq "/courses/#{@course.id}/settings"
+        expect(issue[:invalid_links]).to include({:reason => :unreachable, :url => bad_url, :image => true})
+      elsif issue[:type] == :module
+        expect(issue[:content_url]).to eq "/courses/#{@course.id}/modules#module_#{mod.id}"
+        expect(issue[:invalid_links]).to include({:reason => :unreachable, :link_text => 'pls view', :url => bad_url})
+      else
+        expect(issue[:invalid_links]).to include({:reason => :unreachable, :url => bad_url, :link_text => 'Bad absolute link'})
+        expect(issue[:invalid_links]).to include({:reason => :unpublished_item, :url => "/courses/#{@course.id}/assignments/#{@ua.id}", :link_text => "Unpublished thing"})
+        expect(issue[:invalid_links]).to include({:reason => :missing_item, :url => bad_url2, :image => true})
+      end
     end
 
     type_names = {
       :syllabus => 'Course Syllabus',
+      :course_card_image => 'Course Card Image',
       :assessment_question => aq.question_data[:question_name],
       :quiz_question => qq.question_data[:question_name],
       :assignment => assmnt.title,
       :calendar_event => event.title,
       :discussion_topic => topic.title,
-      :module_item => tag.title,
+      :module => mod.name,
       :quiz => quiz.title,
       :wiki_page => page.title
     }
@@ -77,11 +88,10 @@ describe CourseLinkValidator do
       expect(issues.select{|issue| issue[:type] == type}.count).to eq(1)
       expect(issues.detect{|issue| issue[:type] == type}[:name]).to eq(name)
     end
-
   end
 
   it "should not run on assessment questions in deleted banks" do
-    CourseLinkValidator.any_instance.stubs(:reachable_url?).returns(false) # don't actually ping the links for the specs
+    allow_any_instance_of(CourseLinkValidator).to receive(:reachable_url?).and_return(false) # don't actually ping the links for the specs
     html = %{<a href='http://www.notarealsitebutitdoesntmattercauseimstubbingitanwyay.com'>linky</a>}
 
     course_factory
@@ -104,8 +114,25 @@ describe CourseLinkValidator do
     expect(issues).to be_empty
   end
 
+  it "should not run on deleted quiz questions" do
+    allow_any_instance_of(CourseLinkValidator).to receive(:reachable_url?).and_return(false) # don't actually ping the links for the specs
+    html = %{<a href='http://www.notarealsitebutitdoesntmattercauseimstubbingitanwyay.com'>linky</a>}
+
+    course_factory
+    quiz = @course.quizzes.create!(:title => 'quiz1', :description => "desc")
+    qq = quiz.quiz_questions.create!(:question_data => {'name' => 'test question',
+      'question_text' => html, 'answers' => [{'id' => 1}, {'id' => 2}]})
+    qq.destroy!
+
+    CourseLinkValidator.queue_course(@course)
+    run_jobs
+
+    issues = CourseLinkValidator.current_progress(@course).results[:issues]
+    expect(issues.count).to eq 0
+  end
+
   it "should not care if it can reach it" do
-    CourseLinkValidator.any_instance.stubs(:reachable_url?).returns(true)
+    allow_any_instance_of(CourseLinkValidator).to receive(:reachable_url?).and_return(true)
 
     course_factory
     topic = @course.discussion_topics.create!(:message => %{<a href="http://www.www.www">pretend this is real</a>}, :title => "title")
@@ -115,6 +142,31 @@ describe CourseLinkValidator do
 
     issues = CourseLinkValidator.current_progress(@course).results[:issues]
     expect(issues).to be_empty
+  end
+
+  describe "insecure hosts" do
+    def test_url(url)
+      course_factory
+      topic = @course.discussion_topics.create!(:message => %{<a href="#{url}">kekeke</a>}, :title => "title")
+
+      expect(CanvasHttp).to_not receive(:connection_for_uri) # don't try to continue after failing validation
+      CourseLinkValidator.queue_course(@course)
+      run_jobs
+
+      issues = CourseLinkValidator.current_progress(@course).results[:issues]
+      expect(issues.first[:invalid_links].first[:reason]).to eq :unreachable
+    end
+
+    it "should not try to access local ips" do
+      test_url("http://localhost:3000/haxxed")
+      test_url("http://127.0.0.1/haxxedagain")
+    end
+
+    it "should be able to set the ip filter" do
+      Setting.set('http_blocked_ip_ranges', '42.42.42.42/8,24.24.24.24')
+      test_url("http://42.42.0.1/haxxedtheplanet")
+      test_url("http://24.24.24.24/haxxedforever")
+    end
   end
 
   it "should check for deleted/unpublished objects" do
@@ -142,6 +194,27 @@ describe CourseLinkValidator do
 
     links = CourseLinkValidator.current_progress(@course).results[:issues].first[:invalid_links].map{|l| l[:url]}
     expect(links).to match_array [unpublished_link, deleted_link]
+  end
+
+  it "should work more betterer with external_tools/retrieve" do
+    course_factory
+    tool = @course.context_external_tools.create!(name: 'blah',
+      url: 'https://blah.example.com', shared_secret: '123', consumer_key: '456')
+
+    active_link = "/courses/#{@course.id}/external_tools/retrieve?url=#{CGI.escape(tool.url)}"
+    nonsense_link = "/courses/#{@course.id}/external_tools/retrieve?url=#{CGI.escape("https://lolwut.beep")}"
+
+    message = %{
+      <a href='#{active_link}'>link</a>
+      <a href='#{nonsense_link}'>linkk</a>
+    }
+    @course.syllabus_body = message
+    @course.save!
+
+    CourseLinkValidator.queue_course(@course)
+    run_jobs
+    links = CourseLinkValidator.current_progress(@course).results[:issues].first[:invalid_links].map{|l| l[:url]}
+    expect(links).to eq([nonsense_link])
   end
 
   it "should work with absolute links to local objects" do
@@ -183,10 +256,10 @@ describe CourseLinkValidator do
 
   it "should find links to wiki pages" do
     course_factory
-    active = @course.wiki.wiki_pages.create!(:title => "active and stuff")
-    unpublished = @course.wiki.wiki_pages.create!(:title => "unpub")
+    active = @course.wiki_pages.create!(:title => "active and stuff")
+    unpublished = @course.wiki_pages.create!(:title => "unpub")
     unpublished.unpublish!
-    deleted = @course.wiki.wiki_pages.create!(:title => "baleeted")
+    deleted = @course.wiki_pages.create!(:title => "baleeted")
     deleted.destroy
 
     active_link = "/courses/#{@course.id}/pages/#{active.url}"
@@ -208,6 +281,26 @@ describe CourseLinkValidator do
 
     links = CourseLinkValidator.current_progress(@course).results[:issues].first[:invalid_links].map{|l| l[:url]}
     expect(links).to match_array [unpublished_link, deleted_link]
+  end
+
+  it "should ignore links to replaced wiki pages" do
+    course_factory
+    deleted = @course.wiki_pages.create!(:title => "baleeted")
+    deleted.destroy
+    not_really_deleted = @course.wiki_pages.create!(:title => "baleeted")
+    not_really_deleted_link = "/courses/#{@course.id}/pages/#{not_really_deleted.url}"
+
+    message = %{
+      <a href='#{not_really_deleted_link}'>link</a>
+    }
+    @course.syllabus_body = message
+    @course.save!
+
+    CourseLinkValidator.queue_course(@course)
+    run_jobs
+
+    issues = CourseLinkValidator.current_progress(@course).results[:issues]
+    expect(issues).to be_empty
   end
 
   it "should identify typo'd canvas links" do
@@ -289,7 +382,7 @@ describe CourseLinkValidator do
 
   it "should not flag wiki pages with url encoding" do
     course_factory
-    page = @course.wiki.wiki_pages.create!(:title => "semi;colon", :body => 'sutff')
+    page = @course.wiki_pages.create!(:title => "semi;colon", :body => 'sutff')
 
     @course.syllabus_body = %{<a href='/courses/#{@course.id}/pages/#{CGI.escape(page.title)}'>link</a>}
     @course.save!
@@ -299,5 +392,42 @@ describe CourseLinkValidator do
 
     issues = CourseLinkValidator.current_progress(@course).results[:issues]
     expect(issues).to be_empty
+  end
+
+  context '#check_object_status' do
+    before :once do
+      course_model
+      @course_link_validator = CourseLinkValidator.new(@course)
+      assignment_model(course: @course)
+    end
+
+    it "should return :missing_item if the link doesn't point to course content" do
+      expect(@course_link_validator.check_object_status("/test_error")).to eq :missing_item
+    end
+
+    it 'should return :unpublished_item for unpublished content' do
+      @assignment.unpublish!
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/assignments/#{@assignment.id}")).to eq :unpublished_item
+
+      quiz_model(course: @course).update_attributes(workflow_state: 'created')
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/quizzes/#{@quiz.id}")).to eq :unpublished_item
+
+      quiz_model(course: @course).unpublish!
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/quizzes/#{@quiz.id}")).to eq :unpublished_item
+
+      attachment_model(context: @course).update_attributes(locked: true)
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/files/#{@attachment.id}/download")).to eq :unpublished_item
+    end
+
+    it 'should return :deleted for deleted content' do
+      @assignment.destroy
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/assignments/#{@assignment.id}")).to eq :deleted
+
+      quiz_model(course: @course).destroy
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/quizzes/#{@quiz.id}")).to eq :deleted
+
+      attachment_model(context: @course).destroy
+      expect(@course_link_validator.check_object_status("/courses/#{@course.id}/files/#{@attachment.id}/download")).to eq :deleted
+    end
   end
 end

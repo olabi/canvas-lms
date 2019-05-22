@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,23 +18,39 @@
 class UserMergeData < ActiveRecord::Base
   belongs_to :user
   belongs_to :from_user, class_name: 'User'
-  has_many :user_merge_data_records
+  has_many :records, class_name: 'UserMergeDataRecord', inverse_of: :merge_data, autosave: false
+  has_many :items, class_name: 'UserMergeDataItem', inverse_of: :merge_data, autosave: false
 
   scope :active, -> { where.not(workflow_state: 'deleted') }
   scope :splitable, -> { where('created_at > ?', split_time) }
 
   def self.split_time
-    Time.zone.now - Setting.get('user_merge_to_split_time', 180.days.to_i).to_i
+    Time.zone.now - Setting.get('user_merge_to_split_time', '180').to_i.days
   end
 
-  def add_more_data(objects, user: nil, workflow_state: nil)
-    objects.each do |o|
-      user ||= o.user_id
-      r = self.user_merge_data_records.new(context: o, previous_user_id: user)
-      r.previous_workflow_state = o.workflow_state if o.class.columns_hash.key?('workflow_state')
-      r.previous_workflow_state = o.file_state if o.class == Attachment
-      r.previous_workflow_state = workflow_state if workflow_state
-      r.save!
+  def add_more_data(objects, user: nil, workflow_state: nil, data: [])
+    data = build_more_data(objects, user: user, workflow_state: workflow_state, data: data)
+    bulk_insert_merge_data(data)
+  end
+
+  def build_more_data(objects, user: nil, workflow_state: nil, data: [])
+    # to get relative ids in previous_user_id, we need to be on the records shard
+    self.shard.activate do
+      objects.each do |o|
+        user ||= o.user_id
+        r = self.records.new(context: o, previous_user_id: user)
+        r.previous_workflow_state = o.workflow_state if o.class.columns_hash.key?('workflow_state')
+        r.previous_workflow_state = o.file_state if o.class == Attachment
+        r.previous_workflow_state = workflow_state if workflow_state
+        data << r
+      end
+    end
+    data
+  end
+
+  def bulk_insert_merge_data(data)
+    self.shard.activate do
+      data.each_slice(1000) {|batch| UserMergeDataRecord.bulk_insert_objects(batch)}
     end
   end
 

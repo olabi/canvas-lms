@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 # @API Quiz Extensions
-# @beta
 #
 # API for setting extensions on student quiz submissions
 #
@@ -66,33 +65,32 @@
 class Quizzes::QuizExtensionsController < ApplicationController
   include ::Filters::Quizzes
 
-  before_filter :require_user, :require_context, :require_quiz
+  before_action :require_user, :require_context, :require_quiz
 
   # @API Set extensions for student quiz submissions
-  # @beta
   #
-  # @argument user_id [Required, Integer]
+  # @argument quiz_extensions[][user_id] [Required, Integer]
   #   The ID of the user we want to add quiz extensions for.
   #
-  # @argument extra_attempts [Integer]
+  # @argument quiz_extensions[][extra_attempts] [Integer]
   #   Number of times the student is allowed to re-take the quiz over the
   #   multiple-attempt limit. This is limited to 1000 attempts or less.
   #
-  # @argument extra_time [Integer]
+  # @argument quiz_extensions[][extra_time] [Integer]
   #   The number of extra minutes to allow for all attempts. This will
   #   add to the existing time limit on the submission. This is limited to
   #   10080 minutes (1 week)
   #
-  # @argument manually_unlocked [Boolean]
+  # @argument quiz_extensions[][manually_unlocked] [Boolean]
   #   Allow the student to take the quiz even if it's locked for
   #   everyone else.
   #
-  # @argument extend_from_now [Integer]
+  # @argument quiz_extensions[][extend_from_now] [Integer]
   #   The number of minutes to extend the quiz from the current time. This is
   #   mutually exclusive to extend_from_end_at. This is limited to 1440
   #   minutes (24 hours)
   #
-  # @argument extend_from_end_at [Integer]
+  # @argument quiz_extensions[][extend_from_end_at] [Integer]
   #   The number of minutes to extend the quiz beyond the quiz's current
   #   ending time. This is mutually exclusive to extend_from_now. This is
   #   limited to 1440 minutes (24 hours)

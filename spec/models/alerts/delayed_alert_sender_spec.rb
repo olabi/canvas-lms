@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -261,7 +261,7 @@ module Alerts
         end
 
         before :each do
-          @pseudonym = mock('Pseudonym')
+          @pseudonym = double('Pseudonym')
           allow(@pseudonym).to receive(:destroyed?).and_return(false)
           allow(Pseudonym).to receive(:find_by_user_id).and_return(@pseudonym)
         end

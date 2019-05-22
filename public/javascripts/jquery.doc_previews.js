@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,20 +12,20 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'INST' /* INST */,
-  'i18n!instructure',
-  'jquery' /* jQuery, $ */,
-  'underscore',
-  'str/htmlEscape' /* htmlEscape, /\$\.h/ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.google-analytics' /* trackEvent */,
-  'jquery.instructure_misc_helpers' /*  /\$\.uniq/, capitalize */,
-  'jquery.loadingImg' /* loadingImage */
-], function(INST, I18n, $, _, htmlEscape) {
+
+import INST from './INST'
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import _ from 'underscore'
+import htmlEscape from './str/htmlEscape'
+import './jquery.ajaxJSON'
+import './jquery.google-analytics' /* trackEvent */
+import './jquery.instructure_misc_helpers' /*  /\$\.uniq/, capitalize */
+import './jquery.loadingImg'
+import sanitizeUrl from '../../app/jsx/shared/helpers/sanitizeUrl';
 
   // first element in array is if scribd can handle it, second is if google can.
   var previewableMimeTypes = {
@@ -46,7 +46,7 @@ define([
       "application/vnd.oasis.opendocument.text":                                   [1, 1],
       "application/vnd.openxmlformats-officedocument.presentationml.template":     [1, 1],
       "application/vnd.openxmlformats-officedocument.presentationml.slideshow":    [1, 1],
-      "text/plain":                                                                [1, false],
+      "text/plain":                                                                [1, 1],
       "application/vnd.openxmlformats-officedocument.presentationml.presentation": [1, 1],
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document":   [1, 1],
       "application/postscript":                                                    [1, 1],
@@ -89,10 +89,12 @@ define([
       }
 
       if (!INST.disableCrocodocPreviews && opts.crocodoc_session_url) {
+        const sanitizedUrl = sanitizeUrl(opts.crocodoc_session_url)
         var iframe = $('<iframe/>', {
-            src: opts.crocodoc_session_url,
+            src: sanitizedUrl,
             width: opts.width,
             height: opts.height,
+            allowfullscreen: "1",
             id: opts.id
         });
         iframe.appendTo($this);
@@ -103,23 +105,28 @@ define([
         });
       }
       else if (opts.canvadoc_session_url) {
+        const canvadocWrapper = $('<div style="overflow: auto; resize: vertical;\
+        border: 1px solid transparent; height: 100%;"/>')
+        canvadocWrapper.appendTo($this)
+
+        const minHeight = opts.iframe_min_height !== undefined ? opts.iframe_min_height : '800px'
+        const sanitizedUrl = sanitizeUrl(opts.canvadoc_session_url)
         var iframe = $('<iframe/>', {
-            src: opts.canvadoc_session_url,
-            width: opts.width,
-            height: opts.height,
-            allowfullscreen: "1",
-            css: {border: 0},
-            id: opts.id
+          src: sanitizedUrl,
+          width: opts.width,
+          allowfullscreen: '1',
+          css: {border: 0, overflow: 'auto', height: '99%', 'min-height': minHeight},
+          id: opts.id
         });
-        iframe.appendTo($this);
+        iframe.appendTo(canvadocWrapper)
         iframe.load(function() {
           tellAppIViewedThisInline('canvadocs');
           if ($.isFunction(opts.ready))
             opts.ready();
         });
-      } else if (!INST.disableGooglePreviews && (!opts.mimeType || $.isPreviewable(opts.mimeType, 'google')) && opts.attachment_id || opts.public_url){
+      } else if (!INST.disableGooglePreviews && (!opts.mimetype || $.isPreviewable(opts.mimetype, 'google')) && opts.attachment_id || opts.public_url){
         // else if it's something google docs preview can handle and we can get a public url to this document.
-        function loadGooglePreview(){
+        var loadGooglePreview = function () {
           // this handles both ssl and plain http.
           var googleDocPreviewUrl = '//docs.google.com/viewer?' + $.param({
             embedded: true,
@@ -162,5 +169,3 @@ define([
       }
     });
   };
-
-});

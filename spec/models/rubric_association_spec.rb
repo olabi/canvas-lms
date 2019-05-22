@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe RubricAssociation do
 
-  def rubric_association_params_for_assignment(assign)
+  def rubric_association_params_for_assignment(assign, override={})
     HashWithIndifferentAccess.new({
       hide_score_total: "0",
       purpose: "grading",
@@ -29,7 +29,7 @@ describe RubricAssociation do
       update_if_existing: true,
       use_for_grading: "1",
       association_object: assign
-    })
+    }.merge(override))
   end
 
   context "assignment rubrics" do
@@ -45,6 +45,34 @@ describe RubricAssociation do
         :peer_reviews => true,
         :submission_types => 'online_text_entry'
       )
+    end
+
+    it 'disable use_for_grading if hide_points enabled' do
+      # Create the rubric
+      @rubric = @course.rubrics.create! { |r| r.user = @teacher }
+
+      ra_params = rubric_association_params_for_assignment(@assignment, use_for_grading: '1')
+      rubric_assoc = RubricAssociation.generate(@teacher, @rubric, @course, ra_params)
+      expect(rubric_assoc.use_for_grading).to be true
+
+      ra_params = rubric_association_params_for_assignment(@assignment, hide_points: '1')
+      rubric_assoc = RubricAssociation.generate(@teacher, @rubric, @course, ra_params)
+
+      expect(rubric_assoc.use_for_grading).to be false
+    end
+
+    it 'disable hide_score_total if hide_points enabled' do
+      # Create the rubric
+      @rubric = @course.rubrics.create! { |r| r.user = @teacher }
+
+      ra_params = rubric_association_params_for_assignment(@assignment, hide_score_total: '1')
+      rubric_assoc = RubricAssociation.generate(@teacher, @rubric, @course, ra_params)
+      expect(rubric_assoc.hide_score_total).to be true
+
+      ra_params = rubric_association_params_for_assignment(@assignment, hide_points: '1')
+      rubric_assoc = RubricAssociation.generate(@teacher, @rubric, @course, ra_params)
+
+      expect(rubric_assoc.hide_score_total).to be false
     end
 
     context "when a peer-review assignment has been completed AFTER rubric created" do
@@ -110,7 +138,7 @@ describe RubricAssociation do
           :context => @course,
           :purpose => 'bookmark'
         )
-        LearningOutcome.expects(:update_alignments).never
+        expect(LearningOutcome).to receive(:update_alignments).never
         ra.update_alignments
       end
 
@@ -156,10 +184,41 @@ describe RubricAssociation do
           }
         }
       })
-      
+
       expect(assess).not_to be_nil
       ra.destroy
       expect(assess.reload).not_to be_nil
+    end
+
+    it "should not delete assessment requests when an association is destroyed" do
+      submission_student = student_in_course(active_all: true, course: @course).user
+      review_student = student_in_course(active_all: true, course: @course).user
+      assignment = @course.assignments.create!
+      submission = assignment.find_or_create_submission(submission_student)
+      assessor_submission = assignment.find_or_create_submission(review_student)
+      outcome_with_rubric
+      ra = @rubric.rubric_associations.create!(
+        :association_object => assignment,
+        :context => @course,
+        :purpose => 'grading'
+      )
+      request = AssessmentRequest.create!(user: submission_student, asset: submission, assessor_asset: assessor_submission,
+        assessor: review_student, rubric_association: ra)
+      expect(request).not_to be_nil
+      ra.destroy
+      expect(request.reload).not_to be_nil
+    end
+
+    it "should let account admins without manage_courses do things" do
+      @rubric = @course.rubrics.create! { |r| r.user = @teacher }
+      ra_params = rubric_association_params_for_assignment(@assignment)
+      ra = RubricAssociation.generate(@teacher, @rubric, @course, ra_params)
+
+      admin = account_admin_user_with_role_changes(:active_all => true, :role_changes => {:manage_courses => false})
+
+      [:manage, :delete].each do |permission|
+        expect(ra.grants_right?(admin, permission)).to be_truthy
+      end
     end
   end
 
@@ -182,8 +241,181 @@ describe RubricAssociation do
       @rubric = @course.rubrics.build
       rubric_params = HashWithIndifferentAccess.new({"title"=>"Some Rubric", "criteria"=>{"0"=>{"learning_outcome_id"=>"", "ratings"=>{"0"=>{"points"=>"5", "id"=>"blank", "description"=>"Full Marks"}, "1"=>{"points"=>"0", "id"=>"blank_2", "description"=>"No Marks"}}, "points"=>"5", "long_description"=>"", "id"=>"", "description"=>"Description of criterion"}}, "points_possible"=>"5", "free_form_criterion_comments"=>"0"})
       rubric_association_params = HashWithIndifferentAccess.new({:association_object=>@course, :hide_score_total=>"0", :use_for_grading=>"0", :purpose=>"bookmark"})
-      @course.any_instantiation.expects(:submissions).never
+      expect_any_instantiation_of(@course).to receive(:submissions).never
       @rubric.update_with_association(@user, rubric_params, @course, rubric_association_params)
+    end
+  end
+
+  describe "#assess" do
+    let(:course) { Course.create! }
+    let!(:first_teacher) { course_with_teacher(course: course, active_all: true).user }
+    let!(:second_teacher) { course_with_teacher(course: course, active_all: true).user }
+    let(:student) { student_in_course(course: course, active_all: true).user }
+    let(:assignment) { course.assignments.create!(submission_types: 'online_text_entry') }
+    let(:rubric) do
+      course.rubrics.create! do |r|
+        r.title = "rubric"
+        r.user = first_teacher
+        r.data = [{
+                    id: "stuff",
+                    description: "stuff",
+                    long_description: "",
+                    points: 1.0,
+                    ratings: [
+                      { description: "Full Marks", points: 1.0, id: "blank" },
+                      { description: "No Marks", points: 0.0, id: "blank_2" }
+                    ]
+                  }]
+      end
+    end
+    let!(:rubric_association) do
+      params = rubric_association_params_for_assignment(assignment)
+      RubricAssociation.generate(first_teacher, rubric, course, params)
+    end
+    let(:submission) { assignment.submit_homework(student) }
+    let(:assessment_params) { { assessment_type: 'grading', criterion_stuff: { points: 1 } } }
+
+    it "updates the assessor/grader if the second assessor is different than the first" do
+      rubric_association.assess(user: student, assessor: first_teacher, artifact: submission,
+                                assessment: assessment_params)
+
+      assessment_params[:criterion_stuff][:points] = 0
+      assessment = rubric_association.assess(user: student, assessor: second_teacher, artifact: submission,
+                                             assessment: assessment_params)
+      submission.reload
+
+      expect(assessment.assessor).to eq(second_teacher)
+      expect(submission.grader).to eq(second_teacher)
+    end
+
+    it "propagated hide_points value" do
+      rubric_association.update!(hide_points: true)
+      assessment = rubric_association.assess(user: student, assessor: first_teacher, artifact: submission,
+                                             assessment: assessment_params)
+      expect(assessment.hide_points).to be true
+    end
+
+    it "updates the rating description and id if not present in passed params" do
+      assessment = rubric_association.assess(user: student, assessor: first_teacher, artifact: submission,
+                                             assessment: assessment_params)
+      expect(assessment.data[0][:id]).to eq 'blank'
+      expect(assessment.data[0][:description]).to eq 'Full Marks'
+    end
+  end
+
+  describe '#generate' do
+    let(:course) { Course.create! }
+    let(:teacher) { course.enroll_teacher(User.create!, active_all: true).user }
+    let(:assignment) { course.assignments.create!(anonymous_grading: true) }
+    let(:rubric) { Rubric.create!(title: 'hi', context: course) }
+
+    describe 'AnonymousOrModerationEvent creation for auditable assignments' do
+      context 'when the assignment has a prior grading rubric' do
+        let(:old_rubric) { Rubric.create!(title: 'zzz', context: course) }
+        let(:last_updated_event) { AnonymousOrModerationEvent.where(event_type: 'rubric_updated').last }
+
+        before(:each) do
+          RubricAssociation.generate(
+            teacher,
+            old_rubric,
+            course,
+            association_object: assignment,
+            purpose: 'grading'
+          )
+          assignment.reload
+        end
+
+        it "does not record a rubric_updated event when no updating_user present" do
+          ra = old_rubric.rubric_associations.last
+          ra.update!(updating_user: nil)
+          expect{ ra.update!(skip_updating_points_possible: true) }.not_to change{ AnonymousOrModerationEvent.count }
+        end
+
+        it 'records a rubric_updated event for the assignment' do
+          expect {
+            RubricAssociation.generate(teacher, rubric, course, association_object: assignment, purpose: 'grading')
+          }.to change {
+            AnonymousOrModerationEvent.where(event_type: 'rubric_updated', assignment: assignment).count
+          }.by(1)
+        end
+
+        it 'includes the ID of the removed rubric in the payload' do
+          RubricAssociation.generate(teacher, rubric, course, association_object: assignment, purpose: 'grading')
+          expect(last_updated_event.payload['id'].first).to eq old_rubric.id
+        end
+
+        it 'includes the ID of the added rubric in the payload' do
+          RubricAssociation.generate(teacher, rubric, course, association_object: assignment, purpose: 'grading')
+          expect(last_updated_event.payload['id'].second).to eq rubric.id
+        end
+
+        it 'includes the updating user on the event' do
+          rubric.update_with_association(teacher, {}, course, association_object: assignment, purpose: 'grading')
+          expect(last_updated_event.user_id).to eq teacher.id
+        end
+
+        it 'includes the associated assignment on the event' do
+          rubric.update_with_association(teacher, {}, course, association_object: assignment, purpose: 'grading')
+          expect(last_updated_event.assignment_id).to eq assignment.id
+        end
+      end
+
+      context 'when the assignment has no prior grading rubric' do
+        let(:last_created_event) { AnonymousOrModerationEvent.where(event_type: 'rubric_created').last }
+
+        it 'records a rubric_created event for the assignment' do
+          expect {
+            rubric.update_with_association(teacher, {}, course, association_object: assignment, purpose: 'grading')
+          }.to change {
+            AnonymousOrModerationEvent.where(event_type: 'rubric_created', assignment: assignment).count
+          }.by(1)
+        end
+
+        it 'includes the ID of the added rubric in the payload' do
+          rubric.update_with_association(teacher, {}, course, association_object: assignment, purpose: 'grading')
+          expect(last_created_event.payload['id']).to eq rubric.id
+        end
+
+        it 'includes the updating user on the event' do
+          rubric.update_with_association(teacher, {}, course, association_object: assignment, purpose: 'grading')
+          expect(last_created_event.user_id).to eq teacher.id
+        end
+
+        it 'includes the associated assignment on the event' do
+          rubric.update_with_association(teacher, {}, course, association_object: assignment, purpose: 'grading')
+          expect(last_created_event.assignment_id).to eq assignment.id
+        end
+      end
+    end
+  end
+
+  describe "#auditable?" do
+    let(:course) { Course.create! }
+    let(:teacher) { course.enroll_teacher(User.create!, active_all: true).user }
+    let(:rubric) { Rubric.create!(title: 'hi', context: course) }
+
+    it "is auditable when assignment is auditable" do
+      assignment = course.assignments.create!(name: "anonymous", anonymous_grading: true)
+      ra = RubricAssociation.generate(
+        teacher,
+        rubric,
+        course,
+        association_object: assignment,
+        purpose: "grading"
+      )
+      expect(ra).to be_auditable
+    end
+
+    it "is not auditable when assignment is not auditable" do
+      assignment = course.assignments.create!(name: "plain")
+      ra = RubricAssociation.generate(
+        teacher,
+        rubric,
+        course,
+        association_object: assignment,
+        purpose: "grading"
+      )
+      expect(ra).not_to be_auditable
     end
   end
 end

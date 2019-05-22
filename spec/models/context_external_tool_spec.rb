@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,10 +24,205 @@ describe ContextExternalTool do
     @root_account = @course.root_account
     @account = account_model(:root_account => @root_account, :parent_account => @root_account)
     @course.update_attribute(:account, @account)
-    expect(@course.account).to eql(@account)
-    expect(@course.root_account).to eql(@root_account)
-    expect(@account.parent_account).to eql(@root_account)
-    expect(@account.root_account).to eql(@root_account)
+  end
+
+  describe 'associations' do
+    let_once(:developer_key) { DeveloperKey.create! }
+    let_once(:tool) do
+      ContextExternalTool.create!(
+        context: @course,
+        consumer_key: 'key',
+        shared_secret: 'secret',
+        name: 'test tool',
+        url: 'http://www.tool.com/launch',
+        developer_key: developer_key
+      )
+    end
+
+    it 'allows setting the developer key' do
+      expect(tool.developer_key).to eq developer_key
+    end
+  end
+
+  describe '#login_or_launch_url' do
+    let_once(:developer_key) { DeveloperKey.create! }
+    let_once(:tool) do
+      ContextExternalTool.create!(
+        context: @course,
+        consumer_key: 'key',
+        shared_secret: 'secret',
+        name: 'test tool',
+        url: 'http://www.tool.com/launch',
+        developer_key: developer_key
+      )
+    end
+
+    it 'returns the launch url' do
+      expect(tool.login_or_launch_url).to eq tool.url
+    end
+
+    context 'when a content_tag_uri is specified' do
+      let(:content_tag_uri) { 'https://www.test.com/tool-launch' }
+
+      it 'returns the content tag uri' do
+        expect(tool.login_or_launch_url(content_tag_uri: content_tag_uri)).to eq content_tag_uri
+      end
+    end
+
+    context 'when the extension url is present' do
+      let(:placement_url) { 'http://www.test.com/editor_button' }
+
+      before do
+        tool.editor_button = {
+          "url" => placement_url,
+          "text" => "LTI 1.3 twoa",
+          "enabled" => true,
+          "icon_url" => "https://static.thenounproject.com/png/131630-200.png",
+          "message_type" => "LtiDeepLinkingRequest",
+          "canvas_icon_class" => "icon-lti"
+        }
+      end
+
+      it 'returns the extension url' do
+        expect(tool.login_or_launch_url(extension_type: :editor_button)).to eq placement_url
+      end
+
+    end
+
+    context 'lti_1_3 tool' do
+      let(:oidc_initiation_url) { 'http://www.test.com/oidc/login' }
+
+      before do
+        tool.settings['use_1_3'] = true
+        developer_key.update!(oidc_initiation_url: oidc_initiation_url)
+      end
+
+      it 'returns the oidc login url' do
+        expect(tool.login_or_launch_url).to eq oidc_initiation_url
+      end
+    end
+  end
+
+  describe '#deployment_id' do
+    let_once(:tool) do
+      ContextExternalTool.create!(
+        id: 1,
+        context: @course,
+        consumer_key: 'key',
+        shared_secret: 'secret',
+        name: 'test tool',
+        url: 'http://www.tool.com/launch'
+      )
+    end
+
+    it 'returns the correct deployment_id' do
+      expect(tool.deployment_id).to eq "#{tool.id}:#{Lti::Asset.opaque_identifier_for(tool.context)}"
+    end
+
+    it 'sends only 255 chars' do
+      allow(Lti::Asset).to receive(:opaque_identifier_for).and_return(256.times.map { 'a' }.join)
+      expect(tool.deployment_id.size).to eq 255
+    end
+  end
+
+  describe '#duplicated_in_context?' do
+    shared_examples_for 'detects duplication in contexts' do
+      subject { second_tool.duplicated_in_context? }
+      let(:context) { raise 'Override in spec' }
+      let(:second_tool) { tool.dup }
+      let(:settings) do
+        {
+          "editor_button" => {
+            "icon_url"=>"http://www.example.com/favicon.ico",
+            "text"=>"Example",
+            "url"=>"http://www.example.com",
+            "selection_height"=>400,
+            "selection_width"=>600
+          }
+        }
+      end
+      let(:tool) do
+        ContextExternalTool.create!(
+          settings: settings,
+          context: context,
+          name: 'first tool',
+          consumer_key: 'key',
+          shared_secret: 'secret',
+          url: 'http://www.tool.com/launch'
+        )
+      end
+
+      context 'when url is not set' do
+        let(:domain) { 'instructure.com' }
+
+        before { tool.update!(url: nil, domain: domain) }
+
+        context 'when no other tools are installed in the context' do
+          it 'does not count as duplicate' do
+            expect(tool.duplicated_in_context?).to eq false
+          end
+        end
+
+        context 'when a tool with matching domain is found' do
+          it { is_expected.to eq true }
+        end
+
+        context 'when a tool with matching domain is found in different context' do
+          before { second_tool.update!(context: course_model) }
+
+          it { is_expected.to eq false }
+        end
+
+        context 'when a tool with matching domain is not found' do
+          before { second_tool.domain = 'different-domain.com' }
+
+          it { is_expected.to eq false }
+        end
+      end
+
+      context 'when no other tools are installed in the context' do
+        it 'does not count as duplicate' do
+          expect(tool.duplicated_in_context?).to eq false
+        end
+      end
+
+      context 'when a tool with matching settings and different URL is found' do
+        before { second_tool.url << '/different/url' }
+
+        it { is_expected.to eq false }
+      end
+
+      context 'when a tool with different settings and matching URL is found' do
+        before { second_tool.settings[:different_key] = 'different value' }
+
+        it { is_expected.to eq true }
+      end
+
+      context 'when a tool with different settings and different URL is found' do
+        before do
+          second_tool.url << '/different/url'
+          second_tool.settings[:different_key] = 'different value'
+        end
+
+        it { is_expected.to eq false }
+      end
+
+      context 'when a tool with matching settings and matching URL is found' do
+        it { is_expected.to eq true }
+      end
+    end
+
+    context 'duplicated in account chain' do
+      it_behaves_like 'detects duplication in contexts' do
+        let(:context) { account_model }
+      end
+    end
+
+    context 'duplicated in course' do
+      it_behaves_like 'detects duplication in contexts' do
+        let(:context) { course_model }
+      end
+    end
   end
 
   describe '#content_migration_configured?' do
@@ -173,6 +368,40 @@ describe ContextExternalTool do
     expect(@tool.has_placement?(:course_navigation)).to eq false
   end
 
+  describe 'validate_urls' do
+    subject { tool.valid? }
+
+    let(:tool) do
+      course.context_external_tools.build(
+        :name => "a", :url => url, :consumer_key => '12345', :shared_secret => 'secret', settings: settings
+      )
+    end
+    let(:settings) { {} }
+    let_once(:course) { course_model }
+    let(:url) { 'https://example.com' }
+
+    context 'with bad launch_url' do
+      let(:url) { 'https://example.com>' }
+
+      it { is_expected.to be false }
+    end
+
+    context 'with bad settings_url' do
+      let(:settings) do
+        { course_navigation: {
+            :url => 'https://example.com>',
+            :text => "Example",
+            :icon_url => "http://www.example.com/image.ico",
+            :selection_width => 50,
+            :selection_height => 50
+          }
+        }
+      end
+
+      it { is_expected.to be false }
+    end
+  end
+
   describe "find_external_tool" do
     it "should match on the same domain" do
       @tool = @course.context_external_tools.create!(:name => "a", :domain => "google.com", :consumer_key => '12345', :shared_secret => 'secret')
@@ -243,6 +472,12 @@ describe ContextExternalTool do
       expect(@found_tool).to eql(@tool)
     end
 
+    it "should not match on domain if domain is nil" do
+      @tool = @course.context_external_tools.create!(:name => "a", :url => "http://www.google.com/coolness", :consumer_key => '12345', :shared_secret => 'secret')
+      @found_tool = ContextExternalTool.find_external_tool("http://malicious.domain./hahaha", Course.find(@course.id))
+      expect(@found_tool).to be_nil
+    end
+
     it "should match on url or domain for a tool that has both" do
       @tool = @course.context_external_tools.create!(:name => "a", :url => "http://www.google.com/coolness", :domain => "google.com", :consumer_key => '12345', :shared_secret => 'secret')
       expect(ContextExternalTool.find_external_tool("http://google.com/is/cool", Course.find(@course.id))).to eql(@tool)
@@ -298,6 +533,19 @@ describe ContextExternalTool do
       @tool = @root_account.context_external_tools.create!(:name => "e", :domain => "google.com", :consumer_key => '12345', :shared_secret => 'secret')
       @found_tool = ContextExternalTool.find_external_tool("http://www.google.com/", Course.find(@course.id))
       expect(@found_tool).to eql(@tool)
+    end
+
+    context 'when exclude_tool_id is set' do
+      subject { ContextExternalTool.find_external_tool("http://www.google.com", Course.find(course.id), nil, exclude_tool.id) }
+
+      let(:course) { @course }
+      let(:exclude_tool) do
+        course.context_external_tools.create!(:name => "a", :url => "http://www.google.com", :consumer_key => '12345', :shared_secret => 'secret')
+      end
+
+      it 'should not return the excluded tool' do
+        expect(subject).to be_nil
+      end
     end
 
     context 'preferred_tool_id' do
@@ -451,6 +699,21 @@ describe ContextExternalTool do
       placements = Lti::ResourcePlacement::DEFAULT_PLACEMENTS + ['resource_selection']
       expect(ContextExternalTool.all_tools_for(@course, placements: placements).to_a).to eql([tool1, tool3].sort_by(&:name))
     end
+
+    it 'honors only_visible option' do
+      course_with_student(active_all: true, user: user_with_pseudonym, account: @account)
+      @tools = []
+      @tools << @root_account.context_external_tools.create!(:name => "f", :domain => "google.com", :consumer_key => '12345', :shared_secret => 'secret')
+      @tools << @course.context_external_tools.create!(:name => "d", :domain => "google.com", :consumer_key => '12345', :shared_secret => 'secret',
+                                                        :settings => {:assignment_view => {:visibility => 'admins'}})
+      @tools << @course.context_external_tools.create!(:name => "a", :url => "http://www.google.com", :consumer_key => '12345', :shared_secret => 'secret',
+                                                        :settings => {:assignment_view => {:visibility => 'members'}})
+      tools = ContextExternalTool.all_tools_for(@course)
+      expect(tools.count).to eq 3
+      tools = ContextExternalTool.all_tools_for(@course, only_visible: true, current_user: @user, visibility_placements: ["assignment_view"])
+      expect(tools.count).to eq 1
+      expect(tools[0].name).to eq 'a'
+    end
   end
 
   describe "placements" do
@@ -488,6 +751,67 @@ describe ContextExternalTool do
       tool3.not_selectable = true
       tool3.save!
       expect(ContextExternalTool.all_tools_for(@course).placements(*Lti::ResourcePlacement::DEFAULT_PLACEMENTS).to_a).to eql([tool1])
+    end
+
+  end
+
+  describe "visible" do
+
+    it "returns all tools to admins" do
+      course_with_teacher(active_all: true, user: user_with_pseudonym, account: @account)
+      tool1 = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool2 = @course.context_external_tools.new(:name => "2", :consumer_key => "key", :shared_secret => "secret")
+      tool2.settings[:assignment_view] = {:url => "http://www.example.com"}.with_indifferent_access
+      tool2.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(@user, @course, nil, []).to_a).to eql([tool1, tool2].sort_by(&:name))
+    end
+
+    it "returns nothing if a non-admin requests without specifying placement" do
+      course_with_student(active_all: true, user: user_with_pseudonym, account: @account)
+      tool1 = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool2 = @course.context_external_tools.new(:name => "2", :consumer_key => "key", :shared_secret => "secret")
+      tool2.settings[:assignment_view] = {:url => "http://www.example.com"}.with_indifferent_access
+      tool2.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(@user, @course, nil, []).to_a).to eql([])
+    end
+
+    it "returns only tools with placements matching the requested placement" do
+      course_with_student(active_all: true, user: user_with_pseudonym, account: @account)
+      tool1 = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool2 = @course.context_external_tools.new(:name => "2", :consumer_key => "key", :shared_secret => "secret")
+      tool2.settings[:assignment_view] = {:url => "http://www.example.com"}.with_indifferent_access
+      tool2.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(@user, @course, nil, ["assignment_view"]).to_a).to eql([tool2])
+    end
+
+    it "does not return admin tools to students" do
+      course_with_student(active_all: true, user: user_with_pseudonym, account: @account)
+      tool = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool.settings[:assignment_view] = {:url => "http://www.example.com", :visibility => 'admins'}.with_indifferent_access
+      tool.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(@user, @course, nil, ["assignment_view"]).to_a).to eql([])
+    end
+
+    it "does return member tools to students" do
+      course_with_student(active_all: true, user: user_with_pseudonym, account: @account)
+      tool = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool.settings[:assignment_view] = {:url => "http://www.example.com", :visibility => 'members'}.with_indifferent_access
+      tool.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(@user, @course, nil, ["assignment_view"]).to_a).to eql([tool])
+    end
+
+    it "does not return member tools to public" do
+      tool = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool.settings[:assignment_view] = {:url => "http://www.example.com", :visibility => 'members'}.with_indifferent_access
+      tool.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(nil, @course, nil, ["assignment_view"]).to_a).to eql([])
+    end
+
+    it "does return public tools to public" do
+      tool = @course.context_external_tools.create!(:name => "1", :url => "http://www.example.com", :consumer_key => "key", :shared_secret => "secret")
+      tool.settings[:assignment_view] = {:url => "http://www.example.com", :visibility => 'public'}.with_indifferent_access
+      tool.save!
+      expect(ContextExternalTool.all_tools_for(@course).visible(nil, @course, nil, ["assignment_view"]).to_a).to eql([tool])
     end
 
   end
@@ -750,6 +1074,21 @@ describe ContextExternalTool do
       expect(url).to eql(ContextExternalTool.standardize_url("www.google.com/?b=2&a=1"))
     end
 
+    it 'should handle spaces in front of url' do
+      url = ContextExternalTool.standardize_url(" http://sub_underscore.google.com?a=1&b=2")
+      expect(url).to eql('http://sub_underscore.google.com/?a=1&b=2')
+    end
+
+    it 'should handle tabs in front of url' do
+      url = ContextExternalTool.standardize_url("\thttp://sub_underscore.google.com?a=1&b=2")
+      expect(url).to eql('http://sub_underscore.google.com/?a=1&b=2')
+    end
+
+    it 'should handle unicode whitespace' do
+      url = ContextExternalTool.standardize_url("\u00A0http://sub_underscore.go\u2005ogle.com?a=1\u2002&b=2")
+      expect(url).to eql('http://sub_underscore.google.com/?a=1&b=2')
+    end
+
     it 'handles underscores in the domain' do
       url = ContextExternalTool.standardize_url("http://sub_underscore.google.com?a=1&b=2")
       expect(url).to eql('http://sub_underscore.google.com/?a=1&b=2')
@@ -886,6 +1225,22 @@ describe ContextExternalTool do
 
     it "should raise RecordNotFound if the id is invalid" do
       expect { ContextExternalTool.find_for("horseshoes", @course, :course_navigation) }.to raise_error(ActiveRecord::RecordNotFound)
+    end
+
+    it "should not find a course tool with workflow_state deleted" do
+      tool = new_external_tool @course
+      tool.course_navigation = {:url => "http://www.example.com", :text => "Example URL"}
+      tool.workflow_state = 'deleted'
+      tool.save!
+      expect { ContextExternalTool.find_for(tool.id, @course, :course_navigation) }.to raise_error(ActiveRecord::RecordNotFound)
+    end
+
+    it "should not find an account tool with workflow_state deleted" do
+      tool = new_external_tool @account
+      tool.account_navigation = {:url => "http://www.example.com", :text => "Example URL"}
+      tool.workflow_state = 'deleted'
+      tool.save!
+      expect { ContextExternalTool.find_for(tool.id, @account, :account_navigation) }.to raise_error(ActiveRecord::RecordNotFound)
     end
   end
 
@@ -1141,6 +1496,65 @@ describe ContextExternalTool do
         expect(tool.grants_right?(@ta, :update_manually)).to be_truthy
         expect(tool.grants_right?(@student, :update_manually)).to be_falsey
       end
+    end
+  end
+
+  describe '#lti_1_3_enabled?' do
+
+    context 'when the tool is not configured for LTI 1.3 but the account is' do
+      let(:tool) do
+        @root_account.enable_feature!(:lti_1_3)
+        @root_account.save!
+        @root_account.context_external_tools.new(:name => "bob", :consumer_key => "bob", :shared_secret => "bob", :domain => "www.example.com")
+      end
+
+      it 'returns false' do
+        expect(tool).to_not be_lti_1_3_enabled
+      end
+    end
+
+    context 'when the account is not configured for LTI 1.3 but the tool is' do
+      let(:tool) do
+        tool = @root_account.context_external_tools.new(:name => "bob", :consumer_key => "bob", :shared_secret => "bob", :domain => "www.example.com")
+        tool.use_1_3 = true
+        tool.save!
+        tool
+      end
+
+      it 'returns false' do
+        expect(tool).to_not be_lti_1_3_enabled
+      end
+    end
+
+    context 'when both the tool and account are configured for LTI 1.3' do
+      let(:tool) do
+        @root_account.enable_feature!(:lti_1_3)
+        @root_account.save!
+        tool = @root_account.context_external_tools.new(:name => "bob", :consumer_key => "bob", :shared_secret => "bob", :domain => "www.example.com")
+        tool.settings['use_1_3'] = true
+        tool.save!
+        tool
+      end
+
+      it 'returns true' do
+        expect(tool).to be_lti_1_3_enabled
+      end
+    end
+  end
+
+  describe 'editor_button_json' do
+    let(:tool) { @root_account.context_external_tools.new(name: "editor thing", domain: "www.example.com") }
+
+    it 'includes a boolean false for use_tray' do
+      tool.editor_button = { use_tray: "false" }
+      json = ContextExternalTool.editor_button_json([tool], @course, user_with_pseudonym)
+      expect(json[0][:use_tray]).to eq false
+    end
+
+    it 'includes a boolean true for use_tray' do
+      tool.editor_button = { use_tray: "true" }
+      json = ContextExternalTool.editor_button_json([tool], @course, user_with_pseudonym)
+      expect(json[0][:use_tray]).to eq true
     end
   end
 end

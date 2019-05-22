@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'net/http'
 require 'net/https'
 require 'uri'
@@ -6,12 +23,13 @@ module AppCenter
   class AppApi
     attr_reader :app_center
 
-    def initialize
+    def initialize(context)
       @app_center = Canvas::Plugin.find(:app_center)
+      @context ||= context
     end
 
     def valid_app_center?
-      @app_center && @app_center.enabled? && !@app_center.settings['base_url'].empty?
+      @app_center&.enabled? && !@app_center.settings['base_url'].empty?
     end
 
     def fetch_app_center_response(endpoint, expires, page, per_page)
@@ -39,15 +57,15 @@ module AppCenter
         Rails.cache.delete cache_key
       end
 
-      return json
+      json
     end
 
-    def get_apps(page = 1, per_page = 72, app_center_access_token=nil)
+    def get_apps(page = 1, per_page = 72)
       return {} unless valid_app_center?
 
       uri = URI.parse(@app_center.settings['apps_index_endpoint'])
       params = URI.decode_www_form(uri.query || '')
-      access_token = app_center_access_token ? app_center_access_token : @app_center.settings['token']
+      access_token = app_center_token_by_context
       params << ['access_token', access_token]
       uri.query = URI.encode_www_form(params)
       json = fetch_app_center_response(uri.to_s, 5.minutes, page, per_page)
@@ -91,7 +109,7 @@ module AppCenter
     end
 
     def get_app_config_url(app_center_id, config_settings)
-      access_token = @app_center.settings['token']
+      access_token = app_center_token_by_context
       endpoint = "/api/v1/lti_apps/#{app_center_id}?access_token=#{access_token}"
 
       app_details = fetch_app_center_response(endpoint, 5.minutes, 1, 1)
@@ -111,6 +129,16 @@ module AppCenter
       end
 
       config_url
+    end
+
+    private
+
+    def app_center_token_by_context
+      context = @context.is_a?(Account) ? @context : @context.account
+
+      context.settings[:app_center_access_token].presence ||
+      context.calculate_inherited_setting(:app_center_access_token)[:value] ||
+      @app_center.settings['token']
     end
   end
 end

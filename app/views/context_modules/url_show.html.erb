@@ -1,11 +1,38 @@
 <%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
   content_for :page_title, @tag.title
-  add_crumb @tag.context_module.name, context_url(@context, :context_context_modules_url)
+
+  # modules are a bit different, and it's not possible to get the URL to a specific
+  # module using context_url, so we get the URL to a course's modules, and append
+  # the id of the module we're interested in.
+  # if you change this, see also application_controller#content_tag_redirect where
+  # it calls add_crumb
+  cu = context_url(@context, :context_context_modules_url)
+  cu = "#{cu}/#{@tag.context_module.id}"
+  add_crumb @tag.context_module.name, cu
   add_crumb @tag.title
+
   js_bundle :file_inline
   js_bundle 'module_sequence_footer'
 %>
-
+  <h1 class="screenreader-only"><%= @tag.title %></h1>
   <% if @tag.try(:new_tab) %>
     <%= t :new_tab, "This site needs to be opened in a new browser window." %>
     <div>
@@ -25,6 +52,7 @@
         </p>
       </div>
     <% end %>
+    <% css_bundle :ui_listview %>
     <ul style="margin-top:0" class="ui-listview ui-listview-no-rounded-bottom">
       <li class="active">
         <span style="font-size:18px; text-align: center; padding: .2em" class="ui-listview-text">
@@ -33,8 +61,7 @@
       </li>
       <li>
         <span style="padding:0" class="ui-listview-text">
-          <%= iframe(@tag.url, :id => 'file_content', :style => "width:100%; height: 400px; float:left;") %>
-          <!-- had to float then clear this because there was a space below the iframe I couldnt figure out how to get to go away -->
+          <%= iframe(@tag.url, :id => 'file_content', :title => @tag.title, :style => "width:100%; height: 400px; float:#{ direction('left') };") %>
           <div class="clear"></div>
         </span>
       </li>

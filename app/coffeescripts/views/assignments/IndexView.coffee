@@ -1,6 +1,23 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!assignments'
-  'compiled/views/KeyboardNavDialog'
+  '../KeyboardNavDialog'
   'jst/KeyboardNavDialog'
   'jquery'
   'underscore'
@@ -9,12 +26,12 @@ define [
   'react-dom'
   'jst/assignments/IndexView'
   'jst/assignments/NoAssignmentsSearch'
-  'compiled/views/assignments/AssignmentKeyBindingsMixin'
-  'compiled/userSettings'
-  'compiled/api/gradingPeriodsApi'
+  './AssignmentKeyBindingsMixin'
+  '../../userSettings'
+  '../../api/gradingPeriodsApi'
   'jsx/assignments/IndexMenu'
   'jsx/assignments/store/indexMenuStore'
-  'compiled/jquery.rails_flash_notifications'
+  '../../jquery.rails_flash_notifications'
 ], (I18n, KeyboardNavDialog, keyboardNavTemplate, $, _, Backbone, React, ReactDOM, template, NoAssignments, AssignmentKeyBindingsMixin, userSettings, GradingPeriodsAPI, IndexMenu, configureIndexMenuStore) ->
 
   class IndexView extends Backbone.View
@@ -26,11 +43,14 @@ define [
     @child 'assignmentGroupsView', '[data-view=assignmentGroups]'
     @child 'createGroupView', '[data-view=createGroup]'
     @child 'assignmentSettingsView', '[data-view=assignmentSettings]'
+    @child 'assignmentSyncSettingsView', '[data-view=assignmentSyncSettings]'
     @child 'showByView', '[data-view=showBy]'
 
     events:
       'keyup #search_term': 'search'
       'change #grading_period_selector': 'filterResults'
+      'focus .drag_and_drop_warning': 'show_dnd_warning'
+      'blur .drag_and_drop_warning': 'hide_dnd_warning'
 
     els:
       '#addGroup': '$addGroupButton'
@@ -56,6 +76,7 @@ define [
 
       if @assignmentSettingsView
         @assignmentSettingsView.hide()
+        @assignmentSyncSettingsView.hide()
 
         @indexMenuStore = configureIndexMenuStore({
           weighted: ENV.WEIGHT_FINAL_GRADES,
@@ -74,7 +95,12 @@ define [
             contextType: contextType,
             contextId: contextId,
             setTrigger: @assignmentSettingsView.setTrigger.bind(@assignmentSettingsView)
+            setDisableTrigger: @assignmentSyncSettingsView.setTrigger.bind(@assignmentSyncSettingsView)
             registerWeightToggle: @assignmentSettingsView.on.bind(@assignmentSettingsView)
+            disableSyncToSis: @assignmentSyncSettingsView.openDisableSync.bind(@assignmentSyncSettingsView)
+            sisName: ENV.SIS_NAME
+            postToSisDefault: ENV.POST_TO_SIS_DEFAULT
+            hasAssignments: ENV.HAS_ASSIGNMENTS
           }),
           $('#settingsMountPoint')[0]
         )
@@ -101,10 +127,16 @@ define [
 
     gradingPeriods: GradingPeriodsAPI.deserializePeriods(ENV.active_grading_periods)
 
+    show_dnd_warning: (event) =>
+      @$(event.currentTarget).removeClass('screenreader-only')
+
+    hide_dnd_warning: (event) =>
+      @$(event.currentTarget).addClass('screenreader-only')
+
     filterResults: =>
       term = $('#search_term').val()
       gradingPeriod = null
-      if ENV.MULTIPLE_GRADING_PERIODS_ENABLED
+      if ENV.HAS_GRADING_PERIODS
         gradingPeriodIndex = $("#grading_period_selector").val()
         gradingPeriod = @gradingPeriods[parseInt(gradingPeriodIndex)] if gradingPeriodIndex != "all"
         @saveSelectedGradingPeriod(gradingPeriod)
@@ -157,7 +189,7 @@ define [
 
     focusOnAssignments: (e) =>
       if 74 == e.keyCode
-        unless($(e.target).is("input"))
+        unless($(e.target).is(":input"))
           $(".assignment_group").filter(":visible").first().attr("tabindex",-1).focus()
 
     canManage: ->

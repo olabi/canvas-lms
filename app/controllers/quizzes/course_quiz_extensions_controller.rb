@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 # @API Course Quiz Extensions
-# @beta
 #
 # API for setting extensions on student quiz submissions at the course level
 #
@@ -59,10 +58,9 @@
 #     }
 class Quizzes::CourseQuizExtensionsController < ApplicationController
 
-  before_filter :require_user, :require_context
+  before_action :require_user, :require_context
 
   # @API Set extensions for student quiz submissions
-  # @beta
   #
   # @argument user_id [Required, Integer]
   #   The ID of the user we want to add quiz extensions for.

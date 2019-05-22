@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,16 +23,16 @@ module Api
   module Html
     describe MediaTag do
 
-      let(:doc){ stub() }
+      let(:doc){ double() }
 
       describe "#has_media_comment?" do
         def media_tag(tag, attr, val)
-          tag.stubs(:[]).with(attr).returns(val)
+          allow(tag).to receive(:[]).with(attr).and_return(val)
           MediaTag.new(tag, doc)
         end
 
         describe "for anchor tags" do
-          let(:a_tag){ stub(name: 'a') }
+          let(:a_tag){ double(name: 'a') }
 
           it "is true with a media_comment id" do
             expect(media_tag(a_tag, 'id', 'media_comment_123').has_media_comment?).to be(true)
@@ -48,7 +48,7 @@ module Api
         end
 
         describe "for media tags" do
-          let(:tag){ stub(name: 'video') }
+          let(:tag){ double(name: 'video') }
 
           it "is true with a data-media_comment id" do
             expect(media_tag(tag, 'data-media_comment_id', '123').has_media_comment?).to be(true)
@@ -62,7 +62,7 @@ module Api
       end
 
       describe '#as_html5_node' do
-        let(:url_helper){ stub({
+        let(:url_helper){ double({
           media_object_thumbnail_url: "/media/object/thumbnail",
           media_redirect_url: "/media/redirect",
           show_media_tracks_url: 'media/track/vtt'
@@ -70,10 +70,12 @@ module Api
 
         describe 'transforming a video node' do
           let(:media_comment_id) { '42' }
+          let(:alt_text) { 'media alt text' }
           let(:base_tag) do
-            tag = stub(name: 'video', inner_html: "inner_html")
-            tag.stubs(:[]).with('class').returns('')
-            tag.stubs(:[]).with('data-media_comment_id').returns(media_comment_id)
+            tag = double(name: 'video', inner_html: "inner_html")
+            allow(tag).to receive(:[]).with('class').and_return('')
+            allow(tag).to receive(:[]).with('data-media_comment_id').and_return(media_comment_id)
+            allow(tag).to receive(:[]).with('data-alt').and_return(alt_text)
             tag
           end
           let(:media_tag) do
@@ -92,13 +94,14 @@ module Api
           specify{ expect(html5_node['src']).to eq(url_helper.media_redirect_url) }
           specify{ expect(html5_node.inner_html).to eq(base_tag.inner_html) }
           specify{ expect(html5_node.tag_name).to eq('video') }
+          specify{ expect(html5_node['data-alt']).to eq(alt_text) }
 
           context 'when media object has subtitle tracks' do
             let(:media_object) do
-              stub(
+              double(
                 id: media_comment_id,
                 media_tracks: [
-                  stub(
+                  double(
                     kind: 'subtitles',
                     locale: 'en',
                     id: 1,
@@ -109,7 +112,7 @@ module Api
             end
             let(:media_tag) do
               MediaTag.new(base_tag, Nokogiri::XML::DocumentFragment.parse('<div></div>'), Nokogiri::XML::Node).tap do |tag|
-                tag.stubs(media_object: media_object)
+                allow(tag).to receive_messages(media_object: media_object)
               end
             end
 
@@ -121,12 +124,14 @@ module Api
         end
 
         describe 'transforming a audio node' do
-          let(:base_tag){ stub(name: 'audio', inner_html: "inner_html") }
+          let(:alt_text) { 'media alt text' }
+          let(:base_tag){ double(name: 'audio', inner_html: "inner_html") }
 
           let(:html5_node){
             tag = base_tag
-            tag.stubs(:[]).with('class').returns('audio_comment')
-            tag.stubs(:[]).with('data-media_comment_id').returns('24')
+            allow(tag).to receive(:[]).with('class').and_return('audio_comment')
+            allow(tag).to receive(:[]).with('data-media_comment_id').and_return('24')
+            allow(tag).to receive(:[]).with('data-alt').and_return(alt_text)
             media_tag = MediaTag.new(tag, doc, StubbedNode)
             media_tag.as_html5_node(url_helper)
           }
@@ -140,28 +145,29 @@ module Api
           specify{ expect(html5_node['src']).to eq(url_helper.media_redirect_url) }
           specify{ expect(html5_node.inner_html).to eq(base_tag.inner_html) }
           specify{ expect(html5_node.tag_name).to eq('audio') }
+          specify{ expect(html5_node['data-alt']).to eq(alt_text) }
         end
 
       end
 
       describe '#as_anchor_node' do
         describe 'from anchor tag' do
-          let(:base_tag){ stub(name: 'a', attributes: {'a'=>'b', 'key'=>'val', 'class' => 'someclass'}) }
+          let(:base_tag){ double(name: 'a', attributes: {'a'=>'b', 'key'=>'val', 'class' => 'someclass'}) }
 
           let(:anchor_node){
             tag = base_tag
-            tag.stubs(:[]).with('id').returns("media_comment_911")
-            tag.stubs(:[]).with('class').returns("none")
+            allow(tag).to receive(:[]).with('id').and_return("media_comment_911")
+            allow(tag).to receive(:[]).with('class').and_return("none")
             media_tag = MediaTag.new(tag, doc, StubbedNode)
             media_tag.as_anchor_node
           }
 
           before do
-            mo = stub(media_type: 'special')
-            mo.stubs(:by_media_id).with('911').returns(mo)
-            mo.stubs(:preload).with(:media_tracks).returns(mo)
-            mo.stubs(:first).returns(mo)
-            MediaObject.stubs(active: mo)
+            mo = double(media_type: 'special')
+            allow(mo).to receive(:by_media_id).with('911').and_return(mo)
+            allow(mo).to receive(:preload).with(:media_tracks).and_return(mo)
+            allow(mo).to receive(:first).and_return(mo)
+            allow(MediaObject).to receive_messages(active: mo)
           end
 
           specify{ expect(anchor_node.tag_name).to eq('a') }
@@ -172,12 +178,12 @@ module Api
         end
 
         describe 'from non-anchor tag' do
-          let(:base_tag){ stub(name: 'video', attributes: {'a'=>'b', 'key'=>'val'}) }
+          let(:base_tag){ double(name: 'video', attributes: {'a'=>'b', 'key'=>'val'}) }
 
           let(:anchor_node){
             tag = base_tag
-            tag.stubs(:[]).with('data-media_comment_id').returns("119")
-            tag.stubs(:[]).with('class').returns("video")
+            allow(tag).to receive(:[]).with('data-media_comment_id').and_return("119")
+            allow(tag).to receive(:[]).with('class').and_return("video")
             media_tag = MediaTag.new(tag, doc, StubbedNode)
             media_tag.as_anchor_node
           }

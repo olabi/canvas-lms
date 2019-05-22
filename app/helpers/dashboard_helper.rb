@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,23 @@
 #
 
 module DashboardHelper
+  def user_dashboard_view
+    dashboard_view = @current_user&.dashboard_view
+    dashboard_view = 'activity' if @current_user&.preferences&.dig(:recent_activity_dashboard) && !@current_user.preferences[:dashboard_view]
+    dashboard_view = 'cards' if dashboard_view == 'planner' && !@current_user.account.feature_enabled?(:student_planner)
+    dashboard_view
+  end
+
+  def show_cards?
+    user_dashboard_view == 'cards'
+  end
+
+  def show_planner?
+    user_dashboard_view == 'planner'
+  end
+
   def show_recent_activity?
-    @current_user.preferences[:recent_activity_dashboard].present?
+    user_dashboard_view == 'activity'
   end
 
   def show_welcome_message?
@@ -132,6 +147,15 @@ module DashboardHelper
 
   def todo_link_classes(activity_type)
     todo_ignore_dropdown_type?(activity_type) ? 'al-trigger disable_item_link' : 'disable_item_link disable-todo-item-link'
+  end
+
+  def map_courses_for_menu(courses, opts={})
+    mapped = courses.map do |course|
+      presenter = CourseForMenuPresenter.new(course, @current_user, @domain_root_account, session, opts)
+      presenter.to_h
+    end
+
+    mapped.sort_by {|h| h[:position] || ::CanvasSort::Last}
   end
 
 end

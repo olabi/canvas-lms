@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <div class="quiz-submission <%= "headless" if !@headers %>">
 <% if !(@current_submission || @submission).results_visible?(user: @current_user)%>
   <h4><%= render_result_protection(@quiz, @current_submission || @submission) %></h4>
@@ -44,7 +62,7 @@
     submission_data = @submission.data
     submission_data_hash = {}
     submission_data.each{|d| submission_data_hash[d[:question_id]] = d }
-    submission_questions = @submission.questions_as_object
+    submission_questions = @submission.questions
     submission_questions_hash = {}
     submission_questions.each{|q| submission_questions_hash[q[:id]] = q }
 %>
@@ -123,8 +141,8 @@
 <% if editable %>
   <div class="update_scores_fudge">
     <label for="fudge_points_entry"><%= before_label(:fudge_points, "Fudge Points") %></label>
-    <input type="hidden" name="fudge_points" value="<%= @submission.fudge_points || 0 %>">
-    <input id="fudge_points_entry" type="number" step="any" name="fudge_points" value="<%= (!@submission.fudge_points || @submission.fudge_points == 0 ? '' : @submission.fudge_points) %>" placeholder="--" autocomplete='off' />
+    <input id="fudge_points_input" type="hidden" name="fudge_points" value="<%= @submission.fudge_points || 0 %>">
+    <input id="fudge_points_entry" type="text" value="<%= (!@submission.fudge_points || @submission.fudge_points == 0 ? '' : render_score(@submission.fudge_points)) %>" placeholder="--" autocomplete='off' />
     <%
       fudge_text = begin
         if @submission.quiz_points_possible == @quiz.points_possible || !@submission.quiz_points_possible || !@quiz.points_possible
@@ -137,7 +155,7 @@
             this box.
             TEXT
             :user => @submission.user.name,
-            :difference => @quiz.points_possible - @submission.quiz_points_possible)
+            :difference => render_score(@quiz.points_possible - @submission.quiz_points_possible))
         else
           t('labels.fudge_points_changed_points_quiz', <<-TEXT,
             Since %{user} took this quiz, the number of points possible
@@ -146,7 +164,7 @@
             this box.
             TEXT
             :user => @submission.user.name,
-            :difference => @quiz.points_possible - @submission.quiz_points_possible)
+            :difference => render_score(@quiz.points_possible - @submission.quiz_points_possible))
         end
       end
     %>
@@ -170,12 +188,12 @@
   </div>
   <div class="update_scores_final_score">
     <b><%= before_label(:final_score, "Final Score") %></b>
-      <%= score_out_of_points_possible(@submission.score || 0, @quiz.points_possible || 0, :id => 'after_fudge_points_total', :style => 'font-size: 1.5em; padding-left: 5px') %>
+      <%= score_out_of_points_possible(@submission.score || 0, @quiz.points_possible || 0, :id => 'after_fudge_points_total', :style => "font-size: 1.5em; padding-#{direction('left')}: 5px") %>
   </div>
 <% end %>
 
 <% if !editable %>
-<div class="quiz_score" style="text-align: right; font-size: 1.2em; <%= hidden if @quiz.ungraded? %>">
+<div class="quiz_score" style="text-align: <%= direction('right') %>; font-size: 1.2em; <%= hidden if @quiz.ungraded? %>">
   <% if @quiz.survey? %>
     <%= before_label(:survey_score, "Survey Score") %>
   <% else %>

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,8 +23,8 @@ describe "/quizzes/quizzes/_quiz_edit" do
   before do
     course_with_student
     view_context
-    assigns[:quiz] = @course.quizzes.create!
-    assigns[:js_env] = {quiz_max_combination_count: 200}
+    assign(:quiz, @course.quizzes.create!)
+    assign(:js_env, {quiz_max_combination_count: 200})
   end
 
   it "should render" do
@@ -33,13 +33,13 @@ describe "/quizzes/quizzes/_quiz_edit" do
   end
 
   it 'should include conditional content if configured' do
-    ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
+    allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(true)
     render :partial => "quizzes/quizzes/quiz_edit"
     expect(response.body).to match /conditional_release/
   end
 
   it 'should not include conditional content if not configured' do
-    ConditionalRelease::Service.stubs(:enabled_in_context?).returns(false)
+    allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(false)
     render :partial => "quizzes/quizzes/quiz_edit"
     expect(response.body).not_to match /conditional_release/
   end
@@ -55,13 +55,13 @@ describe "/quizzes/quizzes/_quiz_edit" do
   end
 
   it 'should warn about existing submission data' do
-    assigns[:has_student_submissions] = true
+    assign(:has_student_submissions, true)
     render :partial => "quizzes/quizzes/quiz_edit"
     expect(response.body).to match /student_submissions_warning/
   end
 
   it 'should not warn if no existing data' do
-    assigns[:has_student_submissions] = false
+    assign(:has_student_submissions, false)
     render :partial => "quizzes/quizzes/quiz_edit"
     expect(response.body).not_to match /student_submissions_warning/
   end

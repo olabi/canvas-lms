@@ -1,9 +1,26 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!assignments'
   'jquery'
   'underscore'
-  'compiled/models/AssignmentGroup'
-  'compiled/views/DialogFormView'
+  '../../models/AssignmentGroup'
+  '../DialogFormView'
   'jst/assignments/DeleteGroup'
   'jst/EmptyDialogFormWrapper'
   'jquery.disableWhileLoading'
@@ -12,7 +29,8 @@ define [
   class DeleteGroupView extends DialogFormView
     defaults:
       width: 500
-      height: 275
+      height: 350
+      title: I18n.t('Delete Assignment Group')
 
     els:
       '.assignment_count': '$assignmentCount'
@@ -20,7 +38,6 @@ define [
 
     events: _.extend({}, @::events,
       'click .dialog_closer': 'close'
-      'click .delete_group': 'destroy'
       'change .group_select': 'selectMove'
     )
 
@@ -61,15 +78,20 @@ define [
       id = model.get('id')
       @$groupSelect.find("move_to_ag_#{id}").remove()
 
-    destroy: ->
-      data = @getFormData()
-      if data.action == "move" && data.move_assignments_to
-        @destroyModel(data.move_assignments_to).then =>
-          @close()
+    validateFormData: (data) ->
+      errors = {}
+      if data.action == "move" && !data.move_assignments_to
+        errors.move_assignments_to = [
+          type: 'required'
+          message: I18n.t('You must select an assignment group.')
+        ]
+      errors
 
-      if data.action == "delete"
-        @destroyModel().then =>
-          @close()
+    saveFormData: (data) ->
+      if data.action == "move" && data.move_assignments_to
+        @destroyModel(data.move_assignments_to)
+      else if data.action == "delete"
+        @destroyModel()
 
     destroyModel: (moveTo=null) ->
       @collection = @model.collection

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,6 +23,8 @@ require 'nokogiri'
 describe "External Tools" do
   describe "Assignments" do
     before do
+      allow(BasicLTI::Sourcedid).to receive(:encryption_secret) {'encryption-secret-5T14NjaTbcYjc4'}
+      allow(BasicLTI::Sourcedid).to receive(:signing_secret) {'signing-secret-vp04BNqApwdwUYPUI'}
       course_factory(active_all: true)
       assignment_model(:course => @course, :submission_types => "external_tool", :points_possible => 25)
       @tool = @course.context_external_tools.create!(:shared_secret => 'test_secret', :consumer_key => 'test_key', :name => 'my grade passback test tool', :domain => 'example.com')
@@ -35,7 +37,7 @@ describe "External Tools" do
       student_in_course(:course => @course, :active_all => true)
       user_session(@user)
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
       form = doc.at_css('form#tool_form')
 
@@ -50,16 +52,17 @@ describe "External Tools" do
     end
 
     it "should include outcome service params when viewing as student" do
+      allow_any_instance_of(Account).to receive(:feature_enabled?) { false }
+      allow_any_instance_of(Account).to receive(:feature_enabled?).with(:encrypted_sourcedids).and_return(true)
+      allow(Canvas::Security).to receive(:create_encrypted_jwt) { 'an.encrypted.jwt' }
       student_in_course(:course => @course, :active_all => true)
       user_session(@user)
-      Canvas::Security.stubs(:hmac_sha1).returns('some_sha')
-      payload = [@tool.id, @course.id, @assignment.id, @user.id].join('-')
 
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
 
-      expect(doc.at_css('form#tool_form input#lis_result_sourcedid')['value']).to eq "#{payload}-some_sha"
+      expect(doc.at_css('form#tool_form input#lis_result_sourcedid')['value']).to eq BasicLTI::Sourcedid.new(@tool, @course, @assignment, @user).to_s
       expect(doc.at_css('form#tool_form input#lis_outcome_service_url')['value']).to eq lti_grade_passback_api_url(@tool)
       expect(doc.at_css('form#tool_form input#ext_ims_lis_basic_outcome_url')['value']).to eq blti_legacy_grade_passback_api_url(@tool)
     end
@@ -68,7 +71,7 @@ describe "External Tools" do
       @course.enroll_teacher(user_factory(:active_all => true))
       user_session(@user)
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
       expect(doc.at_css('form#tool_form input#lis_result_sourcedid')).to be_nil
       expect(doc.at_css('form#tool_form input#lis_outcome_service_url')).not_to be_nil
@@ -87,7 +90,7 @@ describe "External Tools" do
       account.save!
 
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
       expect(doc.at_css('form#tool_form input#custom_time_zone')['value']).to eq "America/Juneau"
 
@@ -95,7 +98,7 @@ describe "External Tools" do
       @user.save!
 
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
       expect(doc.at_css('form#tool_form input#custom_time_zone')['value']).to eq "Pacific/Honolulu"
     end
@@ -109,31 +112,31 @@ describe "External Tools" do
       expect(response).to redirect_to(course_url(@course))
       expect(flash[:error]).to be_present
     end
-    
+
     it "should render inline external tool links with a full return url" do
       student_in_course(:active_all => true)
       user_session(@user)
       get "/courses/#{@course.id}/external_tools/retrieve?url=#{CGI.escape(@tag.url)}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
       expect(doc.at_css('#tool_form')).not_to be_nil
       expect(doc.at_css("input[name='launch_presentation_return_url']")['value']).to match(/^http/)
     end
-    
+
     it "should render user navigation tools with a full return url" do
       tool = @course.root_account.context_external_tools.build(:shared_secret => 'test_secret', :consumer_key => 'test_key', :name => 'my grade passback test tool', :domain => 'example.com', :privacy_level => 'public')
       tool.user_navigation = {:url => "http://www.example.com", :text => "Example URL"}
       tool.save!
-      
+
       student_in_course(:active_all => true)
       user_session(@user)
       get "/users/#{@user.id}/external_tools/#{tool.id}"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
       expect(doc.at_css('#tool_form')).not_to be_nil
       expect(doc.at_css("input[name='launch_presentation_return_url']")['value']).to match(/^http/)
     end
-    
+
   end
 
   it "should highlight the navigation tab when using an external tool" do
@@ -144,26 +147,25 @@ describe "External Tools" do
     @tool.save!
 
     get "/courses/#{@course.id}/external_tools/#{@tool.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
     doc = Nokogiri::HTML.parse(response.body)
     tab = doc.at_css("a.#{@tool.asset_string}")
     expect(tab).not_to be_nil
     expect(tab['class'].split).to include("active")
   end
 
-  it "should highlight the navigation tab when using an external tool" do
+  it "should prevent access for unverified users if account requires it" do
     course_with_teacher_logged_in(:active_all => true)
 
     @tool = @course.context_external_tools.create!(:shared_secret => 'test_secret', :consumer_key => 'test_key', :name => 'my grade passback test tool', :domain => 'example.com')
     @tool.course_navigation = {:url => "http://www.example.com", :text => "Example URL"}
     @tool.save!
 
+    Account.default.tap{|a| a.settings[:require_confirmed_email] = true; a.save!}
     get "/courses/#{@course.id}/external_tools/#{@tool.id}"
-    expect(response).to be_success
-    doc = Nokogiri::HTML.parse(response.body)
-    tab = doc.at_css("a.#{@tool.asset_string}")
-    expect(tab).not_to be_nil
-    expect(tab['class'].split).to include("active")
+    expect(response).to be_redirect
+    expect(response.location).to eq root_url
+    expect(flash[:warning]).to include("Complete registration")
   end
 
   context 'global navigation' do
@@ -180,7 +182,7 @@ describe "External Tools" do
     it "should show the admin level global navigation menu items to teachers" do
       course_with_teacher_logged_in(:account => @account, :active_all => true)
       get "/courses"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
 
       menu_link1 = doc.at_css("##{@admin_tool.asset_string}_menu_item a")
@@ -197,7 +199,7 @@ describe "External Tools" do
     it "should only show the member level global navigation menu items to students" do
       course_with_student_logged_in(:account => @account, :active_all => true)
       get "/courses"
-      expect(response).to be_success
+      expect(response).to be_successful
       doc = Nokogiri::HTML.parse(response.body)
 
       menu_link1 = doc.at_css("##{@admin_tool.asset_string}_menu_item a")

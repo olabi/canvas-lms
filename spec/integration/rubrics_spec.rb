@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,9 +30,9 @@ describe "rubrics" do
 
     get "/courses/#{@course.id}/rubrics/#{@rubric.id}"
 
-    expect(response).to be_success
+    expect(response).to be_successful
     page = Nokogiri::HTML(response.body)
-    expect(page.css('#rubrics .rubric_table .criterion:nth-child(1) .links')).to be_empty
-    expect(page.css('#rubrics .rubric_table .criterion:nth-child(2) .links')).not_to be_empty
+    expect(page.css('#rubrics .rubric_table .criterion:nth-child(1) .edit_criterion_link')).to be_empty
+    expect(page.css('#rubrics .rubric_table .criterion:nth-child(2) .edit_criterion_link')).not_to be_empty
   end
 end

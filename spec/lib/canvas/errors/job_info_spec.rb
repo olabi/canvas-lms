@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
 require_dependency "canvas/errors/job_info"
 
@@ -5,7 +22,7 @@ module Canvas
   class Errors
     describe JobInfo do
       let(:job) do
-        stub(
+        double(
           id: 42,
           source: "controller:discussion_topics_api,action:add_entry,"\
                   "hostname:app010001063068-vpc.us-east-1.canvas.insops.net,"\
@@ -16,11 +33,12 @@ module Canvas
           handler: 'Something',
           run_at: Time.zone.now,
           max_attempts: 1,
-          tag: "TAG"
+          tag: "TAG",
+          current_shard: double(id: 1),
         )
       end
 
-      let(:worker){ stub(name: 'workername') }
+      let(:worker){ double(name: 'workername') }
 
       let(:info){ described_class.new(job, worker) }
 
@@ -53,7 +71,6 @@ module Canvas
             to match(/c5ec694d-1c0d-4744-a97a-cae44c477837/)
         end
       end
-
     end
   end
 end

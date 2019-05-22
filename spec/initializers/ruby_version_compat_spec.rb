@@ -1,4 +1,20 @@
 # encoding: utf-8
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path('../spec_helper', File.dirname( __FILE__ ))
 
@@ -34,11 +50,11 @@ describe 'ruby_version_compat' do
 
   describe "force_utf8_params" do
     it "should allow null filenames through" do
-      testfile = fixture_file_upload("scribd_docs/txt.txt", "text/plain", true)
+      testfile = fixture_file_upload("docs/txt.txt", "text/plain", true)
       testfile.instance_variable_set(:@original_filename, nil)
       controller = ApplicationController.new
-      controller.stubs(:params).returns({ :upload => { :file1 => testfile } })
-      controller.stubs(:request).returns(mock(:path => "/upload"))
+      allow(controller).to receive(:params).and_return({ :upload => { :file1 => testfile } })
+      allow(controller).to receive(:request).and_return(double(:path => "/upload"))
       expect { controller.force_utf8_params() }.to_not raise_error
       expect(testfile.original_filename).to be_nil
     end

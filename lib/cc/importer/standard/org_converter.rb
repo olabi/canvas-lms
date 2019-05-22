@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -133,6 +133,12 @@ module CC::Importer::Standard
                 a[:title] ||= item[:linked_resource_title]
               end
               item[:linked_resource_type] = "ASSIGNMENT"
+            elsif @convert_html_to_pages &&
+                (pages = @course[:wikis].select{|p| p[:migration_id] == item[:linked_resource_id]}.presence)
+              pages.each do |p|
+                p[:title] ||= item[:linked_resource_title]
+              end
+              item[:linked_resource_type] = "WIKIPAGE"
             else
               item[:linked_resource_type] = "FILE_TYPE"
             end
@@ -142,7 +148,6 @@ module CC::Importer::Standard
           item[:workflow_state] = 'unpublished'
         end
       end
-
       item
     end
 

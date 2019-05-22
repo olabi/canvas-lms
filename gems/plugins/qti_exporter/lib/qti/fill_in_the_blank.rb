@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Qti
 class FillInTheBlank < AssessmentItemConverter
 
@@ -69,8 +86,8 @@ class FillInTheBlank < AssessmentItemConverter
       ci.search('simpleChoice').each do |choice|
         answer = {}
         answer[:weight] = @type == 'multiple_dropdowns_question' ? 0 : 100
-        answer[:id] = unique_local_id
         answer[:migration_id] = choice['identifier']
+        answer[:id] = get_or_generate_answer_id(answer[:migration_id])
         answer[:text] = choice.text.strip
         answer[:blank_id] = blank_id
         @question[:answers] << answer
@@ -93,39 +110,42 @@ class FillInTheBlank < AssessmentItemConverter
   def process_inline
     create_xml_doc
     answer_hash = {}
-    body = recursively_get_inline_body_and_answers(@doc.at_css('itemBody'), "", answer_hash)
-    @question[:question_text] = body
+    item_body_node = @doc.at_css('itemBody').dup
+    recursively_clean_inline_body_and_get_answers(item_body_node, answer_hash)
+    @question[:question_text] = sanitize_html!(item_body_node)
 
     @doc.css('responseDeclaration').each do |res_node|
       res_id = res_node['identifier']
       res_node.css('correctResponse value').each do |correct_id|
-        if answer = answer_hash[correct_id.text]
+        if answer = (answer_hash[res_id] && answer_hash[res_id][correct_id.text])
           answer[:weight] = AssessmentItemConverter::DEFAULT_CORRECT_WEIGHT
         end
       end
     end
   end
 
-  def recursively_get_inline_body_and_answers(node, body, answer_hash)
+  def recursively_clean_inline_body_and_get_answers(node, answer_hash)
     node.children.each do |child|
       if child.name == 'inlineChoiceInteraction'
-        body += "[#{child['responseIdentifier']}]"
+        response_id = child['responseIdentifier']
+        answer_hash[response_id] = {}
         child.search('inlineChoice').each do |choice|
           answer = {}
+          choice_id = choice['identifier']
           answer[:id] = unique_local_id
-          answer[:migration_id] = choice['identifier']
+          answer[:migration_id] = choice_id
           answer[:text] = choice.text.strip
-          answer[:blank_id] = child['responseIdentifier']
+          answer[:blank_id] = response_id
           @question[:answers] << answer
-          answer_hash[choice['identifier']] = answer
+          answer_hash[response_id][choice_id] = answer
         end
+        child.replace(Nokogiri::XML::Text.new("[#{response_id}]", @doc))
       elsif child.name == 'text'
-        body += child.text.gsub(']]>', '').gsub('<div></div>', '').strip
+        child.content = child.text.gsub(']]>', '').gsub('<div></div>', '')
       else
-        body += recursively_get_inline_body_and_answers(child, body, answer_hash)
+        recursively_clean_inline_body_and_get_answers(child, answer_hash)
       end
     end
-    body
   end
 
   def process_d2l

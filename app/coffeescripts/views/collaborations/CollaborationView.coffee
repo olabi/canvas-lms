@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,10 +21,11 @@ define [
   'jquery'
   'underscore'
   'Backbone'
-  'compiled/views/collaborations/CollaboratorPickerView'
+  './CollaboratorPickerView'
   'jst/collaborations/edit'
-  'jst/collaborations/EditIframe'
-], (I18n, $, {extend}, {View}, CollaboratorPickerView, editForm, editIframe) ->
+  'jst/collaborations/EditIframe',
+  'jsx/external_apps/lib/iframeAllowances'
+], (I18n, $, {extend}, {View}, CollaboratorPickerView, editForm, editIframe, iframeAllowances) ->
 
   class CollaborationView extends View
     events:
@@ -33,10 +34,22 @@ define [
       'click .delete_collaboration_link': 'onDelete'
       'keyclick .delete_collaboration_link': 'onDelete'
       'click .cancel_button': 'onCloseForm'
+      'focus .before_external_content_info_alert': 'handleAlertFocus'
+      'focus .after_external_content_info_alert': 'handleAlertFocus'
+      'blur .before_external_content_info_alert': 'handleAlertBlur'
+      'blur .after_external_content_info_alert': 'handleAlertBlur'
 
     initialize: ->
       super
       @id = @$el.data('id')
+
+    handleAlertFocus: (e) ->
+      $(e.target).removeClass('screenreader-only')
+      @$el.find('iframe').addClass('info_alert_outline')
+
+    handleAlertBlur: (e) =>
+      $(e.target).addClass('screenreader-only')
+      @$el.find('iframe').removeClass('info_alert_outline')
 
     # Internal: Create collaboration edit form HTML.
     #
@@ -55,7 +68,11 @@ define [
           @onCloseForm(e)
 
     iframeTemplate: ({url}) ->
-      $iframe = $(editIframe({id: @id, url: url}))
+      $iframe = $(editIframe({
+        id: @id,
+        url: url,
+        allowances: iframeAllowances()
+      }))
       $iframe.on 'keydown', (e) =>
         if e.which == 27
           e.preventDefault()

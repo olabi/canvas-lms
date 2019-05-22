@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path('../../../spec_helper', File.dirname(__FILE__))
 require_dependency "canvas/oauth/provider"
 
@@ -6,7 +23,7 @@ module Canvas::Oauth
     let(:provider) { Provider.new('123') }
 
     def stub_dev_key(key)
-      DeveloperKey.stubs(:where).returns(stub(first: key))
+      allow(DeveloperKey).to receive(:where).and_return(double(first: key))
     end
 
     describe 'initialization' do
@@ -27,12 +44,12 @@ module Canvas::Oauth
     describe '#has_valid_key?' do
 
       it 'is true when there is a key and the key is active' do
-        stub_dev_key(stub(active?: true))
+        stub_dev_key(double(active?: true))
         expect(provider.has_valid_key?).to be_truthy
       end
 
       it 'is false when there is a key that is not active' do
-        stub_dev_key(stub(active?: false))
+        stub_dev_key(double(active?: false))
         expect(provider.has_valid_key?).to be_falsey
       end
 
@@ -63,19 +80,19 @@ module Canvas::Oauth
       end
 
       it 'is true when the redirect url is kosher for the developerKey' do
-        stub_dev_key(stub(:redirect_domain_matches? => true))
+        stub_dev_key(double(:redirect_domain_matches? => true))
         expect(provider.has_valid_redirect?).to be_truthy
       end
 
       it 'is false otherwise' do
-        stub_dev_key(stub(:redirect_domain_matches? => false))
+        stub_dev_key(double(:redirect_domain_matches? => false))
         expect(provider.has_valid_redirect?).to be_falsey
       end
     end
 
     describe '#icon_url' do
       it 'delegates to the key' do
-        stub_dev_key(stub(:icon_url => 'unique_url'))
+        stub_dev_key(double(:icon_url => 'unique_url'))
         expect(provider.icon_url).to eq 'unique_url'
       end
     end
@@ -86,7 +103,7 @@ module Canvas::Oauth
       end
 
       it 'delegates to the class level finder on DeveloperKey' do
-        key = stub
+        key = double
         stub_dev_key(key)
         expect(provider.key).to eq key
       end
@@ -97,24 +114,24 @@ module Canvas::Oauth
       let(:user) {User.create!}
 
       it 'finds a pre existing token with the same scope' do
-        user.access_tokens.create!(:developer_key => developer_key, :scopes => ["#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"], :remember_access => true)
+        user.access_tokens.create!(:developer_key => developer_key, :scopes => ["#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"], :remember_access => true)
         expect(Provider.new(developer_key.id, "", ['userinfo']).authorized_token?(user)).to eq true
       end
 
       it 'ignores tokens unless access is remembered' do
-        user.access_tokens.create!(:developer_key => developer_key, :scopes => ["#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"])
+        user.access_tokens.create!(:developer_key => developer_key, :scopes => ["#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"])
         expect(Provider.new(developer_key.id, "", ['userinfo']).authorized_token?(user)).to eq false
       end
 
       it 'ignores tokens for out of band requests ' do
-        user.access_tokens.create!(:developer_key => developer_key, :scopes => ["#{AccessToken::OAUTH2_SCOPE_NAMESPACE}userinfo"], :remember_access => true)
+        user.access_tokens.create!(:developer_key => developer_key, :scopes => ["#{TokenScopes::OAUTH2_SCOPE_NAMESPACE}userinfo"], :remember_access => true)
         expect(Provider.new(developer_key.id, Canvas::Oauth::Provider::OAUTH2_OOB_URI, ['userinfo']).authorized_token?(user)).to eq false
       end
     end
 
     describe '#app_name' do
       let(:key_attrs) { {:name => 'some app', :user_name => 'some user', :email => 'some email'} }
-      let(:key) { stub(key_attrs) }
+      let(:key) { double(key_attrs) }
 
       it 'prefers the key name' do
         stub_dev_key(key)
@@ -145,7 +162,7 @@ module Canvas::Oauth
 
     describe '#session_hash' do
 
-      before { stub_dev_key(stub(:id => 123)) }
+      before { stub_dev_key(double(:id => 123)) }
 
       it 'uses the key id for a client id' do
         expect(provider.session_hash[:client_id]).to eq 123
@@ -159,6 +176,24 @@ module Canvas::Oauth
       it 'passes the scope through' do
         provider = Provider.new('123', 'some uri', 'userinfo,full_access')
         expect(provider.session_hash[:scopes]).to eq 'userinfo,full_access'
+      end
+    end
+
+    describe '#valid_scopes?' do
+      let(:developer_key) { DeveloperKey.create! scopes: [TokenScopes::USER_INFO_SCOPE[:scope]] }
+      let(:scopes) { [TokenScopes::USER_INFO_SCOPE[:scope]] }
+      let(:provider) { Provider.new(developer_key.id, 'some_uri', scopes)}
+
+      it 'returns true if scopes requested are included on key' do
+        expect(provider.valid_scopes?).to eq(true)
+      end
+
+      context 'with invalid scopes' do
+        let(:scopes) { [TokenScopes::USER_INFO_SCOPE[:scope], 'otherscope'] }
+
+        it 'returns false' do
+          expect(provider.valid_scopes?).to eq(false)
+        end
       end
     end
   end

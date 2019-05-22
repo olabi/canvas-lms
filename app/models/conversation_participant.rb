@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,9 +35,9 @@ class ConversationParticipant < ActiveRecord::Base
   scope :archived, -> { where(:workflow_state => 'archived') }
   scope :starred, -> { where(:label => 'starred') }
   scope :sent, -> { where("visible_last_authored_at IS NOT NULL").order("visible_last_authored_at DESC, conversation_id DESC") }
-  scope :for_masquerading_user, lambda { |user|
+  scope :for_masquerading_user, lambda { |masquerading_user, user_being_viewed|
     # site admins can see everything
-    return all if user.account_users.map(&:account_id).include?(Account.site_admin.id)
+    next all if masquerading_user.account_users.active.map(&:account_id).include?(Account.site_admin.id)
 
     # we need to ensure that the user can access *all* of each conversation's
     # accounts (and that each conversation has at least one account). so given
@@ -54,7 +54,11 @@ class ConversationParticipant < ActiveRecord::Base
     # we're also counting on conversations being in the join
 
     own_root_account_ids = Shard.birth.activate do
-      accts = user.associated_root_accounts.select{ |a| a.grants_right?(user, :become_user) }
+      # check the target user's accounts - the masquerader may still have rights even if they're not directly associated
+      accts = (
+          masquerading_user.associated_root_accounts.shard(masquerading_user.in_region_associated_shards).to_a +
+          user_being_viewed.associated_root_accounts.shard(user_being_viewed.in_region_associated_shards).to_a
+        ).uniq.select{ |a| a.grants_right?(masquerading_user, :become_user) }
       # we really shouldn't need the global id here, but we've got a lot of participants with
       # global id's in their root_account_ids for some reason
       accts.map(&:id) + accts.map(&:global_id)
@@ -147,7 +151,7 @@ class ConversationParticipant < ActiveRecord::Base
           conversation_ids = ConversationParticipant.where(shard_conditions).pluck(:conversation_id).map do |id|
             Shard.relative_id_for(id, Shard.current, scope_shard)
           end
-          [sanitize_sql(:conversation_id => conversation_ids)]
+          ["conversation_id IN (#{conversation_ids.join(',')})"]
         end
       end
     end
@@ -211,21 +215,11 @@ class ConversationParticipant < ActiveRecord::Base
 
   def all_messages
     self.conversation.shard.activate do
-      if self.conversation.shard == self.shard
-        # use a slightly more forgiving backcompat query (since the migration may not have
-        # fully filled in user_id yet)
-        ConversationMessage.shard(self.conversation.shard).
-          select("conversation_messages.*, conversation_message_participants.tags").
-          joins(:conversation_message_participants).
-          where("conversation_id=? AND (user_id=? OR (conversation_participant_id=? AND user_id IS NULL))", self.conversation_id, self.user_id, self).
-          order("created_at DESC, id DESC")
-      else
-        ConversationMessage.shard(self.conversation.shard).
-          select("conversation_messages.*, conversation_message_participants.tags").
-          joins(:conversation_message_participants).
-          where("conversation_id=? AND user_id=?", self.conversation_id, self.user_id).
-          order("created_at DESC, id DESC")
-      end
+      ConversationMessage.shard(self.conversation.shard).
+        select("conversation_messages.*, conversation_message_participants.tags").
+        joins(:conversation_message_participants).
+        where("conversation_id=? AND user_id=?", self.conversation_id, self.user_id).
+        order("created_at DESC, id DESC")
     end
   end
 
@@ -235,16 +229,17 @@ class ConversationParticipant < ActiveRecord::Base
 
   def participants(options = {})
     participants = shard.activate do
-      include_indirect_participants = options[:include_indirect_participants] || false
-      Rails.cache.fetch([conversation, user, 'participants', include_indirect_participants].cache_key) do
-        participants = conversation.participants
-        if include_indirect_participants
+      key = [conversation, 'participants'].cache_key
+      participants = Rails.cache.fetch(key) { conversation.participants }
+      if options[:include_indirect_participants]
+        indirect_key = [conversation, user, 'indirect_participants'].cache_key
+        participants += Rails.cache.fetch(indirect_key) do
           user_ids = messages.map(&:all_forwarded_messages).flatten.map(&:author_id)
           user_ids -= participants.map(&:id)
-          participants += AddressBook.available(user_ids)
+          AddressBook.available(user_ids)
         end
-        participants
       end
+      participants
     end
 
     if options[:include_participant_contexts]
@@ -357,6 +352,8 @@ class ConversationParticipant < ActiveRecord::Base
       update_cached_data
       save
     end
+    # update the stream item data but leave the instances alone
+    StreamItem.send_later_if_production_enqueue_args(:generate_or_update, {:priority => 25}, self.conversation)
   end
 
   def update_attributes(hash)
@@ -481,19 +478,19 @@ class ConversationParticipant < ActiveRecord::Base
     conversation.shard.activate do
       self.class.unscoped do
         old_shard = self.user.shard
-        conversation.conversation_messages.where(:author_id => user_id).update_all(:author_id => new_user)
+        conversation.conversation_messages.where(:author_id => user_id).update_all(:author_id => new_user.id)
         if existing = conversation.conversation_participants.where(user_id: new_user).first
           existing.update_attribute(:workflow_state, workflow_state) if unread? || existing.archived?
           destroy
         else
           ConversationMessageParticipant.joins(:conversation_message).
               where(:conversation_messages => { :conversation_id => self.conversation_id }, :user_id => self.user_id).
-              update_all(:user_id => new_user)
+              update_all(:user_id => new_user.id)
           update_attribute :user, new_user
           existing = self
         end
         # replicate ConversationParticipant record to the new user's shard
-        if old_shard != new_user.shard && new_user.shard != conversation.shard
+        if old_shard != new_user.shard && new_user.shard != conversation.shard && !new_user.all_conversations.where(:conversation_id => conversation).exists?
           new_cp = existing.clone
           new_cp.shard = new_user.shard
           new_cp.save!
@@ -523,7 +520,8 @@ class ConversationParticipant < ActiveRecord::Base
   end
 
   def self.conversation_ids
-    raise "conversation_ids needs to be scoped to a user" unless all.where_values.any? do |v|
+    where_predicates = all.where_clause.instance_variable_get(:@predicates)
+    raise "conversation_ids needs to be scoped to a user" unless where_predicates.any? do |v|
       if v.is_a?(Arel::Nodes::Binary) && v.left.is_a?(Arel::Attributes::Attribute)
         v.left.name == 'user_id'
       else

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -131,7 +131,7 @@ module CC::Importer
     end
 
     def check_for_unescaped_url(url)
-      if (url =~ /(.*[^\=]*\?*\=)[^\&]*\=/)
+      if (url =~ /(.*[^\=]*\?*\=)[^\&;]*\=/)
         raise CCImportError.new(I18n.t(:invalid_url_in_xml, "Invalid url in xml. Ampersands must be escaped."))
       end
     end

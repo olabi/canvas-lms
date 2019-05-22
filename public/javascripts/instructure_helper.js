@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,17 +12,14 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 //create a global object "INST" that we will have be Instructure's namespace.
-define([
-  'INST' /* INST */,
-  'i18n!instructure',
-  'jquery' /* $ */,
-  'jqueryui/dialog'
-], function(INST, I18n, $) {
+import INST from './INST'
+import $ from 'jquery'
+import 'jqueryui/dialog'
 
   function getTld(hostname){
     hostname = (hostname || "").split(":")[0];
@@ -71,5 +68,3 @@ define([
   window.jsonFlickrApi = function(data) {
     $("#instructure_image_search").triggerHandler('search_results', data);
   };
-
-});
